@@ -164,6 +164,13 @@ Recommended evaluation:
 ./scripts/run_remote_eval_policy.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-Polish-v0 32 400 42 '.*phase1_polish.*' 'model_.*.pt'
 ```
 
+If you want to score every saved checkpoint in the polish run instead of only the latest one:
+
+```bash
+./scripts/run_remote_eval_checkpoint_sweep.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-Polish-v0 32 400 42 '.*phase1_polish.*' 'model_.*\.pt' 0
+python3 scripts/summarize_eval_sweep.py --checkpoint-substring phase1_polish
+```
+
 Success criterion for this stage:
 
 - rotation error drops without materially losing the lateral and axial gains from the base checkpoint

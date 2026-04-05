@@ -112,6 +112,8 @@ Once the runtime is bootstrapped, the shortest useful commands are:
   - `./scripts/run_remote_train_ppo.sh`
 - Fixed-step policy evaluation with JSON summary export:
   - `./scripts/run_remote_eval_policy.sh`
+- Fixed-step checkpoint sweep over a matched run:
+  - `./scripts/run_remote_eval_checkpoint_sweep.sh`
 - One-shot policy video recording:
   - `./scripts/run_remote_record_video.sh`
 - Capture a runtime manifest for reproducibility:
@@ -135,6 +137,11 @@ Default target is `isaac-l40s`. Optional positional arguments are:
 Example:
 
 - `./scripts/run_remote_random_agent.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-Play-v0 1 20`
+- `./scripts/run_remote_eval_checkpoint_sweep.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-Polish-v0 32 400 42 '.*phase1_polish.*' 'model_.*\.pt' 0`
+
+After pulling artifacts, summarize a sweep locally with:
+
+- `python3 scripts/summarize_eval_sweep.py --checkpoint-substring phase1_polish`
 
 ## Current remote runtime decision
 
