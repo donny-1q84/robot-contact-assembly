@@ -18,6 +18,9 @@ def main() -> None:
             f"Isaac Lab play.py not found at {ISAACLAB_PLAY_SCRIPT}. "
             "Run the remote Isaac Lab runtime installation before playback."
         )
+    isaaclab_script_dir = str(ISAACLAB_PLAY_SCRIPT.parent)
+    if isaaclab_script_dir not in sys.path:
+        sys.path.insert(0, isaaclab_script_dir)
     sys.argv[0] = str(ISAACLAB_PLAY_SCRIPT)
     runpy.run_path(str(ISAACLAB_PLAY_SCRIPT), run_name="__main__")
 

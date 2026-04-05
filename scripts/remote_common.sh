@@ -10,7 +10,7 @@ rca_init_remote_vars() {
   RCA_REMOTE_COMPOSE_ROOT="${3:-${RCA_DEFAULT_REMOTE_COMPOSE_ROOT}}"
   RCA_REMOTE_REPO_DIR="${RCA_REMOTE_ROOT}/repo/robot-contact-assembly"
   RCA_REMOTE_OVERRIDE_FILE="${RCA_REMOTE_REPO_DIR}/docker/isaac-compose.project.yml"
-  RCA_COMPOSE_BASE="docker compose -p isim -f tools/docker/docker-compose.yml -f ${RCA_REMOTE_OVERRIDE_FILE}"
+  RCA_COMPOSE_BASE="docker compose -p isim -f ${RCA_REMOTE_COMPOSE_ROOT}/tools/docker/docker-compose.yml -f ${RCA_REMOTE_COMPOSE_ROOT}/tools/docker/docker-compose.override.yml -f ${RCA_REMOTE_OVERRIDE_FILE}"
 }
 
 rca_brev_exec() {

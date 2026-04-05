@@ -19,6 +19,7 @@ REMOTE_EVAL_DIR="/workspace/artifacts/evaluations/policy/${TIMESTAMP_UTC}"
 REMOTE_LOG_PATH="${REMOTE_EVAL_DIR}/eval.log"
 REMOTE_SUMMARY_PATH="${REMOTE_EVAL_DIR}/summary.json"
 REMOTE_COMMAND_PATH="${REMOTE_EVAL_DIR}/eval_command.txt"
+REMOTE_HYDRA_DIR="/workspace/artifacts/hydra/eval_${TIMESTAMP_UTC}"
 
 echo "[eval-policy] env=${RCA_ENV_NAME} task=${TASK_NAME} num_envs=${NUM_ENVS} steps=${STEPS} seed=${SEED}"
 echo "[eval-policy] load_run=${LOAD_RUN} checkpoint=${CHECKPOINT}"
@@ -26,13 +27,13 @@ if [[ -n "${EXTRA_EVAL_ARGS}" ]]; then
   echo "[eval-policy] extra_eval_args=${EXTRA_EVAL_ARGS}"
 fi
 
-rca_remote_container_exec "mkdir -p '${REMOTE_EVAL_DIR}'"
+rca_remote_container_exec "mkdir -p '${REMOTE_EVAL_DIR}' '${REMOTE_HYDRA_DIR}'"
 rca_remote_container_exec "cat > '${REMOTE_COMMAND_PATH}' <<'EOF'
-/isaac-sim/python.sh scripts/evaluate_rsl_rl_checkpoint.py --task ${TASK_NAME} --headless --num_envs ${NUM_ENVS} --steps ${STEPS} --seed ${SEED} --load_run '${LOAD_RUN}' --checkpoint '${CHECKPOINT}' --summary-json '${REMOTE_SUMMARY_PATH}' ${EXTRA_EVAL_ARGS}
+/isaac-sim/python.sh scripts/evaluate_rsl_rl_checkpoint.py --task ${TASK_NAME} --headless --num_envs ${NUM_ENVS} --steps ${STEPS} --seed ${SEED} --load_run '${LOAD_RUN}' --checkpoint '${CHECKPOINT}' --summary-json '${REMOTE_SUMMARY_PATH}' hydra.run.dir=${REMOTE_HYDRA_DIR} hydra.output_subdir=null ${EXTRA_EVAL_ARGS}
 EOF"
 
 set +e
-rca_remote_repo_exec "set -o pipefail && /isaac-sim/python.sh scripts/evaluate_rsl_rl_checkpoint.py --task ${TASK_NAME} --headless --num_envs ${NUM_ENVS} --steps ${STEPS} --seed ${SEED} --load_run '${LOAD_RUN}' --checkpoint '${CHECKPOINT}' --summary-json '${REMOTE_SUMMARY_PATH}' ${EXTRA_EVAL_ARGS} 2>&1 | tee '${REMOTE_LOG_PATH}'"
+rca_remote_repo_exec "set -o pipefail && /isaac-sim/python.sh scripts/evaluate_rsl_rl_checkpoint.py --task ${TASK_NAME} --headless --num_envs ${NUM_ENVS} --steps ${STEPS} --seed ${SEED} --load_run '${LOAD_RUN}' --checkpoint '${CHECKPOINT}' --summary-json '${REMOTE_SUMMARY_PATH}' hydra.run.dir=${REMOTE_HYDRA_DIR} hydra.output_subdir=null ${EXTRA_EVAL_ARGS} 2>&1 | tee '${REMOTE_LOG_PATH}'"
 status=$?
 set -e
 if [[ ${status} -ne 0 ]]; then

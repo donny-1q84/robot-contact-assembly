@@ -19,6 +19,7 @@ REMOTE_SESSION_DIR="/workspace/artifacts/train_runs/${TIMESTAMP_UTC}_${RUN_NAME}
 REMOTE_LOG_PATH="${REMOTE_SESSION_DIR}/train.log"
 REMOTE_METADATA_PATH="${REMOTE_SESSION_DIR}/train_metadata.env"
 REMOTE_COMMAND_PATH="${REMOTE_SESSION_DIR}/train_command.txt"
+REMOTE_HYDRA_DIR="/workspace/artifacts/hydra/${TIMESTAMP_UTC}_${RUN_NAME}"
 
 echo "[train-ppo] env=${RCA_ENV_NAME} task=${TASK_NAME} num_envs=${NUM_ENVS} max_iterations=${MAX_ITERATIONS} seed=${SEED}"
 echo "[train-ppo] run_name=${RUN_NAME} experiment_name=${EXPERIMENT_NAME}"
@@ -26,10 +27,11 @@ if [[ -n "${EXTRA_TRAIN_ARGS}" ]]; then
   echo "[train-ppo] extra_train_args=${EXTRA_TRAIN_ARGS}"
 fi
 
-rca_remote_container_exec "mkdir -p '${REMOTE_SESSION_DIR}'"
+rca_remote_container_exec "mkdir -p '${REMOTE_SESSION_DIR}' '${REMOTE_HYDRA_DIR}'"
+rca_remote_host_exec "mkdir -p '${RCA_REMOTE_REPO_DIR}/logs/rsl_rl' && chmod -R a+rwx '${RCA_REMOTE_REPO_DIR}/logs'"
 
 set +e
-rca_remote_repo_exec "set -o pipefail && /isaac-sim/python.sh scripts/train_rsl_rl.py --task ${TASK_NAME} --headless --num_envs ${NUM_ENVS} --seed ${SEED} --max_iterations ${MAX_ITERATIONS} --run_name ${RUN_NAME} ${EXTRA_TRAIN_ARGS} 2>&1 | tee '${REMOTE_LOG_PATH}'"
+rca_remote_repo_exec "set -o pipefail && /isaac-sim/python.sh scripts/train_rsl_rl.py --task ${TASK_NAME} --headless --num_envs ${NUM_ENVS} --seed ${SEED} --max_iterations ${MAX_ITERATIONS} --run_name ${RUN_NAME} hydra.run.dir=${REMOTE_HYDRA_DIR} hydra.output_subdir=null ${EXTRA_TRAIN_ARGS} 2>&1 | tee '${REMOTE_LOG_PATH}'"
 status=$?
 set -e
 if [[ ${status} -ne 0 ]]; then
@@ -41,9 +43,9 @@ fi
 rca_remote_container_exec "
 set -euo pipefail
 cat > '${REMOTE_COMMAND_PATH}' <<'EOF'
-/isaac-sim/python.sh scripts/train_rsl_rl.py --task ${TASK_NAME} --headless --num_envs ${NUM_ENVS} --seed ${SEED} --max_iterations ${MAX_ITERATIONS} --run_name ${RUN_NAME} ${EXTRA_TRAIN_ARGS}
+/isaac-sim/python.sh scripts/train_rsl_rl.py --task ${TASK_NAME} --headless --num_envs ${NUM_ENVS} --seed ${SEED} --max_iterations ${MAX_ITERATIONS} --run_name ${RUN_NAME} hydra.run.dir=${REMOTE_HYDRA_DIR} hydra.output_subdir=null ${EXTRA_TRAIN_ARGS}
 EOF
-LOG_ROOT=\"/workspace/IsaacLab/logs/rsl_rl/${EXPERIMENT_NAME}\"
+LOG_ROOT=\"/workspace/robot-contact-assembly/logs/rsl_rl/${EXPERIMENT_NAME}\"
 LATEST_RUN=\"\$(find \"\${LOG_ROOT}\" -mindepth 1 -maxdepth 1 -type d -name \"*${RUN_NAME}*\" | sort | tail -n 1 || true)\"
 LATEST_CHECKPOINT=\"\"
 if [[ -n \"\${LATEST_RUN}\" ]]; then
@@ -56,6 +58,7 @@ fi
   echo \"seed=${SEED}\"
   echo \"num_envs=${NUM_ENVS}\"
   echo \"max_iterations=${MAX_ITERATIONS}\"
+  echo \"hydra_run_dir=${REMOTE_HYDRA_DIR}\"
   echo \"log_root=\${LOG_ROOT}\"
   echo \"latest_run=\${LATEST_RUN}\"
   echo \"latest_checkpoint=\${LATEST_CHECKPOINT}\"

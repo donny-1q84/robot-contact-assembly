@@ -18,6 +18,9 @@ def main() -> None:
             f"Isaac Lab train.py not found at {ISAACLAB_TRAIN_SCRIPT}. "
             "Run the remote Isaac Lab runtime installation before training."
         )
+    isaaclab_script_dir = str(ISAACLAB_TRAIN_SCRIPT.parent)
+    if isaaclab_script_dir not in sys.path:
+        sys.path.insert(0, isaaclab_script_dir)
     sys.argv[0] = str(ISAACLAB_TRAIN_SCRIPT)
     runpy.run_path(str(ISAACLAB_TRAIN_SCRIPT), run_name="__main__")
 
