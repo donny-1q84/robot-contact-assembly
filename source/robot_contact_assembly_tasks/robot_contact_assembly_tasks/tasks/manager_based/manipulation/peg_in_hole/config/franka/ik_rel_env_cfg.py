@@ -33,12 +33,15 @@ class FrankaPegInHoleEnvCfg(PegInHoleEnvCfg):
             body_offset=DifferentialInverseKinematicsActionCfg.OffsetCfg(pos=PEG_TIP_BODY_OFFSET_POS),
         )
 
+        # Keep a single socket target for the whole episode; resampling mid-episode makes the
+        # insertion proxy chase a moving goal and destroys any chance of learning completion.
+        self.commands.socket_pose.resampling_time_range = (1.0e6, 1.0e6)
         self.commands.socket_pose.body_name = "panda_hand"
         self.commands.socket_pose.ranges.pitch = (math.pi, math.pi)
-        self.commands.socket_pose.ranges.pos_x = (0.46, 0.58)
-        self.commands.socket_pose.ranges.pos_y = (-0.08, 0.08)
-        self.commands.socket_pose.ranges.pos_z = (0.16, 0.22)
-        self.commands.socket_pose.ranges.yaw = (-math.pi / 12.0, math.pi / 12.0)
+        self.commands.socket_pose.ranges.pos_x = (0.50, 0.54)
+        self.commands.socket_pose.ranges.pos_y = (-0.03, 0.03)
+        self.commands.socket_pose.ranges.pos_z = (0.17, 0.20)
+        self.commands.socket_pose.ranges.yaw = (-math.pi / 24.0, math.pi / 24.0)
 
         for term in (
             self.observations.policy.tip_to_socket_position,

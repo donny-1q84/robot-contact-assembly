@@ -71,14 +71,26 @@ def insertion_progress_reward(
     command_name: str,
     asset_cfg: SceneEntityCfg,
     lateral_tolerance: float,
+    lateral_std: float,
+    rot_tolerance: float,
+    rot_std: float,
     body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
 ) -> torch.Tensor:
-    """Extra reward once lateral alignment is good enough to resemble insertion progress."""
+    """Dense insertion-stage reward with soft gates on lateral and rotational alignment.
 
-    lateral_error, axial_error, _ = insertion_metrics(env, command_name, asset_cfg, body_offset=body_offset)
-    aligned = lateral_error < lateral_tolerance
+    The earlier hard gate (`lateral_error < lateral_tolerance`) made insertion progress almost
+    unreachable, so the policy learned coarse alignment and orientation but rarely received any
+    useful axial reward. We keep full reward inside a small pre-insertion window and decay
+    smoothly outside it so the policy can climb toward the insertion regime.
+    """
+
+    lateral_error, axial_error, rot_error = insertion_metrics(env, command_name, asset_cfg, body_offset=body_offset)
     shaped = 1.0 - torch.tanh(axial_error / std)
-    return torch.where(aligned, shaped, torch.zeros_like(shaped))
+    lateral_margin = torch.clamp(lateral_error - lateral_tolerance, min=0.0)
+    rot_margin = torch.clamp(rot_error - rot_tolerance, min=0.0)
+    lateral_gate = torch.exp(-torch.square(lateral_margin / lateral_std))
+    rot_gate = torch.exp(-torch.square(rot_margin / rot_std))
+    return shaped * lateral_gate * rot_gate
 
 
 def insertion_success_reward(

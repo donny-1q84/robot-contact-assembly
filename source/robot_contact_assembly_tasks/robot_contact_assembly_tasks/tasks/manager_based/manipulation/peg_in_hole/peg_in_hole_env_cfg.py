@@ -145,7 +145,7 @@ class RewardsCfg:
     )
     tip_orientation_tracking = RewTerm(
         func=mdp.tip_orientation_error_tanh,
-        weight=1.0,
+        weight=0.5,
         params={
             "std": 0.25,
             "command_name": "socket_pose",
@@ -154,23 +154,26 @@ class RewardsCfg:
     )
     insertion_progress = RewTerm(
         func=mdp.insertion_progress_reward,
-        weight=6.0,
+        weight=12.0,
         params={
-            "std": 0.01,
+            "std": 0.015,
             "command_name": "socket_pose",
             "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
-            "lateral_tolerance": 0.01,
+            "lateral_tolerance": 0.015,
+            "lateral_std": 0.025,
+            "rot_tolerance": 0.35,
+            "rot_std": 0.35,
         },
     )
     insertion_success = RewTerm(
         func=mdp.insertion_success_reward,
-        weight=20.0,
+        weight=40.0,
         params={
             "command_name": "socket_pose",
             "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
-            "xy_tolerance": 0.003,
-            "z_tolerance": 0.003,
-            "rot_tolerance": 0.15,
+            "xy_tolerance": 0.006,
+            "z_tolerance": 0.012,
+            "rot_tolerance": 0.20,
         },
     )
     action_rate = RewTerm(func=base_mdp.action_rate_l2, weight=-1e-4)
@@ -191,9 +194,9 @@ class TerminationsCfg:
         params={
             "command_name": "socket_pose",
             "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
-            "xy_tolerance": 0.003,
-            "z_tolerance": 0.003,
-            "rot_tolerance": 0.15,
+            "xy_tolerance": 0.006,
+            "z_tolerance": 0.012,
+            "rot_tolerance": 0.20,
         },
     )
 
