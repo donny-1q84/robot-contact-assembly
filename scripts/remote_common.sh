@@ -14,7 +14,7 @@ rca_init_remote_vars() {
 }
 
 rca_brev_exec() {
-  /Users/Shenghan/bin/brev exec "${RCA_ENV_NAME}" "$@"
+  ssh "${RCA_ENV_NAME}" "$@"
 }
 
 rca_remote_host_exec() {

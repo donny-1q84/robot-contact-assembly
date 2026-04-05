@@ -76,13 +76,20 @@
 - Eval log: `/Volumes/Extreme Pro/Projects/robot-contact-assembly/artifacts/evaluations/policy/2026-04-05T13-24-28Z/eval.log`
 - Video command: `/Volumes/Extreme Pro/Projects/robot-contact-assembly/artifacts/videos/policy/2026-04-05T13-24-56Z/record_command.txt`
 - Video directory: `/Volumes/Extreme Pro/Projects/robot-contact-assembly/artifacts/videos/policy/2026-04-05T13-24-56Z`
+- Formal train log: `/Volumes/Extreme Pro/Projects/robot-contact-assembly/artifacts/train_runs/2026-04-05T13-37-03Z_phase1_formal/train.log`
+- Formal train command: `/Volumes/Extreme Pro/Projects/robot-contact-assembly/artifacts/train_runs/2026-04-05T13-37-03Z_phase1_formal/train_command.txt`
+- Formal train metadata: `/Volumes/Extreme Pro/Projects/robot-contact-assembly/artifacts/train_runs/2026-04-05T13-37-03Z_phase1_formal/train_metadata.env`
+- Formal checkpoints: `/Volumes/Extreme Pro/Projects/robot-contact-assembly/logs/rsl_rl/franka_peg_in_hole/2026-04-05_13-37-10_phase1_formal/`
+- Formal eval summary JSON: `/Volumes/Extreme Pro/Projects/robot-contact-assembly/artifacts/evaluations/policy/2026-04-05T13-41-02Z/summary.json`
+- Formal eval command: `/Volumes/Extreme Pro/Projects/robot-contact-assembly/artifacts/evaluations/policy/2026-04-05T13-41-02Z/eval_command.txt`
+- Formal eval log: `/Volumes/Extreme Pro/Projects/robot-contact-assembly/artifacts/evaluations/policy/2026-04-05T13-41-02Z/eval.log`
 - Runtime manifest:
 - Pulled artifact root: `/Volumes/Extreme Pro/Projects/robot-contact-assembly/artifacts`
 
 ## Results
 
 - Smoke status: `passed`
-- Formal train status: `not started`
+- Formal train status: `completed`
 - Final success rate: `0.000`
 - Best success rate: `0.000`
 - Final lateral error: `0.4548`
@@ -90,11 +97,26 @@
 - Final rotation error: `2.0887`
 - Best checkpoint: `model_9.pt` from `2026-04-05_13-16-20_smoke32`
 
+## Formal Run Results
+
+- Formal checkpoint used for eval: `model_299.pt`
+- Formal eval final success rate: `0.000`
+- Formal eval best success rate: `0.000`
+- Formal eval final lateral error: `0.3731`
+- Formal eval final axial error: `0.1095`
+- Formal eval final rotation error: `0.1800`
+- Formal eval initial rotation error: `2.4620`
+- Training signal summary:
+  - late-stage mean reward reached roughly `3.5+`
+  - orientation error dropped substantially during training
+  - `insertion_success` stayed at `0.0000` throughout the observed training and eval logs
+
 ## Failure Modes
 
 - `256 envs / 30 iters` was too heavy for first-pass smoke validation and was stopped to avoid wasting budget before dependency/runtime fixes were complete.
 - The first custom evaluator path was broken in two places: environment launch flow and `rsl-rl >= 4.0` policy access. Both were fixed locally.
 - Automated video recording with rendering kit started but never emitted frames or step logs; the run was canceled to avoid wasting GPU time. No usable MP4 was produced in this smoke session.
+- The formal PPO run learned coarse alignment/orientation behavior, but still failed to achieve contact-rich insertion. The reward appears to over-value orientation alignment relative to actual insertion completion.
 
 ## Next Decision
 
