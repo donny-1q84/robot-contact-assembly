@@ -1,6 +1,46 @@
 # Robot Contact Assembly
 
-Contact-rich robot assembly project scaffold for Isaac Sim / Isaac Lab.
+Contact-rich robot assembly project built around a narrow Isaac Lab `peg-in-hole` baseline. The current repository closes the full engineering loop for remote GPU training, evaluation, artifact archival, and experiment analysis instead of stopping at environment scaffolding.
+
+## Project snapshot
+
+- Task: `peg-in-hole`
+- Simulator stack: Isaac Sim + Isaac Lab
+- Robot: Franka Panda
+- Control: relative differential IK
+- Policy: PPO (`rsl_rl`)
+- Execution model: local planning and artifact archive + remote Brev GPU runtime
+- Current outcome: stable near-insertion alignment, but no true insertion success yet under the current proxy task
+
+## Highlights
+
+- Custom Isaac Lab external task package for a contact-rich assembly-style manipulation problem
+- Reproducible remote experiment workflow on Brev for training, evaluation, checkpoint sweep, and artifact pullback
+- Structured failure analysis across multiple reward and curriculum variants instead of one-off PPO runs
+- CV-ready Phase 1 summary with concrete best-run metrics and next-step technical direction
+
+## Best results so far
+
+The strongest runs in Phase 1 were:
+
+- Base run `phase1_fix6_formal`
+  - `lateral=0.0074`
+  - `axial=0.0027`
+  - `rot=0.7190`
+  - `success=0.000`
+- Continuation run `finetune_fix8_from_fix6`
+  - `lateral=0.0105`
+  - `axial=0.0092`
+  - `rot=0.6265`
+  - `success=0.000`
+
+Interpretation:
+
+- the policy reliably learns socket approach and near-insertion alignment
+- the remaining bottleneck is late-stage rotational convergence
+- under the current proxy task design, further reward retuning showed diminishing returns
+
+See [experiments/2026-04-05_phase1_rl_baseline.md](experiments/2026-04-05_phase1_rl_baseline.md) for the full run history and [docs/phase1_cv_summary.md](docs/phase1_cv_summary.md) for the concise CV/interview framing.
 
 ## V1 scope
 
@@ -78,6 +118,16 @@ The first runnable Isaac Lab shell is intentionally narrower than the final proj
   - `RCA-PegInHole-Franka-IK-Rel-Play-v0`
 
 This keeps the first environment aligned with the eventual peg-in-hole goal, while avoiding the extra moving parts of a full pick-and-insert pipeline in week one.
+
+## Current limitation
+
+The current task is still a proxy insertion shell:
+
+- peg tip is modeled as a fixed tool offset
+- socket target is modeled as a commanded pose
+- success is not yet driven by explicit peg/socket contact geometry
+
+This is enough for validating the training/evaluation system and for learning near-insertion behavior, but it is not yet the final assembly task design.
 
 ## Remote workflow
 
@@ -195,6 +245,14 @@ Phase 1 therefore closes with a clear technical conclusion:
 - further reward retuning was stopped after the scheduled curriculum failed to beat `finetune_fix8_from_fix6`
 
 For the concise CV-facing summary and interview framing, see [phase1_cv_summary.md](docs/phase1_cv_summary.md).
+
+## What comes next
+
+The next meaningful technical step is not another PPO retune on the same proxy shell. It is to replace the current proxy setup with:
+
+- explicit peg/socket geometry
+- contact-driven success logic
+- late-stage curriculum or imitation-style polishing on top of that more realistic task
 
 ## Phase-1 reproducibility additions
 
