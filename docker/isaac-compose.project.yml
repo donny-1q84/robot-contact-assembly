@@ -1,0 +1,6 @@
+services:
+  isaac-sim:
+    volumes:
+      - /home/ubuntu/projects/robot-contact-assembly/repo/robot-contact-assembly:/workspace/robot-contact-assembly:rw
+      - /home/ubuntu/projects/robot-contact-assembly/third_party/IsaacLab:/workspace/IsaacLab:rw
+      - /home/ubuntu/projects/robot-contact-assembly/artifacts:/workspace/artifacts:rw

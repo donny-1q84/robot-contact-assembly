@@ -1,0 +1,103 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import torch
+from isaaclab.managers import SceneEntityCfg
+from isaaclab.utils.math import quat_error_magnitude
+
+from ..constants import PEG_TIP_BODY_OFFSET_POS
+from .observations import _socket_pose_w, _tool_tip_pose_w, tip_to_socket_position
+from .terminations import insertion_metrics, insertion_success
+
+if TYPE_CHECKING:
+    from isaaclab.envs import ManagerBasedRLEnv
+
+
+def tip_position_error(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
+) -> torch.Tensor:
+    """L2 tool-tip position error in the socket frame."""
+
+    rel_pos = tip_to_socket_position(env, command_name, asset_cfg, body_offset=body_offset)
+    return torch.linalg.norm(rel_pos, dim=1)
+
+
+def tip_position_error_tanh(
+    env: ManagerBasedRLEnv,
+    std: float,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
+) -> torch.Tensor:
+    """Tanh-shaped reward for tool-tip position tracking."""
+
+    distance = tip_position_error(env, command_name, asset_cfg, body_offset=body_offset)
+    return 1.0 - torch.tanh(distance / std)
+
+
+def tip_orientation_error(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
+) -> torch.Tensor:
+    """Shortest-path orientation error between the tool tip and target socket pose."""
+
+    _, tip_quat_w = _tool_tip_pose_w(env, asset_cfg, body_offset=body_offset)
+    _, socket_quat_w = _socket_pose_w(env, command_name, asset_cfg)
+    return quat_error_magnitude(tip_quat_w, socket_quat_w)
+
+
+def tip_orientation_error_tanh(
+    env: ManagerBasedRLEnv,
+    std: float,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
+) -> torch.Tensor:
+    """Tanh-shaped reward for tool-tip orientation tracking."""
+
+    orientation_error = tip_orientation_error(env, command_name, asset_cfg, body_offset=body_offset)
+    return 1.0 - torch.tanh(orientation_error / std)
+
+
+def insertion_progress_reward(
+    env: ManagerBasedRLEnv,
+    std: float,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    lateral_tolerance: float,
+    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
+) -> torch.Tensor:
+    """Extra reward once lateral alignment is good enough to resemble insertion progress."""
+
+    lateral_error, axial_error, _ = insertion_metrics(env, command_name, asset_cfg, body_offset=body_offset)
+    aligned = lateral_error < lateral_tolerance
+    shaped = 1.0 - torch.tanh(axial_error / std)
+    return torch.where(aligned, shaped, torch.zeros_like(shaped))
+
+
+def insertion_success_reward(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
+    xy_tolerance: float = 0.003,
+    z_tolerance: float = 0.003,
+    rot_tolerance: float = 0.15,
+) -> torch.Tensor:
+    """Binary success reward for insertion completion."""
+
+    return insertion_success(
+        env,
+        command_name,
+        asset_cfg,
+        body_offset=body_offset,
+        xy_tolerance=xy_tolerance,
+        z_tolerance=z_tolerance,
+        rot_tolerance=rot_tolerance,
+    ).float()

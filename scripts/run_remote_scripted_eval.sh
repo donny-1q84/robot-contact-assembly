@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/remote_common.sh"
+
+rca_init_remote_vars "${1:-}" "${2:-}" "${3:-}"
+
+TASK_NAME="${4:-RCA-PegInHole-Franka-IK-Rel-Play-v0}"
+NUM_ENVS="${5:-1}"
+STEPS="${6:-120}"
+SEED_CSV="${7:-42,43,44,45,46}"
+TIMEOUT_SECONDS="${8:-900}"
+EXTRA_AGENT_ARGS="${9:-}"
+
+TIMESTAMP_UTC="$(date -u +"%Y-%m-%dT%H-%M-%SZ")"
+REMOTE_EVAL_DIR="/workspace/artifacts/evaluations/scripted/${TIMESTAMP_UTC}"
+
+echo "[scripted-eval] env=${RCA_ENV_NAME} task=${TASK_NAME} num_envs=${NUM_ENVS} steps=${STEPS}"
+echo "[scripted-eval] seeds=${SEED_CSV}"
+echo "[scripted-eval] timeout_seconds=${TIMEOUT_SECONDS}"
+if [[ -n "${EXTRA_AGENT_ARGS}" ]]; then
+  echo "[scripted-eval] extra_agent_args=${EXTRA_AGENT_ARGS}"
+fi
+rca_remote_container_exec "mkdir -p '${REMOTE_EVAL_DIR}'"
+
+for seed in ${SEED_CSV//,/ }; do
+  LOG_PATH="${REMOTE_EVAL_DIR}/seed_${seed}.log"
+  SUMMARY_PATH="${REMOTE_EVAL_DIR}/seed_${seed}.json"
+  echo "[scripted-eval] running seed=${seed} log=${LOG_PATH}"
+  set +e
+  rca_remote_repo_exec "set -o pipefail && timeout ${TIMEOUT_SECONDS} /isaac-sim/python.sh scripts/scripted_agent.py --task ${TASK_NAME} --headless --num_envs ${NUM_ENVS} --steps ${STEPS} --seed ${seed} --summary-json ${SUMMARY_PATH} --approach-height 0.0 --approach-xy-tol 1.0 --approach-rot-tol 10.0 --settle-pos-gain 0.5 --settle-pos-clamp 0.012 --settle-rot-gain 3.0 --settle-rot-clamp 0.24 ${EXTRA_AGENT_ARGS} 2>&1 | tee ${LOG_PATH}"
+  status=$?
+  set -e
+  if [[ ${status} -ne 0 ]]; then
+    echo "[scripted-eval] seed=${seed} failed with status=${status}" >&2
+    echo "[scripted-eval] inspect ${LOG_PATH} on the remote container for startup or controller errors" >&2
+    exit "${status}"
+  fi
+done
+
+echo "[scripted-eval] summaries:"
+rca_remote_container_exec "ls -1 '${REMOTE_EVAL_DIR}'"
+echo "[scripted-eval] output dir: ${REMOTE_EVAL_DIR}"

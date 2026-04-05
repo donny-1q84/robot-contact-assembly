@@ -1,0 +1,20 @@
+[package]
+version = "0.1.0"
+category = "isaaclab"
+readme = "README.md"
+
+title = "Robot Contact Assembly Tasks"
+author = "Shenghan Gao"
+maintainer = "Shenghan Gao"
+description = "Isaac Lab external task package for contact-rich assembly research."
+repository = "https://github.com/shenghan/robot-contact-assembly"
+keywords = ["isaaclab", "robotics", "assembly", "peg-in-hole"]
+
+[dependencies]
+"isaaclab" = {}
+"isaaclab_assets" = {}
+"isaaclab_rl" = {}
+"isaaclab_tasks" = {}
+
+[[python.module]]
+name = "robot_contact_assembly_tasks"
