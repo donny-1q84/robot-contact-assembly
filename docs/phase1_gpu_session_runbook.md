@@ -159,6 +159,12 @@ Default command:
 ./scripts/run_remote_finetune_ppo.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-Polish-v0 32 50 42 phase1_polish '.*phase1_fix6_formal.*' model_299.pt
 ```
 
+If you want the whole loop in one command:
+
+```bash
+./scripts/run_remote_polish_cycle.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-Polish-v0 32 50 42 phase1_polish '.*phase1_fix6_formal.*' model_299.pt 400 0
+```
+
 Recommended evaluation:
 
 ```bash
