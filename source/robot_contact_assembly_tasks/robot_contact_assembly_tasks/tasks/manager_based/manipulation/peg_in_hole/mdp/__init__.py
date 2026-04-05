@@ -2,6 +2,8 @@
 
 from .observations import tip_to_socket_orientation, tip_to_socket_position
 from .rewards import (
+    approach_pose_reward,
+    insertion_orientation_fine_reward,
     insertion_progress_reward,
     insertion_success_reward,
     tip_orientation_error,
@@ -12,7 +14,9 @@ from .rewards import (
 from .terminations import insertion_metrics, insertion_success
 
 __all__ = [
+    "approach_pose_reward",
     "insertion_metrics",
+    "insertion_orientation_fine_reward",
     "insertion_progress_reward",
     "insertion_success",
     "insertion_success_reward",

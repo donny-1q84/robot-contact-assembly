@@ -38,17 +38,19 @@ class FrankaPegInHoleEnvCfg(PegInHoleEnvCfg):
         self.commands.socket_pose.resampling_time_range = (1.0e6, 1.0e6)
         self.commands.socket_pose.body_name = "panda_hand"
         self.commands.socket_pose.ranges.pitch = (math.pi, math.pi)
-        self.commands.socket_pose.ranges.pos_x = (0.50, 0.54)
-        self.commands.socket_pose.ranges.pos_y = (-0.03, 0.03)
-        self.commands.socket_pose.ranges.pos_z = (0.17, 0.20)
+        self.commands.socket_pose.ranges.pos_x = (0.48, 0.56)
+        self.commands.socket_pose.ranges.pos_y = (-0.05, 0.05)
+        self.commands.socket_pose.ranges.pos_z = (0.17, 0.21)
         self.commands.socket_pose.ranges.yaw = (-math.pi / 24.0, math.pi / 24.0)
 
         for term in (
             self.observations.policy.tip_to_socket_position,
             self.observations.policy.tip_to_socket_orientation,
+            self.rewards.approach_pose,
             self.rewards.tip_position_tracking,
             self.rewards.tip_position_tracking_fine,
             self.rewards.tip_orientation_tracking,
+            self.rewards.insertion_orientation_fine,
             self.rewards.insertion_progress,
             self.rewards.insertion_success,
             self.terminations.insertion_success,

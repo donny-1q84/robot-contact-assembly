@@ -8,5 +8,5 @@ LOCAL_ARTIFACT_ROOT="${3:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/artif
 mkdir -p "${LOCAL_ARTIFACT_ROOT}"
 echo "[pull] remote artifacts: ${ENV_NAME}:${REMOTE_ROOT}/artifacts"
 echo "[pull] local artifacts:  ${LOCAL_ARTIFACT_ROOT}"
-/Users/Shenghan/bin/brev copy "${ENV_NAME}:${REMOTE_ROOT}/artifacts" "${LOCAL_ARTIFACT_ROOT}"
+rsync -av --ignore-existing "${ENV_NAME}:${REMOTE_ROOT}/artifacts/" "${LOCAL_ARTIFACT_ROOT}/"
 echo "[pull] done"

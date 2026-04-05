@@ -24,3 +24,13 @@ gym.register(
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:FrankaPegInHolePPORunnerCfg",
     },
 )
+
+gym.register(
+    id="RCA-PegInHole-Franka-IK-Rel-Polish-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.ik_rel_env_cfg:FrankaPegInHoleEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:FrankaPegInHolePPOPolishRunnerCfg",
+    },
+)

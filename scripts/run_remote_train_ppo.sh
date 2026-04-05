@@ -6,6 +6,8 @@ source "${SCRIPT_DIR}/remote_common.sh"
 
 rca_init_remote_vars "${1:-}" "${2:-}" "${3:-}"
 
+"${SCRIPT_DIR}/sync_to_brev.sh" "${RCA_ENV_NAME}" "${RCA_REMOTE_ROOT}"
+
 TASK_NAME="${4:-RCA-PegInHole-Franka-IK-Rel-v0}"
 NUM_ENVS="${5:-256}"
 MAX_ITERATIONS="${6:-300}"
@@ -28,7 +30,7 @@ if [[ -n "${EXTRA_TRAIN_ARGS}" ]]; then
 fi
 
 rca_remote_container_exec "mkdir -p '${REMOTE_SESSION_DIR}' '${REMOTE_HYDRA_DIR}'"
-rca_remote_host_exec "mkdir -p '${RCA_REMOTE_REPO_DIR}/logs/rsl_rl' && chmod -R a+rwx '${RCA_REMOTE_REPO_DIR}/logs'"
+rca_remote_host_exec "mkdir -p '${RCA_REMOTE_REPO_DIR}/logs/rsl_rl' && { chmod -R a+rwx '${RCA_REMOTE_REPO_DIR}/logs' 2>/dev/null || true; }"
 
 set +e
 rca_remote_repo_exec "set -o pipefail && /isaac-sim/python.sh scripts/train_rsl_rl.py --task ${TASK_NAME} --headless --num_envs ${NUM_ENVS} --seed ${SEED} --max_iterations ${MAX_ITERATIONS} --run_name ${RUN_NAME} hydra.run.dir=${REMOTE_HYDRA_DIR} hydra.output_subdir=null ${EXTRA_TRAIN_ARGS} 2>&1 | tee '${REMOTE_LOG_PATH}'"

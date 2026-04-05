@@ -6,6 +6,7 @@ This runbook is the shortest path to a CV-ready Phase 1 result:
 - one fixed-step evaluation
 - one demo video
 - one experiment note
+- one optional polish fine-tune from the best baseline checkpoint
 
 Keep scope fixed to:
 
@@ -16,6 +17,7 @@ Keep scope fixed to:
 - formal run name: `phase1_formal`
 
 Use `RCA-PegInHole-Franka-IK-Rel-Play-v0` only for interactive debugging or visual checks.
+Use `RCA-PegInHole-Franka-IK-Rel-Polish-v0` only when resuming from a strong near-success checkpoint.
 
 ## Before Starting the GPU
 
@@ -132,6 +134,43 @@ Required outputs before deleting the GPU:
 - one demo video
 - one runtime manifest
 - one filled experiment note
+
+## Session 4: Polish Fine-Tune
+
+Goal:
+
+- improve the last-stage rotation error without retraining from scratch
+
+Use this only after a baseline run has already produced a near-success checkpoint.
+Current recommended source checkpoint:
+
+- run regex: `.*phase1_fix6_formal.*`
+- checkpoint: `model_299.pt`
+
+Expected budget:
+
+- `1-3` GPU hours
+
+Default command:
+
+```bash
+./scripts/run_remote_finetune_ppo.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-Polish-v0 32 50 42 phase1_polish '.*phase1_fix6_formal.*' model_299.pt
+```
+
+Recommended evaluation:
+
+```bash
+./scripts/run_remote_eval_policy.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-Polish-v0 32 400 42 '.*phase1_polish.*' 'model_.*.pt'
+```
+
+Success criterion for this stage:
+
+- rotation error drops without materially losing the lateral and axial gains from the base checkpoint
+
+Stop if:
+
+- fixed-step eval regresses on all three of lateral, axial, and rotation
+- the fine-tune run starts drifting away from the socket instead of tightening around it
 
 ## Artifact Map
 

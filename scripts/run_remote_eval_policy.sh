@@ -6,6 +6,8 @@ source "${SCRIPT_DIR}/remote_common.sh"
 
 rca_init_remote_vars "${1:-}" "${2:-}" "${3:-}"
 
+"${SCRIPT_DIR}/sync_to_brev.sh" "${RCA_ENV_NAME}" "${RCA_REMOTE_ROOT}"
+
 TASK_NAME="${4:-RCA-PegInHole-Franka-IK-Rel-v0}"
 NUM_ENVS="${5:-32}"
 STEPS="${6:-400}"
