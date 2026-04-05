@@ -294,6 +294,19 @@
   - `insertion_orientation_fine` stayed active throughout training, but the fixed-step eval result only improved rotation slightly relative to the base checkpoint (`0.7190 -> 0.6933`)
   - this run did not beat the earlier manual `finetune_fix8_from_fix6` result (`0.6265` rotation), so the dedicated polish config is operational but not yet the best-performing continuation path
 
+### Dedicated Polish Checkpoint Sweep
+
+- `model_300.pt`: `lateral=0.0062`, `axial=0.0037`, `rot=0.7143`
+- `model_310.pt`: `lateral=0.0066`, `axial=0.0047`, `rot=0.7137`
+- `model_320.pt`: `lateral=0.0067`, `axial=0.0030`, `rot=0.7147`
+- `model_330.pt`: `lateral=0.0081`, `axial=0.0082`, `rot=0.7244`
+- `model_340.pt`: `lateral=0.0073`, `axial=0.0038`, `rot=0.7071`
+- `model_348.pt`: `lateral=0.0086`, `axial=0.0047`, `rot=0.6933`
+- Sweep interpretation:
+  - within the dedicated polish run, `model_348.pt` is the best checkpoint on rotation
+  - none of the dedicated polish checkpoints outperform the earlier manual `finetune_fix8_from_fix6` run on rotation
+  - the sweep confirms that another rerun of the same dedicated polish setup is unlikely to beat the current best continuation result
+
 ## Synchronization Notes
 
 - The original remote wrappers did not sync the local repo before running on Brev. This invalidated the first `smoke_fix8_fineorient` attempt because the remote environment still used stale source files.
