@@ -89,33 +89,56 @@ class FrankaPegInHoleEnvCfg_POLISH(FrankaPegInHoleEnvCfg):
         self.commands.socket_pose.ranges.pos_z = (0.178, 0.202)
         self.commands.socket_pose.ranges.yaw = (-math.pi / 48.0, math.pi / 48.0)
 
-        # During polish, hold the already-good near-socket position from the base checkpoint
-        # and let the dedicated gated terms refine orientation and insertion.
-        self.rewards.approach_pose.func = mdp.late_stage_position_hold_reward
+        # During polish, start by preserving the checkpoint's near-socket pose and then
+        # gradually shift emphasis toward fine orientation and insertion progress.
+        self.rewards.approach_pose.func = mdp.scheduled_position_hold_reward
         self.rewards.approach_pose.weight = 14.0
         self.rewards.approach_pose.params = {
             "lateral_std": 0.010,
             "axial_std": 0.007,
             "command_name": "socket_pose",
             "asset_cfg": self.rewards.approach_pose.params["asset_cfg"],
+            "start_step": 0,
+            "end_step": 12000,
+            "start_scale": 1.10,
+            "end_scale": 0.55,
         }
 
-        # Keep the coarse terms present but subordinate. The main objective in polish mode
-        # is to preserve near-zero position error while only paying fine orientation once the
-        # peg is already deep in the near-socket regime.
-        self.rewards.tip_position_tracking.weight = 1.0
-        self.rewards.tip_position_tracking_fine.weight = 6.0
-        self.rewards.tip_orientation_tracking.weight = 0.75
+        # Keep coarse terms light. The scheduled fine-stage terms now perform the real
+        # curriculum shift instead of relying on one static reward mixture.
+        self.rewards.tip_position_tracking.weight = 0.8
+        self.rewards.tip_position_tracking_fine.weight = 4.5
+        self.rewards.tip_orientation_tracking.weight = 0.5
+        self.rewards.insertion_orientation_fine.func = mdp.scheduled_insertion_orientation_reward
         self.rewards.insertion_orientation_fine.weight = 14.0
-        self.rewards.insertion_orientation_fine.params["lateral_tolerance"] = 0.012
-        self.rewards.insertion_orientation_fine.params["axial_tolerance"] = 0.010
-        self.rewards.insertion_orientation_fine.params["lateral_std"] = 0.006
-        self.rewards.insertion_orientation_fine.params["axial_std"] = 0.006
+        self.rewards.insertion_orientation_fine.params = {
+            "std": 0.38,
+            "command_name": "socket_pose",
+            "asset_cfg": self.rewards.insertion_orientation_fine.params["asset_cfg"],
+            "lateral_tolerance": 0.010,
+            "axial_tolerance": 0.008,
+            "lateral_std": 0.005,
+            "axial_std": 0.005,
+            "start_step": 4000,
+            "end_step": 18000,
+            "start_scale": 0.25,
+            "end_scale": 1.15,
+        }
+        self.rewards.insertion_progress.func = mdp.scheduled_insertion_progress_reward
         self.rewards.insertion_progress.weight = 10.0
-        self.rewards.insertion_progress.params["lateral_tolerance"] = 0.012
-        self.rewards.insertion_progress.params["lateral_std"] = 0.008
-        self.rewards.insertion_progress.params["rot_tolerance"] = 0.30
-        self.rewards.insertion_progress.params["rot_std"] = 0.16
+        self.rewards.insertion_progress.params = {
+            "std": 0.010,
+            "command_name": "socket_pose",
+            "asset_cfg": self.rewards.insertion_progress.params["asset_cfg"],
+            "lateral_tolerance": 0.010,
+            "lateral_std": 0.006,
+            "rot_tolerance": 0.24,
+            "rot_std": 0.12,
+            "start_step": 7000,
+            "end_step": 22000,
+            "start_scale": 0.20,
+            "end_scale": 1.10,
+        }
         self.rewards.insertion_success.weight = 90.0
 
         self.scene.num_envs = 32

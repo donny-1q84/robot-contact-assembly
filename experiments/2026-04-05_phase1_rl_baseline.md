@@ -430,3 +430,23 @@
   - repeated evals on the same live `isaac-sim` container can hang after the first successful checkpoint evaluation
   - restarting `isaac-sim` before each subsequent eval restored correct behavior
   - the remote checkpoint sweep wrapper now forces a container restart before every checkpoint evaluation
+
+
+## Next Local Change: Scheduled Polish Curriculum
+
+- Status: implemented locally, not yet re-run on GPU
+- Motivation:
+  - `Polish v2` drifted away from the socket while chasing orientation
+  - `Polish v3` stabilized the pose neighborhood but still kept fine orientation / insertion too weak to beat `fix8`
+- Local change summary:
+  - `approach_pose` in `RCA-PegInHole-Franka-IK-Rel-Polish-v0` now uses `scheduled_position_hold_reward`
+  - `insertion_orientation_fine` now uses `scheduled_insertion_orientation_reward`
+  - `insertion_progress` now uses `scheduled_insertion_progress_reward`
+  - the schedule is driven by `env.common_step_counter`, so the reward mix shifts online during the same resumed run instead of relying on one static set of weights
+- Intended curriculum shape:
+  - start: strongly preserve the `fix6` near-socket lateral / axial pose
+  - middle: gradually hand off reward mass to gated fine orientation
+  - later: ramp insertion progress after the orientation gate is already active
+- Next validation target:
+  - reuse `.*phase1_fix6_formal.* / model_50.pt`
+  - check whether the final checkpoint beats `Polish v3` (`0.0682 / 0.1037 / 0.8494`) without regressing all the way back to `Polish v2`

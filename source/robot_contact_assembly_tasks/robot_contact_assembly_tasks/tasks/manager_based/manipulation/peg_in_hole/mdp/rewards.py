@@ -118,6 +118,27 @@ def late_stage_pose_reward(
     return torch.pow(torch.clamp(lateral_term * axial_term * rot_term, min=0.0), 1.0 / 3.0)
 
 
+def _scheduled_scale(
+    env: ManagerBasedRLEnv,
+    start_step: int,
+    end_step: int,
+    start_scale: float,
+    end_scale: float,
+    *,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    """Return a scalar linear schedule based on the global env step counter."""
+
+    step = float(getattr(env, "common_step_counter", 0))
+    if end_step <= start_step:
+        alpha = 1.0
+    else:
+        alpha = min(max((step - float(start_step)) / float(end_step - start_step), 0.0), 1.0)
+    scale = start_scale + (end_scale - start_scale) * alpha
+    return torch.tensor(scale, device=device, dtype=dtype)
+
+
 def late_stage_position_hold_reward(
     env: ManagerBasedRLEnv,
     lateral_std: float,
@@ -139,6 +160,120 @@ def late_stage_position_hold_reward(
     lateral_term = torch.exp(-torch.square(lateral_error / lateral_std))
     axial_term = torch.exp(-torch.square(axial_error / axial_std))
     return torch.sqrt(torch.clamp(lateral_term * axial_term, min=0.0))
+
+
+def scheduled_position_hold_reward(
+    env: ManagerBasedRLEnv,
+    lateral_std: float,
+    axial_std: float,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    start_step: int,
+    end_step: int,
+    start_scale: float,
+    end_scale: float,
+    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
+) -> torch.Tensor:
+    """Linearly taper the position-hold reward over polish training."""
+
+    reward = late_stage_position_hold_reward(
+        env,
+        lateral_std=lateral_std,
+        axial_std=axial_std,
+        command_name=command_name,
+        asset_cfg=asset_cfg,
+        body_offset=body_offset,
+    )
+    scale = _scheduled_scale(
+        env,
+        start_step=start_step,
+        end_step=end_step,
+        start_scale=start_scale,
+        end_scale=end_scale,
+        device=reward.device,
+        dtype=reward.dtype,
+    )
+    return reward * scale
+
+
+def scheduled_insertion_orientation_reward(
+    env: ManagerBasedRLEnv,
+    std: float,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    lateral_tolerance: float,
+    axial_tolerance: float,
+    lateral_std: float,
+    axial_std: float,
+    start_step: int,
+    end_step: int,
+    start_scale: float,
+    end_scale: float,
+    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
+) -> torch.Tensor:
+    """Ramp up the fine orientation reward after the position hold phase settles."""
+
+    reward = insertion_orientation_fine_reward(
+        env,
+        std=std,
+        command_name=command_name,
+        asset_cfg=asset_cfg,
+        lateral_tolerance=lateral_tolerance,
+        axial_tolerance=axial_tolerance,
+        lateral_std=lateral_std,
+        axial_std=axial_std,
+        body_offset=body_offset,
+    )
+    scale = _scheduled_scale(
+        env,
+        start_step=start_step,
+        end_step=end_step,
+        start_scale=start_scale,
+        end_scale=end_scale,
+        device=reward.device,
+        dtype=reward.dtype,
+    )
+    return reward * scale
+
+
+def scheduled_insertion_progress_reward(
+    env: ManagerBasedRLEnv,
+    std: float,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    lateral_tolerance: float,
+    lateral_std: float,
+    rot_tolerance: float,
+    rot_std: float,
+    start_step: int,
+    end_step: int,
+    start_scale: float,
+    end_scale: float,
+    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
+) -> torch.Tensor:
+    """Ramp up insertion progress once late-stage orientation shaping is active."""
+
+    reward = insertion_progress_reward(
+        env,
+        std=std,
+        command_name=command_name,
+        asset_cfg=asset_cfg,
+        lateral_tolerance=lateral_tolerance,
+        lateral_std=lateral_std,
+        rot_tolerance=rot_tolerance,
+        rot_std=rot_std,
+        body_offset=body_offset,
+    )
+    scale = _scheduled_scale(
+        env,
+        start_step=start_step,
+        end_step=end_step,
+        start_scale=start_scale,
+        end_scale=end_scale,
+        device=reward.device,
+        dtype=reward.dtype,
+    )
+    return reward * scale
 
 
 def insertion_progress_reward(
