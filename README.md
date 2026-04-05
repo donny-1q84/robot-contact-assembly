@@ -171,6 +171,31 @@ Validated on `2026-03-29`:
 
 The RL stack is not yet treated as stable. Do not assume `rsl_rl` installation is reproducible until the runtime is pinned more tightly.
 
+## Final Phase 1 status
+
+Validated through the `2026-04-05` experiment series:
+
+- A complete remote training/evaluation/artifact loop is in place for PPO baseline runs.
+- The strongest base run was `phase1_fix6_formal`, which reached:
+  - `lateral=0.0074`
+  - `axial=0.0027`
+  - `rot=0.7190`
+  - `success=0.000`
+- The strongest continuation run was `finetune_fix8_from_fix6`, which improved rotation while preserving near-socket alignment:
+  - `lateral=0.0105`
+  - `axial=0.0092`
+  - `rot=0.6265`
+  - `success=0.000`
+- Three dedicated late-stage `Polish` variants (`v2`, `v3`, and scheduled curriculum) ran successfully but did not beat the continuation baseline.
+
+Phase 1 therefore closes with a clear technical conclusion:
+
+- the policy can reliably learn socket approach and near-insertion alignment
+- the remaining gap is late-stage rotational convergence under the current proxy task design
+- further reward retuning was stopped after the scheduled curriculum failed to beat `finetune_fix8_from_fix6`
+
+For the concise CV-facing summary and interview framing, see [phase1_cv_summary.md](docs/phase1_cv_summary.md).
+
 ## Phase-1 reproducibility additions
 
 - `scripts/capture_remote_runtime_manifest.sh`

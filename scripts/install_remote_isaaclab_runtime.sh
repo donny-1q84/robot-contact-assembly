@@ -93,10 +93,13 @@ else
   git checkout develop
   git pull --ff-only origin develop
 fi
-HOST_IP=\$(curl -fsS --max-time 5 https://api.ipify.org || curl -fsS --max-time 5 https://ifconfig.me)
+HOST_IP=\$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || curl -fsS --max-time 5 https://ifconfig.me 2>/dev/null || true)
 if [ -z \"\$HOST_IP\" ]; then
-  echo \"[runtime] failed to resolve remote public IP\" >&2
-  exit 1
+  HOST_IP=\$(hostname -I 2>/dev/null | awk '\''{print $1}'\'')
+fi
+if [ -z \"\$HOST_IP\" ]; then
+  HOST_IP=127.0.0.1
+  echo \"[runtime] warning: public IP resolution failed; falling back to 127.0.0.1 for viewer config\" >&2
 fi
 cd \"${REMOTE_COMPOSE_ROOT}\"
 ISAAC_SIM_IMAGE=\"${ISAAC_SIM_IMAGE}\" WEB_VIEWER_PORT=\"${WEB_VIEWER_PORT}\" ISAACSIM_SIGNAL_PORT=\"${ISAACSIM_SIGNAL_PORT}\" ISAACSIM_STREAM_PORT=\"${ISAACSIM_STREAM_PORT}\" ISAACSIM_HOST=\"\$HOST_IP\" ${COMPOSE_BASE} up -d --build

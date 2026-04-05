@@ -450,3 +450,34 @@
 - Next validation target:
   - reuse `.*phase1_fix6_formal.* / model_50.pt`
   - check whether the final checkpoint beats `Polish v3` (`0.0682 / 0.1037 / 0.8494`) without regressing all the way back to `Polish v2`
+
+## Scheduled Polish Fix6 Validation
+
+- Validation run name: `phase1_polish_sched_fix6`
+- Source run regex: `.*phase1_fix6_formal.*`
+- Source checkpoint: `model_50.pt`
+- Cold-start note:
+  - the first rerun failed because the fresh remote repo did not contain the historical `phase1_fix6_formal` log directory
+  - staging `model_50.pt` into the remote `logs/rsl_rl/franka_peg_in_hole/...phase1_fix6_formal/` path fixed resume for this final validation
+- Runtime hardening note:
+  - `install_remote_isaaclab_runtime.sh` now falls back from external IP lookup to `hostname -I`, then `127.0.0.1`, instead of aborting runtime setup when DNS resolution for `api.ipify.org` / `ifconfig.me` fails
+- Local train log: `/Volumes/Extreme Pro/Projects/robot-contact-assembly/artifacts/train_runs/2026-04-05T16-47-17Z_phase1_polish_sched_fix6/train.log`
+- Completed fixed-step evals:
+  - `model_50.pt`: `lateral=0.0855`, `axial=0.2474`, `rot=1.7551`
+  - `model_60.pt`: `lateral=0.0670`, `axial=0.1344`, `rot=0.8255`
+  - `model_70.pt`: `lateral=0.0744`, `axial=0.1424`, `rot=0.9126`
+  - `model_80.pt`: `lateral=0.0613`, `axial=0.0677`, `rot=0.8072`
+  - `model_90.pt`: `lateral=0.0726`, `axial=0.1223`, `rot=0.8921`
+  - `model_99.pt`: `lateral=0.0519`, `axial=0.0745`, `rot=0.7169`
+- Interpretation:
+  - this staged schedule is the best of the three dedicated `Polish` variants (`v2`, `v3`, `scheduled`) on rotation, but it still does not beat the earlier manual continuation `finetune_fix8_from_fix6` (`0.0105 / 0.0092 / 0.6265`)
+  - compared with `Polish v3`, the scheduled reward improved both final axial error and rotation, confirming the stage-shift idea is directionally better than a static late-stage reward mix
+  - compared with the base `phase1_fix6_formal` checkpoint (`0.0074 / 0.0027 / 0.7190`), the final scheduled run slightly improves rotation (`0.7169`) but gives back too much lateral and axial precision to be the new best checkpoint
+  - `insertion_success` stayed at `0.000` for every evaluated checkpoint, so the project still has no true insertion baseline
+- Current best continuation remains:
+  - `finetune_fix8_from_fix6` with `lateral=0.0105`, `axial=0.0092`, `rot=0.6265`
+- Final Phase 1 decision:
+  - stop further RL reward tuning for now
+  - package the project around the strongest available result chain: `phase1_fix6_formal -> finetune_fix8_from_fix6`
+  - if this project is continued later, the next meaningful step is not another static reward retune, but a more explicit multi-stage task or a non-RL demonstration / IL bootstrap
+
