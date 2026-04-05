@@ -99,7 +99,7 @@
 
 ## Formal Run Results
 
-- Formal checkpoint used for eval: `model_299.pt`
+- Formal checkpoint used for eval: `model_50.pt`
 - Formal eval final success rate: `0.000`
 - Formal eval best success rate: `0.000`
 - Formal eval final lateral error: `0.3731`
@@ -280,7 +280,7 @@
 - Fine-tune wrapper:
 
 ```bash
-./scripts/run_remote_finetune_ppo.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-Polish-v0 32 50 42 phase1_polish '.*phase1_fix6_formal.*' model_299.pt
+./scripts/run_remote_finetune_ppo.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-Polish-v0 32 50 42 phase1_polish '.*phase1_fix6_formal.*' model_50.pt
 ```
 
 - Fine-tune train log: `/Volumes/Extreme Pro/Projects/robot-contact-assembly/artifacts/train_runs/2026-04-05T14-58-23Z_phase1_polish/train.log`
@@ -337,11 +337,11 @@
 - Preferred path: do not train the late-stage orientation reward from scratch
 - Resume from the strongest base checkpoint instead:
   - source run regex: `.*phase1_fix6_formal.*`
-  - source checkpoint: `model_299.pt`
+  - source checkpoint: `model_50.pt`
 - Use the dedicated polish task and wrapper:
 
 ```bash
-./scripts/run_remote_finetune_ppo.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-Polish-v0 32 50 42 phase1_polish '.*phase1_fix6_formal.*' model_299.pt
+./scripts/run_remote_finetune_ppo.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-Polish-v0 32 50 42 phase1_polish '.*phase1_fix6_formal.*' model_50.pt
 ```
 
 - Then evaluate with:
@@ -378,3 +378,36 @@
   - force the resumed policy to spend most of its rollout budget in the late-stage refinement regime
   - reduce the old failure mode where rotation improved only by giving back some lateral or axial accuracy
 - this change has not been re-run yet; it is the next thing to validate when GPU time is resumed
+
+
+## Polish V2 Fix6 Validation
+
+- Cold-start restore wrapper: `./scripts/recreate_brev_and_run_polish.sh`
+- Validation task id: `RCA-PegInHole-Franka-IK-Rel-Polish-v0`
+- Validation run name: `phase1_polish_v2_fix6`
+- Source run regex: `.*phase1_fix6_formal.*`
+- Source checkpoint: `model_50.pt`
+- Runtime restore result:
+  - recreated a fresh Brev `isaac-l40s` instance
+  - restored Isaac Sim + IsaacLab runtime on the new instance
+  - fixed remote compose calls to use `sudo docker compose`
+  - fixed runtime installation to include `isaaclab_rl`
+  - fixed local checkpoint sweep script for macOS Bash 3.2 by removing `mapfile`
+- Validation train log: `/Volumes/Extreme Pro/Projects/robot-contact-assembly/artifacts/train_runs/2026-04-05T15-38-30Z_phase1_polish_v2_fix6/train.log`
+- Validation checkpoint sweep summary:
+  - `model_50.pt`: `lateral=0.0812`, `axial=0.2132`, `rot=1.3847`
+  - `model_60.pt`: `lateral=0.0734`, `axial=0.1579`, `rot=1.3648`
+  - `model_70.pt`: `lateral=0.0552`, `axial=0.1124`, `rot=1.2086`
+  - `model_80.pt`: `lateral=0.0650`, `axial=0.1284`, `rot=1.8030`
+  - `model_90.pt`: `lateral=0.0523`, `axial=0.1306`, `rot=1.5202`
+  - `model_99.pt`: `lateral=0.0435`, `axial=0.0538`, `rot=0.8301`
+- Validation interpretation:
+  - the new narrow-curriculum `Polish` task is operational and trains from a fresh cold-start runtime
+  - the joint late-stage reward clearly activates during training, but the resulting policy still underperforms the earlier manual continuation
+  - the best checkpoint in this run is `model_99.pt`, but `rot=0.8301` is worse than both the base `phase1_fix6_formal` result (`0.7190`) and the earlier manual `finetune_fix8_from_fix6` result (`0.6265`)
+  - this validates the new task and workflow end-to-end, but rejects the current `Polish v2` reward/curriculum as the next resume path
+- Current best continuation remains:
+  - `finetune_fix8_from_fix6` with `lateral=0.0105`, `axial=0.0092`, `rot=0.6265`
+- Next local change should focus on:
+  - preserving the `fix6` positional gains while making late-stage rotation shaping less destabilizing
+  - checkpoint selection or curriculum staging based on actual metric windows, not a fixed 50-iteration polish schedule

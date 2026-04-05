@@ -13,7 +13,7 @@ WEB_VIEWER_PORT="${WEB_VIEWER_PORT:-8210}"
 ISAACSIM_SIGNAL_PORT="${ISAACSIM_SIGNAL_PORT:-49100}"
 ISAACSIM_STREAM_PORT="${ISAACSIM_STREAM_PORT:-47998}"
 
-COMPOSE_BASE="docker compose -p isim -f ${REMOTE_COMPOSE_ROOT}/tools/docker/docker-compose.yml -f ${REMOTE_COMPOSE_ROOT}/tools/docker/docker-compose.override.yml -f ${REMOTE_OVERRIDE_FILE}"
+COMPOSE_BASE="sudo docker compose -p isim -f ${REMOTE_COMPOSE_ROOT}/tools/docker/docker-compose.yml -f ${REMOTE_COMPOSE_ROOT}/tools/docker/docker-compose.override.yml -f ${REMOTE_OVERRIDE_FILE}"
 
 echo "[runtime] ensuring project mounts are active in ${ENV_NAME}"
 ssh "${ENV_NAME}" "bash -lc '
@@ -111,6 +111,7 @@ mkdir -p /workspace/artifacts/hydra
 chown -R 1234:1234 /workspace/artifacts
 cd /workspace/IsaacLab
 ./isaaclab.sh --install assets,physx,tasks
+/isaac-sim/python.sh -m pip install --editable /workspace/IsaacLab/source/isaaclab_rl
 if ! /isaac-sim/python.sh -m pip show rsl-rl-lib >/dev/null 2>&1; then
   /isaac-sim/python.sh -m pip install rsl-rl-lib==5.0.1 onnxscript>=0.5 numpy==2.3.1 pillow==12.1.1
 fi

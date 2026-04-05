@@ -28,7 +28,11 @@ if [[ -z "${RUN_DIR}" ]]; then
   exit 1
 fi
 
-mapfile -t CHECKPOINTS < <(
+CHECKPOINTS=()
+while IFS= read -r checkpoint; do
+  [[ -n "${checkpoint}" ]] || continue
+  CHECKPOINTS+=("${checkpoint}")
+done < <(
   ssh "${RCA_ENV_NAME}" \
     "find '${RUN_DIR}' -maxdepth 1 -type f -name 'model_*.pt' | sed 's#.*/##' | grep -E '${CHECKPOINT_REGEX}' | sort"
 )
