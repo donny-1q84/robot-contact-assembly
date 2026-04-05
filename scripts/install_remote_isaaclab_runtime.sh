@@ -5,6 +5,7 @@ ENV_NAME="${1:-isaac-l40s}"
 REMOTE_ROOT="${2:-/home/ubuntu/projects/robot-contact-assembly}"
 REMOTE_COMPOSE_ROOT="${3:-/home/ubuntu/isaac-compose}"
 REMOTE_LAUNCHABLE_DIR="${REMOTE_ROOT}/third_party/isaac-launchable"
+REMOTE_ISAACLAB_DIR="${REMOTE_ROOT}/third_party/IsaacLab"
 REMOTE_REPO_DIR="${REMOTE_ROOT}/repo/robot-contact-assembly"
 REMOTE_OVERRIDE_FILE="${REMOTE_REPO_DIR}/docker/isaac-compose.project.yml"
 ISAAC_SIM_IMAGE="${ISAAC_SIM_IMAGE:-nvcr.io/nvidia/isaac-sim:6.0.0-dev2}"
@@ -15,7 +16,7 @@ ISAACSIM_STREAM_PORT="${ISAACSIM_STREAM_PORT:-47998}"
 COMPOSE_BASE="docker compose -p isim -f ${REMOTE_COMPOSE_ROOT}/tools/docker/docker-compose.yml -f ${REMOTE_COMPOSE_ROOT}/tools/docker/docker-compose.override.yml -f ${REMOTE_OVERRIDE_FILE}"
 
 echo "[runtime] ensuring project mounts are active in ${ENV_NAME}"
-/Users/Shenghan/bin/brev exec "${ENV_NAME}" "bash -lc '
+ssh "${ENV_NAME}" "bash -lc '
 set -euo pipefail
 if [ ! -f \"${REMOTE_COMPOSE_ROOT}/tools/docker/docker-compose.yml\" ] || [ ! -f \"${REMOTE_COMPOSE_ROOT}/tools/docker/docker-compose.override.yml\" ]; then
   if [ ! -d \"${REMOTE_LAUNCHABLE_DIR}/.git\" ]; then
@@ -82,6 +83,16 @@ services:
       network: host
 EOF
 fi
+if [ ! -d \"${REMOTE_ISAACLAB_DIR}/.git\" ]; then
+  sudo rm -rf \"${REMOTE_ISAACLAB_DIR}\"
+  git clone --depth 1 --branch develop https://github.com/isaac-sim/IsaacLab.git \"${REMOTE_ISAACLAB_DIR}\"
+  sudo chown -R ubuntu:ubuntu \"${REMOTE_ISAACLAB_DIR}\"
+else
+  cd \"${REMOTE_ISAACLAB_DIR}\"
+  git fetch origin develop --depth 1
+  git checkout develop
+  git pull --ff-only origin develop
+fi
 HOST_IP=\$(curl -fsS --max-time 5 https://api.ipify.org || curl -fsS --max-time 5 https://ifconfig.me)
 if [ -z \"\$HOST_IP\" ]; then
   echo \"[runtime] failed to resolve remote public IP\" >&2
@@ -91,11 +102,18 @@ cd \"${REMOTE_COMPOSE_ROOT}\"
 ISAAC_SIM_IMAGE=\"${ISAAC_SIM_IMAGE}\" WEB_VIEWER_PORT=\"${WEB_VIEWER_PORT}\" ISAACSIM_SIGNAL_PORT=\"${ISAACSIM_SIGNAL_PORT}\" ISAACSIM_STREAM_PORT=\"${ISAACSIM_STREAM_PORT}\" ISAACSIM_HOST=\"\$HOST_IP\" ${COMPOSE_BASE} up -d --build
 ISAAC_SIM_IMAGE=\"${ISAAC_SIM_IMAGE}\" WEB_VIEWER_PORT=\"${WEB_VIEWER_PORT}\" ISAACSIM_SIGNAL_PORT=\"${ISAACSIM_SIGNAL_PORT}\" ISAACSIM_STREAM_PORT=\"${ISAACSIM_STREAM_PORT}\" ISAACSIM_HOST=\"\$HOST_IP\" ${COMPOSE_BASE} exec -T -u root isaac-sim bash -lc \"
 set -euo pipefail
+if ! command -v git >/dev/null 2>&1; then
+  apt-get update
+  apt-get install -y git
+fi
 ln -sfn /isaac-sim /workspace/IsaacLab/_isaac_sim
 mkdir -p /workspace/artifacts/hydra
 chown -R 1234:1234 /workspace/artifacts
 cd /workspace/IsaacLab
 ./isaaclab.sh --install assets,physx,tasks
+if ! /isaac-sim/python.sh -m pip show rsl-rl-lib >/dev/null 2>&1; then
+  /isaac-sim/python.sh -m pip install rsl-rl-lib==5.0.1 onnxscript>=0.5 numpy==2.3.1 pillow==12.1.1
+fi
 /isaac-sim/python.sh -m pip install h5py
 /isaac-sim/python.sh -m pip install hydra-core
 /isaac-sim/python.sh -m pip install --editable /workspace/robot-contact-assembly/source/robot_contact_assembly_tasks

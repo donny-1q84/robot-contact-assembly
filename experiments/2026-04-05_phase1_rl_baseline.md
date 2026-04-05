@@ -111,6 +111,32 @@
   - orientation error dropped substantially during training
   - `insertion_success` stayed at `0.0000` throughout the observed training and eval logs
 
+## Retuned Smoke Results
+
+- Retuned smoke run name: `smoke_retune_fix3`
+- Retuned smoke command:
+
+```bash
+./scripts/run_remote_train_ppo.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-v0 32 30 42 smoke_retune_fix3
+```
+
+- Retuned smoke eval command:
+
+```bash
+./scripts/run_remote_eval_policy.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-v0 32 200 42 '.*smoke_retune_fix3.*' 'model_29.pt'
+```
+
+- Retuned smoke checkpoint: `/Volumes/Extreme Pro/Projects/robot-contact-assembly/artifacts/train_runs/2026-04-05T14-08-23Z_smoke_retune_fix3/model_29.pt`
+- Retuned smoke eval summary: `/Volumes/Extreme Pro/Projects/robot-contact-assembly/artifacts/evaluations/policy/2026-04-05T14-09-02Z/summary.json`
+- Retuned smoke final success rate: `0.000`
+- Retuned smoke final lateral error: `0.5667`
+- Retuned smoke final axial error: `0.2727`
+- Retuned smoke final rotation error: `2.2674`
+- Retuned smoke interpretation:
+  - the softer shaping and tighter command curriculum did not improve insertion
+  - the policy drifted farther from the socket over rollout instead of converging into alignment
+  - the next iteration should restore stronger geometric tracking and make insertion reward conditional on staying near the socket, not simply soften all gates
+
 ## Failure Modes
 
 - `256 envs / 30 iters` was too heavy for first-pass smoke validation and was stopped to avoid wasting budget before dependency/runtime fixes were complete.
