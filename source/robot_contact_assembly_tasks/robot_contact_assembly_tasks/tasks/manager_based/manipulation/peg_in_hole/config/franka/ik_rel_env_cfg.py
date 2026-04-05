@@ -70,3 +70,23 @@ class FrankaPegInHoleEnvCfg_PLAY(FrankaPegInHoleEnvCfg):
         self.scene.num_envs = 32
         self.scene.env_spacing = 2.5
         self.observations.policy.enable_corruption = False
+
+
+@configclass
+class FrankaPegInHoleEnvCfg_POLISH(FrankaPegInHoleEnvCfg):
+    """Narrow late-stage curriculum for polishing insertion from a near-success checkpoint."""
+
+    def __post_init__(self):
+        super().__post_init__()
+
+        # The base Phase 1 task still samples a fairly broad socket neighborhood so PPO can
+        # learn coarse approach. For checkpoint fine-tuning we want a strictly narrower regime
+        # that keeps the policy near the socket and spends most of its capacity on the final
+        # orientation / insertion refinement.
+        self.commands.socket_pose.ranges.pos_x = (0.505, 0.545)
+        self.commands.socket_pose.ranges.pos_y = (-0.025, 0.025)
+        self.commands.socket_pose.ranges.pos_z = (0.178, 0.202)
+        self.commands.socket_pose.ranges.yaw = (-math.pi / 48.0, math.pi / 48.0)
+
+        self.scene.num_envs = 32
+        self.scene.env_spacing = 2.5

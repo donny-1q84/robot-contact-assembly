@@ -18,6 +18,7 @@ Keep scope fixed to:
 
 Use `RCA-PegInHole-Franka-IK-Rel-Play-v0` only for interactive debugging or visual checks.
 Use `RCA-PegInHole-Franka-IK-Rel-Polish-v0` only when resuming from a strong near-success checkpoint.
+The polish task now uses a narrower socket command curriculum than the base task.
 
 ## Before Starting the GPU
 
@@ -166,6 +167,7 @@ Recommended evaluation:
 Success criterion for this stage:
 
 - rotation error drops without materially losing the lateral and axial gains from the base checkpoint
+- the narrowed command curriculum keeps the policy in the late-stage insertion neighborhood
 
 Stop if:
 

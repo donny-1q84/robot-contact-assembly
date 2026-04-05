@@ -358,3 +358,16 @@
   - the dedicated polish entry point is now stable and reproducible
   - the best measured continuation result is still the earlier manual `finetune_fix8_from_fix6`
   - the next local iteration should focus on better late-stage curriculum or checkpoint selection, not another blind rerun of the same polish config
+
+## Next Local Change After GPU Shutdown
+
+- `RCA-PegInHole-Franka-IK-Rel-Polish-v0` now points to a dedicated `FrankaPegInHoleEnvCfg_POLISH`
+- the polish env keeps the same reward structure but narrows the socket command ranges to a near-socket band:
+  - `pos_x=(0.505, 0.545)`
+  - `pos_y=(-0.025, 0.025)`
+  - `pos_z=(0.178, 0.202)`
+  - `yaw=(-pi/48, pi/48)`
+- intent:
+  - stop using the wide Phase 1 approach curriculum during checkpoint polishing
+  - force the resumed policy to spend most of its rollout budget in the late-stage refinement regime
+- this change has not been re-run yet; it is the next thing to validate when GPU time is resumed
