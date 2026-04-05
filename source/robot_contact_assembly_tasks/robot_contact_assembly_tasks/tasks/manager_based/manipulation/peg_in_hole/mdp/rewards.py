@@ -93,6 +93,31 @@ def approach_pose_reward(
     return coupled_alignment + axial_weight * axial_term * coupled_alignment
 
 
+def late_stage_pose_reward(
+    env: ManagerBasedRLEnv,
+    lateral_std: float,
+    axial_std: float,
+    rot_std: float,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
+) -> torch.Tensor:
+    """Joint late-stage pose reward for checkpoint polishing near the socket.
+
+    The base task already learns how to enter the socket neighborhood. During
+    polish we care less about broad approach and more about keeping position and
+    rotation tight at the same time. Paying the three dimensions independently
+    made it too easy to improve rotation while giving back some lateral or axial
+    accuracy. This term rewards only their simultaneous convergence.
+    """
+
+    lateral_error, axial_error, rot_error = insertion_metrics(env, command_name, asset_cfg, body_offset=body_offset)
+    lateral_term = torch.exp(-torch.square(lateral_error / lateral_std))
+    axial_term = torch.exp(-torch.square(axial_error / axial_std))
+    rot_term = torch.exp(-torch.square(rot_error / rot_std))
+    return torch.pow(torch.clamp(lateral_term * axial_term * rot_term, min=0.0), 1.0 / 3.0)
+
+
 def insertion_progress_reward(
     env: ManagerBasedRLEnv,
     std: float,

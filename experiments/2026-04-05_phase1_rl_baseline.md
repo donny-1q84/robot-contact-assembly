@@ -367,7 +367,14 @@
   - `pos_y=(-0.025, 0.025)`
   - `pos_z=(0.178, 0.202)`
   - `yaw=(-pi/48, pi/48)`
+- the polish env now also replaces the broad `approach_pose_reward` with a dedicated `late_stage_pose_reward`
+  that rewards simultaneous lateral, axial, and rotational convergence instead of broad coarse approach
+- polish reward emphasis is now:
+  - stronger coupled late-stage pose reward
+  - slightly weaker standalone coarse tracking terms
+  - stronger insertion-stage and success terms
 - intent:
   - stop using the wide Phase 1 approach curriculum during checkpoint polishing
   - force the resumed policy to spend most of its rollout budget in the late-stage refinement regime
+  - reduce the old failure mode where rotation improved only by giving back some lateral or axial accuracy
 - this change has not been re-run yet; it is the next thing to validate when GPU time is resumed

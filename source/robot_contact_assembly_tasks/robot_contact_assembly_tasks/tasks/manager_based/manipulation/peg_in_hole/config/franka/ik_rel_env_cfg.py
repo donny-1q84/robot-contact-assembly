@@ -6,6 +6,7 @@ from isaaclab.controllers.differential_ik_cfg import DifferentialIKControllerCfg
 from isaaclab.envs.mdp.actions.actions_cfg import DifferentialInverseKinematicsActionCfg
 from isaaclab.utils import configclass
 
+from ... import mdp
 from ...constants import PEG_TIP_BODY_OFFSET_POS
 from ...peg_in_hole_env_cfg import PegInHoleEnvCfg
 
@@ -87,6 +88,27 @@ class FrankaPegInHoleEnvCfg_POLISH(FrankaPegInHoleEnvCfg):
         self.commands.socket_pose.ranges.pos_y = (-0.025, 0.025)
         self.commands.socket_pose.ranges.pos_z = (0.178, 0.202)
         self.commands.socket_pose.ranges.yaw = (-math.pi / 48.0, math.pi / 48.0)
+
+        # Replace the broad approach reward with a tighter joint pose reward that
+        # only pays simultaneous lateral, axial, and rotational convergence.
+        self.rewards.approach_pose.func = mdp.late_stage_pose_reward
+        self.rewards.approach_pose.weight = 12.0
+        self.rewards.approach_pose.params = {
+            "lateral_std": 0.012,
+            "axial_std": 0.008,
+            "rot_std": 0.40,
+            "command_name": "socket_pose",
+            "asset_cfg": self.rewards.approach_pose.params["asset_cfg"],
+        }
+
+        # In polish mode keep the separate coarse tracking terms weaker so the
+        # coupled late-stage reward and insertion-specific terms dominate.
+        self.rewards.tip_position_tracking.weight = 1.5
+        self.rewards.tip_position_tracking_fine.weight = 5.0
+        self.rewards.tip_orientation_tracking.weight = 1.5
+        self.rewards.insertion_orientation_fine.weight = 10.0
+        self.rewards.insertion_progress.weight = 12.0
+        self.rewards.insertion_success.weight = 80.0
 
         self.scene.num_envs = 32
         self.scene.env_spacing = 2.5
