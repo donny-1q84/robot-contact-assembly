@@ -165,6 +165,12 @@ If you want the whole loop in one command:
 ./scripts/run_remote_polish_cycle.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-Polish-v0 32 50 42 phase1_polish '.*phase1_fix6_formal.*' model_299.pt 400 0
 ```
 
+If the Brev instance has already been deleted and you want a cold-start restore plus the same run:
+
+```bash
+./scripts/recreate_brev_and_run_polish.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-Polish-v0 32 50 42 phase1_polish_v2 '.*phase1_fix6_formal.*' model_299.pt 400 0
+```
+
 Recommended evaluation:
 
 ```bash

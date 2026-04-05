@@ -112,6 +112,8 @@ Once the runtime is bootstrapped, the shortest useful commands are:
   - `./scripts/run_remote_train_ppo.sh`
 - End-to-end polish cycle wrapper:
   - `./scripts/run_remote_polish_cycle.sh`
+- Cold-start Brev reprovision + polish cycle:
+  - `./scripts/recreate_brev_and_run_polish.sh`
 - Fixed-step policy evaluation with JSON summary export:
   - `./scripts/run_remote_eval_policy.sh`
 - Fixed-step checkpoint sweep over a matched run:
@@ -140,6 +142,7 @@ Example:
 
 - `./scripts/run_remote_random_agent.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-Play-v0 1 20`
 - `./scripts/run_remote_polish_cycle.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-Polish-v0 32 50 42 phase1_polish '.*phase1_fix6_formal.*' model_299.pt 400 0`
+- `./scripts/recreate_brev_and_run_polish.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-Polish-v0 32 50 42 phase1_polish_v2 '.*phase1_fix6_formal.*' model_299.pt 400 0`
 - `./scripts/run_remote_eval_checkpoint_sweep.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-Polish-v0 32 400 42 '.*phase1_polish.*' 'model_.*\.pt' 0`
 
 After pulling artifacts, summarize a sweep locally with:
