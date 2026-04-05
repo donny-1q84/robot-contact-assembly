@@ -89,26 +89,34 @@ class FrankaPegInHoleEnvCfg_POLISH(FrankaPegInHoleEnvCfg):
         self.commands.socket_pose.ranges.pos_z = (0.178, 0.202)
         self.commands.socket_pose.ranges.yaw = (-math.pi / 48.0, math.pi / 48.0)
 
-        # Replace the broad approach reward with a tighter joint pose reward that
-        # only pays simultaneous lateral, axial, and rotational convergence.
-        self.rewards.approach_pose.func = mdp.late_stage_pose_reward
-        self.rewards.approach_pose.weight = 12.0
+        # During polish, hold the already-good near-socket position from the base checkpoint
+        # and let the dedicated gated terms refine orientation and insertion.
+        self.rewards.approach_pose.func = mdp.late_stage_position_hold_reward
+        self.rewards.approach_pose.weight = 14.0
         self.rewards.approach_pose.params = {
-            "lateral_std": 0.012,
-            "axial_std": 0.008,
-            "rot_std": 0.40,
+            "lateral_std": 0.010,
+            "axial_std": 0.007,
             "command_name": "socket_pose",
             "asset_cfg": self.rewards.approach_pose.params["asset_cfg"],
         }
 
-        # In polish mode keep the separate coarse tracking terms weaker so the
-        # coupled late-stage reward and insertion-specific terms dominate.
-        self.rewards.tip_position_tracking.weight = 1.5
-        self.rewards.tip_position_tracking_fine.weight = 5.0
-        self.rewards.tip_orientation_tracking.weight = 1.5
-        self.rewards.insertion_orientation_fine.weight = 10.0
-        self.rewards.insertion_progress.weight = 12.0
-        self.rewards.insertion_success.weight = 80.0
+        # Keep the coarse terms present but subordinate. The main objective in polish mode
+        # is to preserve near-zero position error while only paying fine orientation once the
+        # peg is already deep in the near-socket regime.
+        self.rewards.tip_position_tracking.weight = 1.0
+        self.rewards.tip_position_tracking_fine.weight = 6.0
+        self.rewards.tip_orientation_tracking.weight = 0.75
+        self.rewards.insertion_orientation_fine.weight = 14.0
+        self.rewards.insertion_orientation_fine.params["lateral_tolerance"] = 0.012
+        self.rewards.insertion_orientation_fine.params["axial_tolerance"] = 0.010
+        self.rewards.insertion_orientation_fine.params["lateral_std"] = 0.006
+        self.rewards.insertion_orientation_fine.params["axial_std"] = 0.006
+        self.rewards.insertion_progress.weight = 10.0
+        self.rewards.insertion_progress.params["lateral_tolerance"] = 0.012
+        self.rewards.insertion_progress.params["lateral_std"] = 0.008
+        self.rewards.insertion_progress.params["rot_tolerance"] = 0.30
+        self.rewards.insertion_progress.params["rot_std"] = 0.16
+        self.rewards.insertion_success.weight = 90.0
 
         self.scene.num_envs = 32
         self.scene.env_spacing = 2.5

@@ -19,8 +19,7 @@ EXPERIMENT_NAME="${11:-franka_peg_in_hole}"
 
 REMOTE_LOG_ROOT="${RCA_REMOTE_ROOT}/repo/robot-contact-assembly/logs/rsl_rl/${EXPERIMENT_NAME}"
 RUN_DIR="$(
-  ssh "${RCA_ENV_NAME}" \
-    "find '${REMOTE_LOG_ROOT}' -mindepth 1 -maxdepth 1 -type d | grep -E '${LOAD_RUN_REGEX}' | sort | tail -n 1"
+  ssh "${RCA_ENV_NAME}"     "find '${REMOTE_LOG_ROOT}' -mindepth 1 -maxdepth 1 -type d | grep -E '${LOAD_RUN_REGEX}' | sort | tail -n 1"     | tr -d '\r'
 )"
 
 if [[ -z "${RUN_DIR}" ]]; then
@@ -30,11 +29,11 @@ fi
 
 CHECKPOINTS=()
 while IFS= read -r checkpoint; do
+  checkpoint="${checkpoint//$'\r'/}"
   [[ -n "${checkpoint}" ]] || continue
   CHECKPOINTS+=("${checkpoint}")
 done < <(
-  ssh "${RCA_ENV_NAME}" \
-    "find '${RUN_DIR}' -maxdepth 1 -type f -name 'model_*.pt' | sed 's#.*/##' | grep -E '${CHECKPOINT_REGEX}' | sort"
+  ssh "${RCA_ENV_NAME}"     "find '${RUN_DIR}' -maxdepth 1 -type f -name 'model_*.pt' | sed 's#.*/##' | grep -E '${CHECKPOINT_REGEX}' | sort"     | tr -d '\r'
 )
 
 if [[ ${#CHECKPOINTS[@]} -eq 0 ]]; then
@@ -52,7 +51,7 @@ echo "[checkpoint-sweep] checkpoints=${#CHECKPOINTS[@]}"
 
 for checkpoint in "${CHECKPOINTS[@]}"; do
   echo "[checkpoint-sweep] evaluating ${checkpoint}"
-  bash "${SCRIPT_DIR}/run_remote_eval_policy.sh" \
+  RCA_RESTART_BEFORE_EVAL=1 bash "${SCRIPT_DIR}/run_remote_eval_policy.sh" \
     "${RCA_ENV_NAME}" \
     "${RCA_REMOTE_ROOT}" \
     "${RCA_REMOTE_COMPOSE_ROOT}" \

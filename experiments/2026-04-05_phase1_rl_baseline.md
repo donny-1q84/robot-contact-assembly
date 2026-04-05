@@ -411,3 +411,22 @@
 - Next local change should focus on:
   - preserving the `fix6` positional gains while making late-stage rotation shaping less destabilizing
   - checkpoint selection or curriculum staging based on actual metric windows, not a fixed 50-iteration polish schedule
+
+
+## Polish V3 Fix6b Validation
+
+- Validation run name: `phase1_polish_v3_fix6b`
+- Source run regex: `.*phase1_fix6_formal.*`
+- Source checkpoint: `model_50.pt`
+- Local train log: `/Volumes/Extreme Pro/Projects/robot-contact-assembly/artifacts/train_runs/2026-04-05T15-53-44Z_phase1_polish_v3_fix6b/train.log`
+- Completed fixed-step evals:
+  - `model_50.pt`: `lateral=0.0816`, `axial=0.2035`, `rot=1.8454`
+  - `model_99.pt`: `lateral=0.0682`, `axial=0.1037`, `rot=0.8494`
+- Interpretation:
+  - `Polish v3` is more stable than the rejected `Polish v2` path in the sense that the final checkpoint no longer explodes away from the socket neighborhood.
+  - But it still does not beat the current best continuation result `finetune_fix8_from_fix6` (`lateral=0.0105`, `axial=0.0092`, `rot=0.6265`), and it is also worse than the base `phase1_fix6_formal` checkpoint on all three fixed-step eval metrics.
+  - The new `late_stage_position_hold_reward` avoided the worst `Polish v2` drift pattern, but the late-stage orientation / insertion terms still are not strong enough to turn that stability into a better final checkpoint.
+- Runtime note:
+  - repeated evals on the same live `isaac-sim` container can hang after the first successful checkpoint evaluation
+  - restarting `isaac-sim` before each subsequent eval restored correct behavior
+  - the remote checkpoint sweep wrapper now forces a container restart before every checkpoint evaluation

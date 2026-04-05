@@ -118,6 +118,29 @@ def late_stage_pose_reward(
     return torch.pow(torch.clamp(lateral_term * axial_term * rot_term, min=0.0), 1.0 / 3.0)
 
 
+def late_stage_position_hold_reward(
+    env: ManagerBasedRLEnv,
+    lateral_std: float,
+    axial_std: float,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
+) -> torch.Tensor:
+    """Keep the peg tightly centered near the socket during checkpoint polishing.
+
+    The base run already reaches a good coarse pose neighborhood. In polish mode we
+    first need to *hold* that lateral / axial accuracy while a separate gated reward
+    sharpens orientation. Coupling rotation into this term made PPO happily improve
+    orientation while giving back the near-zero position errors learned by the base
+    checkpoint.
+    """
+
+    lateral_error, axial_error, _ = insertion_metrics(env, command_name, asset_cfg, body_offset=body_offset)
+    lateral_term = torch.exp(-torch.square(lateral_error / lateral_std))
+    axial_term = torch.exp(-torch.square(axial_error / axial_std))
+    return torch.sqrt(torch.clamp(lateral_term * axial_term, min=0.0))
+
+
 def insertion_progress_reward(
     env: ManagerBasedRLEnv,
     std: float,

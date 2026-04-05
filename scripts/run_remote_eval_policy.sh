@@ -15,6 +15,7 @@ SEED="${7:-42}"
 LOAD_RUN="${8:-.*}"
 CHECKPOINT="${9:-model_.*.pt}"
 EXTRA_EVAL_ARGS="${10:-}"
+RESTART_BEFORE_EVAL="${RCA_RESTART_BEFORE_EVAL:-0}"
 
 TIMESTAMP_UTC="$(date -u +"%Y-%m-%dT%H-%M-%SZ")"
 REMOTE_EVAL_DIR="/workspace/artifacts/evaluations/policy/${TIMESTAMP_UTC}"
@@ -27,6 +28,12 @@ echo "[eval-policy] env=${RCA_ENV_NAME} task=${TASK_NAME} num_envs=${NUM_ENVS} s
 echo "[eval-policy] load_run=${LOAD_RUN} checkpoint=${CHECKPOINT}"
 if [[ -n "${EXTRA_EVAL_ARGS}" ]]; then
   echo "[eval-policy] extra_eval_args=${EXTRA_EVAL_ARGS}"
+fi
+if [[ "${RESTART_BEFORE_EVAL}" == "1" ]]; then
+  echo "[eval-policy] restarting isaac-sim container before evaluation"
+  rca_remote_host_exec "set -euo pipefail
+cd "${RCA_REMOTE_COMPOSE_ROOT}"
+${RCA_COMPOSE_BASE} restart isaac-sim"
 fi
 
 rca_remote_container_exec "mkdir -p '${REMOTE_EVAL_DIR}' '${REMOTE_HYDRA_DIR}'"
