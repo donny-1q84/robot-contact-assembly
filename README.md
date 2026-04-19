@@ -193,6 +193,18 @@ Interpretation:
 - Phase 2 has crossed the tooling threshold from "contact shell exists" to "direct contact training path is alive"
 - the next meaningful step is a longer direct contact-baseline run, not more proxy transfer experiments
 
+## Current Blocker
+
+The next planned run is `phase2_contact_baseline_v2`, but the latest attempt to launch it on a fresh Brev machine was blocked by runtime bootstrap, not by task code:
+
+- fresh GPU instances could be created and reached by SSH
+- repo bootstrap and sync succeeded
+- the tuned direct-contact config is already committed locally
+- the failure happened during fresh-machine `nvcr.io/nvidia/isaac-sim:6.0.0-dev2` bootstrap inside `install_remote_isaaclab_runtime.sh`
+- no new baseline metrics were produced from that blocked attempt
+
+Until the fresh-machine Isaac Sim image pull/compose path is healthy again, the correct next step is to retry runtime bootstrap, not to retune PPO blindly.
+
 ## First Contact Validation
 
 The first useful validation sequence for the new contact shell is:

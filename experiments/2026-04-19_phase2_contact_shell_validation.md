@@ -179,3 +179,57 @@ The project now has the minimum ingredients required for a real Phase 2 baseline
 3. PPO training and evaluation flow that works on the new task
 
 The next useful experiment is a longer direct contact-baseline run on `RCA-PegInHole-Franka-IK-Rel-Contact-v0`, not another proxy transfer test.
+
+## Follow-up: Direct Contact Baseline Attempt Blocked by Runtime Bootstrap
+
+After the first force-aware smoke, the next step was to start a longer direct baseline on the tuned `Contact-v0` task. The local task config was tightened first, but the run did **not** reach training because fresh Brev instances failed during Isaac Sim runtime bootstrap.
+
+### Local Config Changes Prepared
+
+- commit: `737eee0`
+- summary:
+  - reduced contact-task relative-IK action scale from `0.5` to `0.2`
+  - tightened reset joint range to `(0.97, 1.03)`
+  - disabled observation corruption for the first direct-contact baseline
+  - switched `RCA-PegInHole-Franka-IK-Rel-Contact-v0` to a dedicated PPO runner with:
+    - `init_noise_std=0.5`
+    - `learning_rate=3e-4`
+    - `entropy_coef=5e-4`
+    - `num_steps_per_env=32`
+
+### Intended Training Command
+
+```bash
+./scripts/run_remote_train_ppo.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-Contact-v0 64 100 42 phase2_contact_baseline_v2
+```
+
+### What Happened
+
+- attempted fresh Brev instances:
+  - `isaac-contact`
+  - `isaac-direct`
+- both instances were created successfully
+- SSH eventually became available on `isaac-direct`
+- repo bootstrap and sync completed
+- `install_remote_isaaclab_runtime.sh` stalled on the fresh-machine Isaac Sim bootstrap path
+
+### Observed Failure Mode
+
+- the runtime install remained stuck inside:
+  - `sudo docker compose ... up -d --build`
+- `nvcr.io/nvidia/isaac-sim:6.0.0-dev2` reported long-running pull/extract progress
+- Docker root usage stayed near-empty (`/var/lib/docker` stayed around the low hundreds of MB), which did **not** match the reported multi-GB image progress
+- `isaac-runner` never appeared
+- `check_remote_runtime.sh` failed because no containers had been created yet
+
+### Interpretation
+
+- this was an infrastructure/runtime bootstrap failure on a fresh GPU instance, not a task-code or PPO-config failure
+- no new Phase 2 baseline metrics were produced
+- the tuned direct-contact baseline config is ready locally, but still awaits a stable fresh-machine Isaac Sim install
+
+### Decision
+
+- stop the run instead of burning more GPU time on a broken runtime bootstrap
+- preserve the local config changes as the next baseline entry point
+- retry the `phase2_contact_baseline_v2` run only once Brev/NVCR image bootstrap is behaving normally again
