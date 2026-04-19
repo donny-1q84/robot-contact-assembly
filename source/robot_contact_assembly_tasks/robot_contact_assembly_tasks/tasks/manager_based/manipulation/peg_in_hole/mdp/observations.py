@@ -22,6 +22,36 @@ def _to_torch(data: torch.Tensor) -> torch.Tensor:
     return data if isinstance(data, torch.Tensor) else wp.to_torch(data)
 
 
+def _quat_conjugate(quat: torch.Tensor) -> torch.Tensor:
+    """Quaternion conjugate for `(w, x, y, z)` tensors."""
+
+    return torch.cat((quat[..., :1], -quat[..., 1:]), dim=-1)
+
+
+def _quat_multiply(lhs: torch.Tensor, rhs: torch.Tensor) -> torch.Tensor:
+    """Hamilton product for `(w, x, y, z)` quaternions."""
+
+    w1, x1, y1, z1 = lhs.unbind(dim=-1)
+    w2, x2, y2, z2 = rhs.unbind(dim=-1)
+    return torch.stack(
+        (
+            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+        ),
+        dim=-1,
+    )
+
+
+def _rotate_vector_inverse(quat: torch.Tensor, vec: torch.Tensor) -> torch.Tensor:
+    """Rotate world-frame vectors into the local frame of `quat`."""
+
+    zeros = torch.zeros_like(vec[..., :1])
+    vec_quat = torch.cat((zeros, vec), dim=-1)
+    return _quat_multiply(_quat_multiply(_quat_conjugate(quat), vec_quat), quat)[..., 1:]
+
+
 def _peg_root_pose_w(env: ManagerBasedRLEnv, peg_cfg: SceneEntityCfg) -> tuple[torch.Tensor, torch.Tensor]:
     """World pose of the physical peg body."""
 
@@ -94,3 +124,30 @@ def peg_contact_force_magnitude(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityC
     if net_forces.ndim == 3:
         net_forces = net_forces.sum(dim=1)
     return torch.linalg.norm(net_forces, dim=-1, keepdim=True)
+
+
+def peg_contact_force_socket(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    socket_cfg: SceneEntityCfg,
+    force_scale: float = 20.0,
+) -> torch.Tensor:
+    """Net contact force on the peg, expressed in the socket frame and squashed with tanh."""
+
+    sensor: ContactSensor = env.scene[sensor_cfg.name]
+    net_forces = _to_torch(sensor.data.net_forces_w)
+    if net_forces.ndim == 3:
+        net_forces = net_forces.sum(dim=1)
+    _, socket_quat_w = _socket_pose_w(env, socket_cfg)
+    local_forces = _rotate_vector_inverse(socket_quat_w, net_forces)
+    return torch.tanh(local_forces / force_scale)
+
+
+def peg_contact_force_magnitude_scaled(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    force_scale: float = 20.0,
+) -> torch.Tensor:
+    """Bounded contact magnitude for force-aware policies."""
+
+    return torch.tanh(peg_contact_force_magnitude(env, sensor_cfg) / force_scale)

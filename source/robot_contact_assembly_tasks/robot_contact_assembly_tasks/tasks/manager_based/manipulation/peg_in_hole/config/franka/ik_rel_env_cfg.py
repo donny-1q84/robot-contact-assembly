@@ -6,6 +6,7 @@ from isaaclab.utils import configclass
 
 from ...constants import PEG_TIP_BODY_OFFSET_POS
 from ...peg_in_hole_env_cfg import PegInHoleEnvCfg
+from ...peg_in_hole_env_cfg import PegInHoleContactEnvCfg
 
 ##
 # Pre-defined configs
@@ -58,3 +59,40 @@ class FrankaPegInHoleEnvCfg_POLISH(FrankaPegInHoleEnvCfg):
         super().__post_init__()
         self.scene.num_envs = 32
         self.scene.env_spacing = 2.5
+
+
+@configclass
+class FrankaPegInHoleContactEnvCfg(PegInHoleContactEnvCfg):
+    """Franka contact task with force-aware observations for direct contact training."""
+
+    def __post_init__(self):
+        super().__post_init__()
+
+        self.scene.robot = FRANKA_PANDA_HIGH_PD_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+        self.actions.arm_action = DifferentialInverseKinematicsActionCfg(
+            asset_name="robot",
+            joint_names=["panda_joint.*"],
+            body_name="panda_hand",
+            controller=DifferentialIKControllerCfg(command_type="pose", use_relative_mode=True, ik_method="dls"),
+            scale=0.5,
+            body_offset=DifferentialInverseKinematicsActionCfg.OffsetCfg(pos=PEG_TIP_BODY_OFFSET_POS),
+        )
+
+        self.commands.socket_pose.body_name = "panda_hand"
+        self.events.sync_peg_on_reset.params["robot_cfg"].body_names = ["panda_hand"]
+        self.events.sync_peg_each_step.params["robot_cfg"].body_names = ["panda_hand"]
+
+        self.scene.num_envs = 256
+        self.scene.env_spacing = 2.5
+
+
+@configclass
+class FrankaPegInHoleContactEnvCfg_PLAY(FrankaPegInHoleContactEnvCfg):
+    """Smaller force-aware contact task for smoke tests and debugging."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 32
+        self.scene.env_spacing = 2.5
+        self.observations.policy.enable_corruption = False

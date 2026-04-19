@@ -257,6 +257,47 @@ class ObservationsCfg:
 
 
 @configclass
+class ContactObservationsCfg:
+    """Force-aware observation specs for direct contact training."""
+
+    @configclass
+    class PolicyCfg(ObsGroup):
+        joint_pos = ObsTerm(func=base_mdp.joint_pos_rel)
+        joint_vel = ObsTerm(func=base_mdp.joint_vel_rel)
+        socket_pose = ObsTerm(
+            func=mdp.socket_pose,
+            params={"asset_cfg": SceneEntityCfg("robot"), "socket_cfg": SceneEntityCfg("socket_frame")},
+        )
+        tip_to_socket_position = ObsTerm(
+            func=mdp.tip_to_socket_position,
+            params={"peg_cfg": SceneEntityCfg("peg"), "socket_cfg": SceneEntityCfg("socket_frame")},
+        )
+        tip_to_socket_orientation = ObsTerm(
+            func=mdp.tip_to_socket_orientation,
+            params={"peg_cfg": SceneEntityCfg("peg"), "socket_cfg": SceneEntityCfg("socket_frame")},
+        )
+        peg_contact_force_socket = ObsTerm(
+            func=mdp.peg_contact_force_socket,
+            params={
+                "sensor_cfg": SceneEntityCfg("peg_contact"),
+                "socket_cfg": SceneEntityCfg("socket_frame"),
+                "force_scale": 20.0,
+            },
+        )
+        peg_contact_force_magnitude = ObsTerm(
+            func=mdp.peg_contact_force_magnitude_scaled,
+            params={"sensor_cfg": SceneEntityCfg("peg_contact"), "force_scale": 20.0},
+        )
+        actions = ObsTerm(func=base_mdp.last_action)
+
+        def __post_init__(self):
+            self.enable_corruption = True
+            self.concatenate_terms = True
+
+    policy: PolicyCfg = PolicyCfg()
+
+
+@configclass
 class EventCfg:
     """Reset and rigid-attachment events."""
 
@@ -414,3 +455,10 @@ class PegInHoleEnvCfg(ManagerBasedRLEnvCfg):
                 "spacemouse": Se3SpaceMouseCfg(gripper_term=False, sim_device=self.sim.device),
             }
         )
+
+
+@configclass
+class PegInHoleContactEnvCfg(PegInHoleEnvCfg):
+    """Contact-shell environment with force-aware policy observations."""
+
+    observations: ContactObservationsCfg = ContactObservationsCfg()

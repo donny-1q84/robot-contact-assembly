@@ -128,8 +128,17 @@ The current runnable Isaac Lab shell is still intentionally simple, but it now i
   - `RCA-PegInHole-Franka-IK-Rel-v0`
   - `RCA-PegInHole-Franka-IK-Rel-Play-v0`
   - `RCA-PegInHole-Franka-IK-Rel-Polish-v0`
+  - `RCA-PegInHole-Franka-IK-Rel-Contact-v0`
+  - `RCA-PegInHole-Franka-IK-Rel-Contact-Play-v0`
 
 The policy observation contract is still kept Phase-1 compatible so the best proxy checkpoint can be evaluated zero-shot in the new contact shell before adding force terms to the actor.
+
+The new `Contact` task IDs are the first force-aware training path. They preserve the same core pose observations as `v0`, but add:
+
+- peg contact force vector in the socket frame
+- peg contact force magnitude
+
+Keep using `RCA-PegInHole-Franka-IK-Rel-v0` for transfer/regression. Use `RCA-PegInHole-Franka-IK-Rel-Contact-v0` for the first direct contact-training baseline.
 
 ## Current Limitation
 
@@ -224,6 +233,8 @@ Once the runtime is bootstrapped, the shortest useful commands are:
   - `./scripts/run_remote_train_ppo.sh`
 - Short contact-baseline smoke run:
   - `./scripts/run_remote_train_ppo.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-v0 64 5 42 phase2_contact_smoke`
+- Short force-aware contact smoke run:
+  - `./scripts/run_remote_train_ppo.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-Contact-v0 64 5 42 phase2_contact_force_smoke`
 - End-to-end polish cycle wrapper:
   - `./scripts/run_remote_polish_cycle.sh`
 - Cold-start Brev reprovision + polish cycle:
