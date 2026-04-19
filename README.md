@@ -161,6 +161,31 @@ The first contact-shell validation was run on `2026-04-19` against the upgraded 
 
 See [experiments/2026-04-19_phase2_contact_shell_validation.md](experiments/2026-04-19_phase2_contact_shell_validation.md) for the exact commands, artifact paths, and interpretation.
 
+## First Force-Aware Contact Smoke
+
+The first direct contact-training smoke run was also completed on `2026-04-19` using:
+
+- task: `RCA-PegInHole-Franka-IK-Rel-Contact-v0`
+- observations: `42` dims (`38` Phase-1-compatible pose terms + `4` contact-force terms)
+- run: `phase2_contact_force_smoke`
+- training budget: `64 envs`, `5` PPO iterations
+
+What it proved:
+
+- the new force-aware task boots and trains end-to-end on GPU
+- the actor/critic resize cleanly to the `42`-dim observation contract
+- the workflow now produces contact-task checkpoints and eval artifacts without additional infrastructure work
+
+What it did **not** prove:
+
+- the resulting `model_4.pt` is not yet useful
+- short eval on the smoke checkpoint ended at `final_lateral=0.6005`, `final_axial=0.6296`, `final_rot=2.4156`, `success=0.000`
+
+Interpretation:
+
+- Phase 2 has crossed the tooling threshold from "contact shell exists" to "direct contact training path is alive"
+- the next meaningful step is a longer direct contact-baseline run, not more proxy transfer experiments
+
 ## First Contact Validation
 
 The first useful validation sequence for the new contact shell is:
