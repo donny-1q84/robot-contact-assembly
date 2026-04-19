@@ -138,6 +138,13 @@ The new `Contact` task IDs are the first force-aware training path. They preserv
 - peg contact force vector in the socket frame
 - peg contact force magnitude
 
+The direct-contact training path now also uses a contact-specific baseline setup:
+
+- lower relative-IK action scale
+- tighter reset around the nominal start posture
+- observation corruption disabled for the first direct-contact baseline
+- a dedicated PPO runner with lower exploration noise and a smaller learning rate
+
 Keep using `RCA-PegInHole-Franka-IK-Rel-v0` for transfer/regression. Use `RCA-PegInHole-Franka-IK-Rel-Contact-v0` for the first direct contact-training baseline.
 
 ## Current Limitation
@@ -260,6 +267,8 @@ Once the runtime is bootstrapped, the shortest useful commands are:
   - `./scripts/run_remote_train_ppo.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-v0 64 5 42 phase2_contact_smoke`
 - Short force-aware contact smoke run:
   - `./scripts/run_remote_train_ppo.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-Contact-v0 64 5 42 phase2_contact_force_smoke`
+- First direct contact baseline:
+  - `./scripts/run_remote_train_ppo.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-Contact-v0 64 100 42 phase2_contact_baseline_v2`
 - End-to-end polish cycle wrapper:
   - `./scripts/run_remote_polish_cycle.sh`
 - Cold-start Brev reprovision + polish cycle:

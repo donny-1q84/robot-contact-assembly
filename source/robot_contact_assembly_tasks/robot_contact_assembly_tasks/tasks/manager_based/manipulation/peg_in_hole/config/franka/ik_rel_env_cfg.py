@@ -75,13 +75,15 @@ class FrankaPegInHoleContactEnvCfg(PegInHoleContactEnvCfg):
             joint_names=["panda_joint.*"],
             body_name="panda_hand",
             controller=DifferentialIKControllerCfg(command_type="pose", use_relative_mode=True, ik_method="dls"),
-            scale=0.5,
+            scale=0.2,
             body_offset=DifferentialInverseKinematicsActionCfg.OffsetCfg(pos=PEG_TIP_BODY_OFFSET_POS),
         )
 
         self.commands.socket_pose.body_name = "panda_hand"
         self.events.sync_peg_on_reset.params["robot_cfg"].body_names = ["panda_hand"]
         self.events.sync_peg_each_step.params["robot_cfg"].body_names = ["panda_hand"]
+        self.events.reset_robot_joints.params["position_range"] = (0.97, 1.03)
+        self.observations.policy.enable_corruption = False
 
         self.scene.num_envs = 256
         self.scene.env_spacing = 2.5

@@ -67,3 +67,36 @@ class FrankaPegInHolePPOPolishRunnerCfg(RslRlOnPolicyRunnerCfg):
         desired_kl=0.005,
         max_grad_norm=1.0,
     )
+
+
+@configclass
+class FrankaPegInHoleContactPPORunnerCfg(RslRlOnPolicyRunnerCfg):
+    """First direct-contact PPO config with lower exploration and more rollout context."""
+
+    num_steps_per_env = 32
+    max_iterations = 1000
+    save_interval = 25
+    experiment_name = "franka_peg_in_hole"
+    run_name = ""
+    policy = RslRlPpoActorCriticCfg(
+        init_noise_std=0.5,
+        actor_obs_normalization=False,
+        critic_obs_normalization=False,
+        actor_hidden_dims=[128, 128, 64],
+        critic_hidden_dims=[128, 128, 64],
+        activation="elu",
+    )
+    algorithm = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.0005,
+        num_learning_epochs=8,
+        num_mini_batches=4,
+        learning_rate=3.0e-4,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.95,
+        desired_kl=0.005,
+        max_grad_norm=1.0,
+    )
