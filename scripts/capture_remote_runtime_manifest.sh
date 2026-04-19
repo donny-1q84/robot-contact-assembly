@@ -24,25 +24,31 @@ cat > '${REMOTE_MANIFEST_FILE}' <<'EOF'
 - env_name: ${RCA_ENV_NAME}
 - remote_root: ${RCA_REMOTE_ROOT}
 - remote_compose_root: ${RCA_REMOTE_COMPOSE_ROOT}
+- task_container: ${RCA_REMOTE_TASK_CONTAINER}
 
 ## Compose status
 EOF
 ${RCA_COMPOSE_BASE} ps >> '${REMOTE_MANIFEST_FILE}'
 cat >> '${REMOTE_MANIFEST_FILE}' <<'EOF'
 
+## Task container
+EOF
+sudo docker ps --filter "name=^/${RCA_REMOTE_TASK_CONTAINER}$" --format "table {{.Names}}\t{{.Status}}\t{{.Image}}" >> '${REMOTE_MANIFEST_FILE}'
+cat >> '${REMOTE_MANIFEST_FILE}' <<'EOF'
+
 ## Container package versions
 EOF
-${RCA_COMPOSE_BASE} exec -T isaac-sim bash -lc \"/isaac-sim/python.sh -m pip show numpy pillow lxml h5py hydra-core isaaclab isaaclab-rl 2>/dev/null | egrep '^(Name|Version):'\" >> '${REMOTE_MANIFEST_FILE}'
+sudo docker exec -i '${RCA_REMOTE_TASK_CONTAINER}' bash -lc \"/isaac-sim/python.sh -m pip show numpy pillow lxml h5py hydra-core isaaclab isaaclab-rl 2>/dev/null | egrep '^(Name|Version):'\" >> '${REMOTE_MANIFEST_FILE}'
 cat >> '${REMOTE_MANIFEST_FILE}' <<'EOF'
 
 ## Python runtime
 EOF
-${RCA_COMPOSE_BASE} exec -T isaac-sim bash -lc \"/isaac-sim/python.sh --version\" >> '${REMOTE_MANIFEST_FILE}'
+sudo docker exec -i '${RCA_REMOTE_TASK_CONTAINER}' bash -lc \"/isaac-sim/python.sh --version\" >> '${REMOTE_MANIFEST_FILE}'
 cat >> '${REMOTE_MANIFEST_FILE}' <<'EOF'
 
 ## Registered peg-in-hole environments
 EOF
-${RCA_COMPOSE_BASE} exec -T isaac-sim bash -lc \"cd /workspace/robot-contact-assembly && /isaac-sim/python.sh scripts/list_envs.py --keyword PegInHole\" >> '${REMOTE_MANIFEST_FILE}'
+sudo docker exec -i '${RCA_REMOTE_TASK_CONTAINER}' bash -lc \"cd /workspace/robot-contact-assembly && /isaac-sim/python.sh scripts/list_envs.py --keyword PegInHole\" >> '${REMOTE_MANIFEST_FILE}'
 cat >> '${REMOTE_MANIFEST_FILE}' <<'EOF'
 
 ## Git status

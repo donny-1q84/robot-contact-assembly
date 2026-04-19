@@ -9,14 +9,15 @@ Current task shell:
 - `RCA-PegInHole-Franka-IK-Rel-v0`
 - `RCA-PegInHole-Franka-IK-Rel-Play-v0`
 
-The first shell is an insertion-only baseline:
+The mainline task shell is now a contact-guided insertion baseline:
 
 - Franka Panda
 - relative differential IK
-- peg tip modeled as a fixed tool offset
-- socket target modeled as a commanded pose in the robot root frame
+- physical peg rigid body that follows the end-effector
+- fixed guide-socket walls around a physical socket frame anchor
+- success measured against the physical peg/socket frame, not the old synthetic offset target
 
-This is a deliberate first step. It is enough to validate task registration, action/observation contracts, reward shaping, and PPO wiring before adding a grasped rigid peg, explicit socket geometry, and contact-driven success logic.
+The policy observation contract intentionally stays Phase-1 compatible for now so the best proxy checkpoint can be evaluated zero-shot in the new contact shell before adding force terms to the actor.
 
 ## Install
 

@@ -26,14 +26,14 @@ REMOTE_HYDRA_DIR="/workspace/artifacts/hydra/eval_${TIMESTAMP_UTC}"
 
 echo "[eval-policy] env=${RCA_ENV_NAME} task=${TASK_NAME} num_envs=${NUM_ENVS} steps=${STEPS} seed=${SEED}"
 echo "[eval-policy] load_run=${LOAD_RUN} checkpoint=${CHECKPOINT}"
+echo "[eval-policy] task_container=${RCA_REMOTE_TASK_CONTAINER}"
 if [[ -n "${EXTRA_EVAL_ARGS}" ]]; then
   echo "[eval-policy] extra_eval_args=${EXTRA_EVAL_ARGS}"
 fi
 if [[ "${RESTART_BEFORE_EVAL}" == "1" ]]; then
-  echo "[eval-policy] restarting isaac-sim container before evaluation"
+  echo "[eval-policy] restarting ${RCA_REMOTE_TASK_CONTAINER} before evaluation"
   rca_remote_host_exec "set -euo pipefail
-cd "${RCA_REMOTE_COMPOSE_ROOT}"
-${RCA_COMPOSE_BASE} restart isaac-sim"
+sudo docker restart '${RCA_REMOTE_TASK_CONTAINER}'"
 fi
 
 rca_remote_container_exec "mkdir -p '${REMOTE_EVAL_DIR}' '${REMOTE_HYDRA_DIR}'"

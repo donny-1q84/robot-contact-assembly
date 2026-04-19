@@ -8,77 +8,89 @@ import warp as wp
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.math import combine_frame_transforms, subtract_frame_transforms
 
-from ..constants import PEG_TIP_BODY_OFFSET_POS, PEG_TIP_BODY_OFFSET_ROT
+from ..constants import PEG_TIP_FROM_CENTER_POS
 
 if TYPE_CHECKING:
     from isaaclab.assets import RigidObject
     from isaaclab.envs import ManagerBasedRLEnv
+    from isaaclab.sensors import ContactSensor
 
 
-def _body_offset_tensors(
-    reference: torch.Tensor,
-    body_offset: tuple[float, float, float],
-    body_rot_offset: tuple[float, float, float, float],
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Create batched offset tensors for a peg tip rigidly attached to the tool frame."""
+def _to_torch(data: torch.Tensor) -> torch.Tensor:
+    """Return a torch tensor regardless of whether the backing storage is warp or torch."""
 
-    offset_pos = reference.new_tensor(body_offset).unsqueeze(0).repeat(reference.shape[0], 1)
-    offset_quat = reference.new_tensor(body_rot_offset).unsqueeze(0).repeat(reference.shape[0], 1)
-    return offset_pos, offset_quat
+    return data if isinstance(data, torch.Tensor) else wp.to_torch(data)
 
 
-def _tool_tip_pose_w(
+def _peg_root_pose_w(env: ManagerBasedRLEnv, peg_cfg: SceneEntityCfg) -> tuple[torch.Tensor, torch.Tensor]:
+    """World pose of the physical peg body."""
+
+    peg: RigidObject = env.scene[peg_cfg.name]
+    return _to_torch(peg.data.root_pos_w), _to_torch(peg.data.root_quat_w)
+
+
+def _socket_pose_w(env: ManagerBasedRLEnv, socket_cfg: SceneEntityCfg) -> tuple[torch.Tensor, torch.Tensor]:
+    """World pose of the physical socket frame anchor."""
+
+    socket: RigidObject = env.scene[socket_cfg.name]
+    return _to_torch(socket.data.root_pos_w), _to_torch(socket.data.root_quat_w)
+
+
+def _peg_tip_pose_w(env: ManagerBasedRLEnv, peg_cfg: SceneEntityCfg) -> tuple[torch.Tensor, torch.Tensor]:
+    """Peg-tip world pose computed from the physical peg body center."""
+
+    peg_pos_w, peg_quat_w = _peg_root_pose_w(env, peg_cfg)
+    tip_offset_pos = peg_pos_w.new_tensor(PEG_TIP_FROM_CENTER_POS).unsqueeze(0).repeat(peg_pos_w.shape[0], 1)
+    tip_offset_quat = peg_pos_w.new_tensor((1.0, 0.0, 0.0, 0.0)).unsqueeze(0).repeat(peg_pos_w.shape[0], 1)
+    return combine_frame_transforms(peg_pos_w, peg_quat_w, tip_offset_pos, tip_offset_quat)
+
+
+def socket_pose(
     env: ManagerBasedRLEnv,
     asset_cfg: SceneEntityCfg,
-    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
-    body_rot_offset: tuple[float, float, float, float] = PEG_TIP_BODY_OFFSET_ROT,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Tool-tip world pose computed from the selected robot body and a fixed peg-tip offset."""
+    socket_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+    """Socket frame pose expressed in the robot root frame."""
 
-    asset: RigidObject = env.scene[asset_cfg.name]
-    body_pos_w = wp.to_torch(asset.data.body_pos_w)[:, asset_cfg.body_ids[0]]  # type: ignore[index]
-    body_quat_w = wp.to_torch(asset.data.body_quat_w)[:, asset_cfg.body_ids[0]]  # type: ignore[index]
-    offset_pos, offset_quat = _body_offset_tensors(body_pos_w, body_offset, body_rot_offset)
-    return combine_frame_transforms(body_pos_w, body_quat_w, offset_pos, offset_quat)
-
-
-def _socket_pose_w(
-    env: ManagerBasedRLEnv,
-    command_name: str,
-    asset_cfg: SceneEntityCfg,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Desired socket pose in world coordinates, expressed relative to the robot root frame."""
-
-    asset: RigidObject = env.scene[asset_cfg.name]
-    command = env.command_manager.get_command(command_name)
-    root_pos_w = wp.to_torch(asset.data.root_pos_w)
-    root_quat_w = wp.to_torch(asset.data.root_quat_w)
-    return combine_frame_transforms(root_pos_w, root_quat_w, command[:, :3], command[:, 3:7])
+    robot = env.scene[asset_cfg.name]
+    root_pos_w = _to_torch(robot.data.root_pos_w)
+    root_quat_w = _to_torch(robot.data.root_quat_w)
+    socket_pos_w, socket_quat_w = _socket_pose_w(env, socket_cfg)
+    rel_pos, rel_quat = subtract_frame_transforms(root_pos_w, root_quat_w, socket_pos_w, socket_quat_w)
+    return torch.cat((rel_pos, rel_quat), dim=1)
 
 
 def tip_to_socket_position(
     env: ManagerBasedRLEnv,
-    command_name: str,
-    asset_cfg: SceneEntityCfg,
-    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
+    peg_cfg: SceneEntityCfg,
+    socket_cfg: SceneEntityCfg,
 ) -> torch.Tensor:
-    """Tool-tip position error in the socket frame."""
+    """Peg-tip position error in the physical socket frame."""
 
-    tip_pos_w, tip_quat_w = _tool_tip_pose_w(env, asset_cfg, body_offset=body_offset)
-    socket_pos_w, socket_quat_w = _socket_pose_w(env, command_name, asset_cfg)
+    tip_pos_w, tip_quat_w = _peg_tip_pose_w(env, peg_cfg)
+    socket_pos_w, socket_quat_w = _socket_pose_w(env, socket_cfg)
     rel_pos, _ = subtract_frame_transforms(socket_pos_w, socket_quat_w, tip_pos_w, tip_quat_w)
     return rel_pos
 
 
 def tip_to_socket_orientation(
     env: ManagerBasedRLEnv,
-    command_name: str,
-    asset_cfg: SceneEntityCfg,
-    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
+    peg_cfg: SceneEntityCfg,
+    socket_cfg: SceneEntityCfg,
 ) -> torch.Tensor:
-    """Tool-tip orientation error represented as a relative quaternion in the socket frame."""
+    """Peg-tip orientation error represented as a relative quaternion in the socket frame."""
 
-    tip_pos_w, tip_quat_w = _tool_tip_pose_w(env, asset_cfg, body_offset=body_offset)
-    socket_pos_w, socket_quat_w = _socket_pose_w(env, command_name, asset_cfg)
+    tip_pos_w, tip_quat_w = _peg_tip_pose_w(env, peg_cfg)
+    socket_pos_w, socket_quat_w = _socket_pose_w(env, socket_cfg)
     _, rel_quat = subtract_frame_transforms(socket_pos_w, socket_quat_w, tip_pos_w, tip_quat_w)
     return rel_quat
+
+
+def peg_contact_force_magnitude(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Net contact-force magnitude on the peg body."""
+
+    sensor: ContactSensor = env.scene[sensor_cfg.name]
+    net_forces = _to_torch(sensor.data.net_forces_w)
+    if net_forces.ndim == 3:
+        net_forces = net_forces.sum(dim=1)
+    return torch.linalg.norm(net_forces, dim=-1, keepdim=True)

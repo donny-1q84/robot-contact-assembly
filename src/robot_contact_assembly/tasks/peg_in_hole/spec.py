@@ -1,3 +1,11 @@
+"""Planning-side peg-in-hole notes.
+
+This file is not the runtime source of truth for the live Isaac Lab task. The current
+runtime task definition lives under `source/robot_contact_assembly_tasks/.../peg_in_hole`.
+Keep this module only as a lightweight planning contract for local notes and future design
+discussion.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -54,5 +62,5 @@ class PegInHoleTaskSpec:
 
 
 def build_default_spec() -> PegInHoleTaskSpec:
-    """Return the phase-1 peg-in-hole task contract."""
+    """Return the planning-side peg-in-hole task contract."""
     return PegInHoleTaskSpec()

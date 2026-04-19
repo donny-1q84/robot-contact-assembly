@@ -1,5 +1,7 @@
 # Phase 1 RL Baseline Record
 
+This log records the archived Phase 1 proxy task, where the peg tip was modeled as a fixed tool offset and the socket as a commanded pose. Treat these runs as the experiment history for the proxy shell, not as evidence of a full contact peg/socket environment.
+
 ## Run Summary
 
 - Date: 2026-04-05
@@ -480,4 +482,3 @@
   - stop further RL reward tuning for now
   - package the project around the strongest available result chain: `phase1_fix6_formal -> finetune_fix8_from_fix6`
   - if this project is continued later, the next meaningful step is not another static reward retune, but a more explicit multi-stage task or a non-RL demonstration / IL bootstrap
-

@@ -7,7 +7,7 @@ from isaaclab_physx.physics import PhysxCfg
 
 import isaaclab.envs.mdp as base_mdp
 import isaaclab.sim as sim_utils
-from isaaclab.assets import ArticulationCfg, AssetBaseCfg
+from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.devices import DevicesCfg
 from isaaclab.devices.gamepad import Se3GamepadCfg
 from isaaclab.devices.keyboard import Se3KeyboardCfg
@@ -23,16 +23,29 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
+from isaaclab.sensors import ContactSensorCfg
 from isaaclab.sim.spawners.from_files.from_files_cfg import UsdFileCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
 from . import mdp
+from .constants import (
+    PEG_CENTER_BODY_OFFSET_POS,
+    PEG_CENTER_BODY_OFFSET_ROT,
+    PEG_LENGTH_M,
+    PEG_RADIUS_M,
+    SOCKET_FRAME_POS,
+    SOCKET_FRAME_ROT,
+    SOCKET_GUIDE_DEPTH_M,
+    SOCKET_GUIDE_INNER_HALF_WIDTH_M,
+    SOCKET_GUIDE_OUTER_HALF_WIDTH_M,
+    SOCKET_GUIDE_WALL_THICKNESS_M,
+)
 
 
 @configclass
 class PegInHoleSceneCfg(InteractiveSceneCfg):
-    """Basic table-top scene for the insertion-only peg-in-hole baseline."""
+    """Table-top scene with a physical peg and a simple fixed guide socket."""
 
     ground = AssetBaseCfg(
         prim_path="/World/ground",
@@ -48,6 +61,137 @@ class PegInHoleSceneCfg(InteractiveSceneCfg):
 
     robot: ArticulationCfg = MISSING
 
+    peg = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/Peg",
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.45, 0.0, 0.35), rot=(1.0, 0.0, 0.0, 0.0)),
+        spawn=sim_utils.CylinderCfg(
+            radius=PEG_RADIUS_M,
+            height=PEG_LENGTH_M,
+            axis="Z",
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.05),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.23, 0.46, 0.82)),
+            activate_contact_sensors=True,
+        ),
+    )
+
+    socket_frame = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/SocketFrame",
+        init_state=RigidObjectCfg.InitialStateCfg(pos=SOCKET_FRAME_POS, rot=SOCKET_FRAME_ROT),
+        spawn=sim_utils.CuboidCfg(
+            size=(0.002, 0.002, 0.002),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.01),
+            collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=False),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.95, 0.65, 0.10)),
+        ),
+    )
+
+    socket_wall_left = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/SocketWallLeft",
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=(
+                SOCKET_FRAME_POS[0] - SOCKET_GUIDE_INNER_HALF_WIDTH_M - 0.5 * SOCKET_GUIDE_WALL_THICKNESS_M,
+                SOCKET_FRAME_POS[1],
+                SOCKET_FRAME_POS[2],
+            ),
+            rot=(1.0, 0.0, 0.0, 0.0),
+        ),
+        spawn=sim_utils.CuboidCfg(
+            size=(
+                SOCKET_GUIDE_WALL_THICKNESS_M,
+                2.0 * SOCKET_GUIDE_OUTER_HALF_WIDTH_M,
+                SOCKET_GUIDE_DEPTH_M,
+            ),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+            mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.55, 0.55, 0.55)),
+        ),
+    )
+
+    socket_wall_right = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/SocketWallRight",
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=(
+                SOCKET_FRAME_POS[0] + SOCKET_GUIDE_INNER_HALF_WIDTH_M + 0.5 * SOCKET_GUIDE_WALL_THICKNESS_M,
+                SOCKET_FRAME_POS[1],
+                SOCKET_FRAME_POS[2],
+            ),
+            rot=(1.0, 0.0, 0.0, 0.0),
+        ),
+        spawn=sim_utils.CuboidCfg(
+            size=(
+                SOCKET_GUIDE_WALL_THICKNESS_M,
+                2.0 * SOCKET_GUIDE_OUTER_HALF_WIDTH_M,
+                SOCKET_GUIDE_DEPTH_M,
+            ),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+            mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.55, 0.55, 0.55)),
+        ),
+    )
+
+    socket_wall_front = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/SocketWallFront",
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=(
+                SOCKET_FRAME_POS[0],
+                SOCKET_FRAME_POS[1] - SOCKET_GUIDE_INNER_HALF_WIDTH_M - 0.5 * SOCKET_GUIDE_WALL_THICKNESS_M,
+                SOCKET_FRAME_POS[2],
+            ),
+            rot=(1.0, 0.0, 0.0, 0.0),
+        ),
+        spawn=sim_utils.CuboidCfg(
+            size=(
+                2.0 * SOCKET_GUIDE_INNER_HALF_WIDTH_M,
+                SOCKET_GUIDE_WALL_THICKNESS_M,
+                SOCKET_GUIDE_DEPTH_M,
+            ),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+            mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.55, 0.55, 0.55)),
+        ),
+    )
+
+    socket_wall_back = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/SocketWallBack",
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=(
+                SOCKET_FRAME_POS[0],
+                SOCKET_FRAME_POS[1] + SOCKET_GUIDE_INNER_HALF_WIDTH_M + 0.5 * SOCKET_GUIDE_WALL_THICKNESS_M,
+                SOCKET_FRAME_POS[2],
+            ),
+            rot=(1.0, 0.0, 0.0, 0.0),
+        ),
+        spawn=sim_utils.CuboidCfg(
+            size=(
+                2.0 * SOCKET_GUIDE_INNER_HALF_WIDTH_M,
+                SOCKET_GUIDE_WALL_THICKNESS_M,
+                SOCKET_GUIDE_DEPTH_M,
+            ),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+            mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.55, 0.55, 0.55)),
+        ),
+    )
+
+    peg_contact = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Peg",
+        update_period=0.0,
+        history_length=1,
+        filter_prim_paths_expr=[
+            "{ENV_REGEX_NS}/SocketWallLeft",
+            "{ENV_REGEX_NS}/SocketWallRight",
+            "{ENV_REGEX_NS}/SocketWallFront",
+            "{ENV_REGEX_NS}/SocketWallBack",
+        ],
+    )
+
     light = AssetBaseCfg(
         prim_path="/World/light",
         spawn=sim_utils.DomeLightCfg(color=(0.75, 0.75, 0.75), intensity=2500.0),
@@ -56,20 +200,20 @@ class PegInHoleSceneCfg(InteractiveSceneCfg):
 
 @configclass
 class CommandsCfg:
-    """Target socket pose for the peg tip."""
+    """Compatibility target pose mirrored from the physical socket frame."""
 
     socket_pose = UniformPoseCommandCfg(
         asset_name="robot",
         body_name=MISSING,
-        resampling_time_range=(4.0, 4.0),
+        resampling_time_range=(1.0e6, 1.0e6),
         debug_vis=True,
         ranges=UniformPoseCommandCfg.Ranges(
-            pos_x=(0.48, 0.60),
-            pos_y=(-0.12, 0.12),
-            pos_z=(0.18, 0.26),
+            pos_x=(SOCKET_FRAME_POS[0], SOCKET_FRAME_POS[0]),
+            pos_y=(SOCKET_FRAME_POS[1], SOCKET_FRAME_POS[1]),
+            pos_z=(SOCKET_FRAME_POS[2], SOCKET_FRAME_POS[2]),
             roll=(0.0, 0.0),
-            pitch=MISSING,
-            yaw=(-math.pi / 6.0, math.pi / 6.0),
+            pitch=(math.pi, math.pi),
+            yaw=(0.0, 0.0),
         ),
     )
 
@@ -89,18 +233,23 @@ class ObservationsCfg:
     class PolicyCfg(ObsGroup):
         joint_pos = ObsTerm(func=base_mdp.joint_pos_rel)
         joint_vel = ObsTerm(func=base_mdp.joint_vel_rel)
-        socket_pose = ObsTerm(func=base_mdp.generated_commands, params={"command_name": "socket_pose"})
+        socket_pose = ObsTerm(
+            func=mdp.socket_pose,
+            params={"asset_cfg": SceneEntityCfg("robot"), "socket_cfg": SceneEntityCfg("socket_frame")},
+        )
         tip_to_socket_position = ObsTerm(
             func=mdp.tip_to_socket_position,
-            params={"command_name": "socket_pose", "asset_cfg": SceneEntityCfg("robot", body_names=MISSING)},
+            params={"peg_cfg": SceneEntityCfg("peg"), "socket_cfg": SceneEntityCfg("socket_frame")},
         )
         tip_to_socket_orientation = ObsTerm(
             func=mdp.tip_to_socket_orientation,
-            params={"command_name": "socket_pose", "asset_cfg": SceneEntityCfg("robot", body_names=MISSING)},
+            params={"peg_cfg": SceneEntityCfg("peg"), "socket_cfg": SceneEntityCfg("socket_frame")},
         )
         actions = ObsTerm(func=base_mdp.last_action)
 
         def __post_init__(self):
+            # Keep the Phase 1 policy observation width unchanged so legacy checkpoints can be
+            # evaluated in the new contact shell before adding force signals to the actor.
             self.enable_corruption = True
             self.concatenate_terms = True
 
@@ -109,7 +258,7 @@ class ObservationsCfg:
 
 @configclass
 class EventCfg:
-    """Reset events."""
+    """Reset and rigid-attachment events."""
 
     reset_robot_joints = EventTerm(
         func=base_mdp.reset_joints_by_scale,
@@ -119,86 +268,91 @@ class EventCfg:
             "velocity_range": (0.0, 0.0),
         },
     )
+    sync_peg_on_reset = EventTerm(
+        func=mdp.sync_peg_to_hand,
+        mode="reset",
+        params={
+            "robot_cfg": SceneEntityCfg("robot", body_names=MISSING),
+            "peg_cfg": SceneEntityCfg("peg"),
+            "body_offset": PEG_CENTER_BODY_OFFSET_POS,
+            "body_rot_offset": PEG_CENTER_BODY_OFFSET_ROT,
+        },
+    )
+    sync_peg_each_step = EventTerm(
+        func=mdp.sync_peg_to_hand,
+        mode="interval",
+        interval_range_s=(0.0, 0.0),
+        params={
+            "robot_cfg": SceneEntityCfg("robot", body_names=MISSING),
+            "peg_cfg": SceneEntityCfg("peg"),
+            "body_offset": PEG_CENTER_BODY_OFFSET_POS,
+            "body_rot_offset": PEG_CENTER_BODY_OFFSET_ROT,
+        },
+    )
 
 
 @configclass
 class RewardsCfg:
-    """Reward terms specialized for insertion-stage control."""
+    """Simplified reward terms for the physical contact shell."""
 
     approach_pose = RewTerm(
         func=mdp.approach_pose_reward,
-        weight=10.0,
+        weight=8.0,
         params={
-            "lateral_std": 0.08,
-            "axial_std": 0.18,
-            "rot_std": 1.50,
-            "command_name": "socket_pose",
-            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
-            "axial_weight": 0.45,
+            "lateral_std": 0.05,
+            "axial_std": 0.05,
+            "rot_std": 1.20,
+            "peg_cfg": SceneEntityCfg("peg"),
+            "socket_cfg": SceneEntityCfg("socket_frame"),
+            "axial_weight": 0.35,
         },
     )
     tip_position_tracking = RewTerm(
         func=mdp.tip_position_error_tanh,
-        weight=2.5,
+        weight=2.0,
         params={
-            "std": 0.18,
-            "command_name": "socket_pose",
-            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+            "std": 0.08,
+            "peg_cfg": SceneEntityCfg("peg"),
+            "socket_cfg": SceneEntityCfg("socket_frame"),
         },
     )
     tip_position_tracking_fine = RewTerm(
         func=mdp.tip_position_error_tanh,
-        weight=6.0,
+        weight=5.0,
         params={
-            "std": 0.025,
-            "command_name": "socket_pose",
-            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+            "std": 0.015,
+            "peg_cfg": SceneEntityCfg("peg"),
+            "socket_cfg": SceneEntityCfg("socket_frame"),
         },
     )
     tip_orientation_tracking = RewTerm(
         func=mdp.tip_orientation_error_tanh,
-        weight=2.5,
+        weight=2.0,
         params={
-            "std": 1.50,
-            "command_name": "socket_pose",
-            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
-        },
-    )
-    insertion_orientation_fine = RewTerm(
-        func=mdp.insertion_orientation_fine_reward,
-        weight=8.0,
-        params={
-            "std": 0.45,
-            "command_name": "socket_pose",
-            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
-            "lateral_tolerance": 0.020,
-            "axial_tolerance": 0.015,
-            "lateral_std": 0.010,
-            "axial_std": 0.010,
+            "std": 1.0,
+            "peg_cfg": SceneEntityCfg("peg"),
+            "socket_cfg": SceneEntityCfg("socket_frame"),
         },
     )
     insertion_progress = RewTerm(
         func=mdp.insertion_progress_reward,
-        weight=10.0,
+        weight=8.0,
         params={
-            "std": 0.012,
-            "command_name": "socket_pose",
-            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
-            "lateral_tolerance": 0.020,
-            "lateral_std": 0.015,
-            "rot_tolerance": 0.45,
-            "rot_std": 0.25,
+            "std": 0.010,
+            "peg_cfg": SceneEntityCfg("peg"),
+            "socket_cfg": SceneEntityCfg("socket_frame"),
+            "lateral_tolerance": 0.015,
+            "lateral_std": 0.008,
+            "rot_tolerance": 0.30,
+            "rot_std": 0.15,
         },
     )
     insertion_success = RewTerm(
         func=mdp.insertion_success_reward,
-        weight=60.0,
+        weight=40.0,
         params={
-            "command_name": "socket_pose",
-            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
-            "xy_tolerance": 0.005,
-            "z_tolerance": 0.008,
-            "rot_tolerance": 0.18,
+            "peg_cfg": SceneEntityCfg("peg"),
+            "socket_cfg": SceneEntityCfg("socket_frame"),
         },
     )
     action_rate = RewTerm(func=base_mdp.action_rate_l2, weight=-1e-4)
@@ -217,18 +371,15 @@ class TerminationsCfg:
     insertion_success = DoneTerm(
         func=mdp.insertion_success,
         params={
-            "command_name": "socket_pose",
-            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
-            "xy_tolerance": 0.005,
-            "z_tolerance": 0.008,
-            "rot_tolerance": 0.18,
+            "peg_cfg": SceneEntityCfg("peg"),
+            "socket_cfg": SceneEntityCfg("socket_frame"),
         },
     )
 
 
 @configclass
 class CurriculumCfg:
-    """Light curriculum for the first PPO smoke test."""
+    """Light curriculum for the first contact-shell runs."""
 
     action_rate = CurrTerm(
         func=base_mdp.modify_reward_weight,
@@ -238,9 +389,9 @@ class CurriculumCfg:
 
 @configclass
 class PegInHoleEnvCfg(ManagerBasedRLEnvCfg):
-    """Insertion-stage peg-in-hole environment with a fixed peg tip offset."""
+    """Contact-guided peg-in-hole environment with a rigidly attached peg."""
 
-    scene: PegInHoleSceneCfg = PegInHoleSceneCfg(num_envs=1024, env_spacing=2.5)
+    scene: PegInHoleSceneCfg = PegInHoleSceneCfg(num_envs=256, env_spacing=2.5)
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
     commands: CommandsCfg = CommandsCfg()

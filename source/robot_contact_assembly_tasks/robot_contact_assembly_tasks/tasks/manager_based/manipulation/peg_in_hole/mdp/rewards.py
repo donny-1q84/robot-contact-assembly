@@ -6,8 +6,12 @@ import torch
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.math import quat_error_magnitude
 
-from ..constants import PEG_TIP_BODY_OFFSET_POS
-from .observations import _socket_pose_w, _tool_tip_pose_w, tip_to_socket_position
+from ..constants import (
+    SOCKET_SUCCESS_ROT_TOLERANCE_RAD,
+    SOCKET_SUCCESS_XY_TOLERANCE_M,
+    SOCKET_SUCCESS_Z_TOLERANCE_M,
+)
+from .observations import _peg_tip_pose_w, _socket_pose_w, tip_to_socket_position
 from .terminations import insertion_metrics, insertion_success
 
 if TYPE_CHECKING:
@@ -16,52 +20,48 @@ if TYPE_CHECKING:
 
 def tip_position_error(
     env: ManagerBasedRLEnv,
-    command_name: str,
-    asset_cfg: SceneEntityCfg,
-    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
+    peg_cfg: SceneEntityCfg,
+    socket_cfg: SceneEntityCfg,
 ) -> torch.Tensor:
-    """L2 tool-tip position error in the socket frame."""
+    """L2 peg-tip position error in the physical socket frame."""
 
-    rel_pos = tip_to_socket_position(env, command_name, asset_cfg, body_offset=body_offset)
+    rel_pos = tip_to_socket_position(env, peg_cfg, socket_cfg)
     return torch.linalg.norm(rel_pos, dim=1)
 
 
 def tip_position_error_tanh(
     env: ManagerBasedRLEnv,
     std: float,
-    command_name: str,
-    asset_cfg: SceneEntityCfg,
-    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
+    peg_cfg: SceneEntityCfg,
+    socket_cfg: SceneEntityCfg,
 ) -> torch.Tensor:
-    """Tanh-shaped reward for tool-tip position tracking."""
+    """Tanh-shaped reward for physical peg-tip position tracking."""
 
-    distance = tip_position_error(env, command_name, asset_cfg, body_offset=body_offset)
+    distance = tip_position_error(env, peg_cfg, socket_cfg)
     return 1.0 - torch.tanh(distance / std)
 
 
 def tip_orientation_error(
     env: ManagerBasedRLEnv,
-    command_name: str,
-    asset_cfg: SceneEntityCfg,
-    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
+    peg_cfg: SceneEntityCfg,
+    socket_cfg: SceneEntityCfg,
 ) -> torch.Tensor:
-    """Shortest-path orientation error between the tool tip and target socket pose."""
+    """Shortest-path orientation error between the peg tip and the socket frame."""
 
-    _, tip_quat_w = _tool_tip_pose_w(env, asset_cfg, body_offset=body_offset)
-    _, socket_quat_w = _socket_pose_w(env, command_name, asset_cfg)
+    _, tip_quat_w = _peg_tip_pose_w(env, peg_cfg)
+    _, socket_quat_w = _socket_pose_w(env, socket_cfg)
     return quat_error_magnitude(tip_quat_w, socket_quat_w)
 
 
 def tip_orientation_error_tanh(
     env: ManagerBasedRLEnv,
     std: float,
-    command_name: str,
-    asset_cfg: SceneEntityCfg,
-    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
+    peg_cfg: SceneEntityCfg,
+    socket_cfg: SceneEntityCfg,
 ) -> torch.Tensor:
-    """Tanh-shaped reward for tool-tip orientation tracking."""
+    """Tanh-shaped reward for peg-tip orientation tracking."""
 
-    orientation_error = tip_orientation_error(env, command_name, asset_cfg, body_offset=body_offset)
+    orientation_error = tip_orientation_error(env, peg_cfg, socket_cfg)
     return 1.0 - torch.tanh(orientation_error / std)
 
 
@@ -70,22 +70,13 @@ def approach_pose_reward(
     lateral_std: float,
     axial_std: float,
     rot_std: float,
-    command_name: str,
-    asset_cfg: SceneEntityCfg,
-    axial_weight: float = 0.35,
-    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
+    peg_cfg: SceneEntityCfg,
+    socket_cfg: SceneEntityCfg,
+    axial_weight: float = 0.40,
 ) -> torch.Tensor:
-    """Coupled coarse approach reward before the policy reaches the insertion regime.
+    """Simple coupled pose reward for the contact-guided insertion shell."""
 
-    Two failure modes showed up in smoke tests:
-    1. strong position shaping with weak rotation caused coarse centering but bad orientation
-    2. strong rotation shaping with weak position holding caused the peg to spiral away laterally
-
-    Instead of paying the two dimensions independently, this term rewards their *joint* progress.
-    Axial approach is only paid once the peg is simultaneously becoming centered and oriented.
-    """
-
-    lateral_error, axial_error, rot_error = insertion_metrics(env, command_name, asset_cfg, body_offset=body_offset)
+    lateral_error, axial_error, rot_error = insertion_metrics(env, peg_cfg, socket_cfg)
     lateral_term = 1.0 - torch.tanh(lateral_error / lateral_std)
     axial_term = 1.0 - torch.tanh(axial_error / axial_std)
     rot_term = 1.0 - torch.tanh(rot_error / rot_std)
@@ -93,208 +84,19 @@ def approach_pose_reward(
     return coupled_alignment + axial_weight * axial_term * coupled_alignment
 
 
-def late_stage_pose_reward(
-    env: ManagerBasedRLEnv,
-    lateral_std: float,
-    axial_std: float,
-    rot_std: float,
-    command_name: str,
-    asset_cfg: SceneEntityCfg,
-    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
-) -> torch.Tensor:
-    """Joint late-stage pose reward for checkpoint polishing near the socket.
-
-    The base task already learns how to enter the socket neighborhood. During
-    polish we care less about broad approach and more about keeping position and
-    rotation tight at the same time. Paying the three dimensions independently
-    made it too easy to improve rotation while giving back some lateral or axial
-    accuracy. This term rewards only their simultaneous convergence.
-    """
-
-    lateral_error, axial_error, rot_error = insertion_metrics(env, command_name, asset_cfg, body_offset=body_offset)
-    lateral_term = torch.exp(-torch.square(lateral_error / lateral_std))
-    axial_term = torch.exp(-torch.square(axial_error / axial_std))
-    rot_term = torch.exp(-torch.square(rot_error / rot_std))
-    return torch.pow(torch.clamp(lateral_term * axial_term * rot_term, min=0.0), 1.0 / 3.0)
-
-
-def _scheduled_scale(
-    env: ManagerBasedRLEnv,
-    start_step: int,
-    end_step: int,
-    start_scale: float,
-    end_scale: float,
-    *,
-    device: torch.device,
-    dtype: torch.dtype,
-) -> torch.Tensor:
-    """Return a scalar linear schedule based on the global env step counter."""
-
-    step = float(getattr(env, "common_step_counter", 0))
-    if end_step <= start_step:
-        alpha = 1.0
-    else:
-        alpha = min(max((step - float(start_step)) / float(end_step - start_step), 0.0), 1.0)
-    scale = start_scale + (end_scale - start_scale) * alpha
-    return torch.tensor(scale, device=device, dtype=dtype)
-
-
-def late_stage_position_hold_reward(
-    env: ManagerBasedRLEnv,
-    lateral_std: float,
-    axial_std: float,
-    command_name: str,
-    asset_cfg: SceneEntityCfg,
-    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
-) -> torch.Tensor:
-    """Keep the peg tightly centered near the socket during checkpoint polishing.
-
-    The base run already reaches a good coarse pose neighborhood. In polish mode we
-    first need to *hold* that lateral / axial accuracy while a separate gated reward
-    sharpens orientation. Coupling rotation into this term made PPO happily improve
-    orientation while giving back the near-zero position errors learned by the base
-    checkpoint.
-    """
-
-    lateral_error, axial_error, _ = insertion_metrics(env, command_name, asset_cfg, body_offset=body_offset)
-    lateral_term = torch.exp(-torch.square(lateral_error / lateral_std))
-    axial_term = torch.exp(-torch.square(axial_error / axial_std))
-    return torch.sqrt(torch.clamp(lateral_term * axial_term, min=0.0))
-
-
-def scheduled_position_hold_reward(
-    env: ManagerBasedRLEnv,
-    lateral_std: float,
-    axial_std: float,
-    command_name: str,
-    asset_cfg: SceneEntityCfg,
-    start_step: int,
-    end_step: int,
-    start_scale: float,
-    end_scale: float,
-    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
-) -> torch.Tensor:
-    """Linearly taper the position-hold reward over polish training."""
-
-    reward = late_stage_position_hold_reward(
-        env,
-        lateral_std=lateral_std,
-        axial_std=axial_std,
-        command_name=command_name,
-        asset_cfg=asset_cfg,
-        body_offset=body_offset,
-    )
-    scale = _scheduled_scale(
-        env,
-        start_step=start_step,
-        end_step=end_step,
-        start_scale=start_scale,
-        end_scale=end_scale,
-        device=reward.device,
-        dtype=reward.dtype,
-    )
-    return reward * scale
-
-
-def scheduled_insertion_orientation_reward(
-    env: ManagerBasedRLEnv,
-    std: float,
-    command_name: str,
-    asset_cfg: SceneEntityCfg,
-    lateral_tolerance: float,
-    axial_tolerance: float,
-    lateral_std: float,
-    axial_std: float,
-    start_step: int,
-    end_step: int,
-    start_scale: float,
-    end_scale: float,
-    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
-) -> torch.Tensor:
-    """Ramp up the fine orientation reward after the position hold phase settles."""
-
-    reward = insertion_orientation_fine_reward(
-        env,
-        std=std,
-        command_name=command_name,
-        asset_cfg=asset_cfg,
-        lateral_tolerance=lateral_tolerance,
-        axial_tolerance=axial_tolerance,
-        lateral_std=lateral_std,
-        axial_std=axial_std,
-        body_offset=body_offset,
-    )
-    scale = _scheduled_scale(
-        env,
-        start_step=start_step,
-        end_step=end_step,
-        start_scale=start_scale,
-        end_scale=end_scale,
-        device=reward.device,
-        dtype=reward.dtype,
-    )
-    return reward * scale
-
-
-def scheduled_insertion_progress_reward(
-    env: ManagerBasedRLEnv,
-    std: float,
-    command_name: str,
-    asset_cfg: SceneEntityCfg,
-    lateral_tolerance: float,
-    lateral_std: float,
-    rot_tolerance: float,
-    rot_std: float,
-    start_step: int,
-    end_step: int,
-    start_scale: float,
-    end_scale: float,
-    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
-) -> torch.Tensor:
-    """Ramp up insertion progress once late-stage orientation shaping is active."""
-
-    reward = insertion_progress_reward(
-        env,
-        std=std,
-        command_name=command_name,
-        asset_cfg=asset_cfg,
-        lateral_tolerance=lateral_tolerance,
-        lateral_std=lateral_std,
-        rot_tolerance=rot_tolerance,
-        rot_std=rot_std,
-        body_offset=body_offset,
-    )
-    scale = _scheduled_scale(
-        env,
-        start_step=start_step,
-        end_step=end_step,
-        start_scale=start_scale,
-        end_scale=end_scale,
-        device=reward.device,
-        dtype=reward.dtype,
-    )
-    return reward * scale
-
-
 def insertion_progress_reward(
     env: ManagerBasedRLEnv,
     std: float,
-    command_name: str,
-    asset_cfg: SceneEntityCfg,
+    peg_cfg: SceneEntityCfg,
+    socket_cfg: SceneEntityCfg,
     lateral_tolerance: float,
     lateral_std: float,
     rot_tolerance: float,
     rot_std: float,
-    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
 ) -> torch.Tensor:
-    """Dense insertion-stage reward after coarse alignment.
+    """Dense insertion reward once the peg is centered and rotation is nearly correct."""
 
-    This term is intentionally stricter than ``approach_pose_reward``. The policy first gets paid
-    for moving near the socket, then this reward takes over and favors axial convergence only while
-    the peg tip remains centered and rotationally aligned.
-    """
-
-    lateral_error, axial_error, rot_error = insertion_metrics(env, command_name, asset_cfg, body_offset=body_offset)
+    lateral_error, axial_error, rot_error = insertion_metrics(env, peg_cfg, socket_cfg)
     shaped = 1.0 - torch.tanh(axial_error / std)
     lateral_margin = torch.clamp(lateral_error - lateral_tolerance, min=0.0)
     rot_margin = torch.clamp(rot_error - rot_tolerance, min=0.0)
@@ -303,44 +105,20 @@ def insertion_progress_reward(
     return shaped * lateral_gate * rot_gate
 
 
-def insertion_orientation_fine_reward(
-    env: ManagerBasedRLEnv,
-    std: float,
-    command_name: str,
-    asset_cfg: SceneEntityCfg,
-    lateral_tolerance: float,
-    axial_tolerance: float,
-    lateral_std: float,
-    axial_std: float,
-    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
-) -> torch.Tensor:
-    """Late-stage orientation shaping once the peg is already near the socket."""
-
-    lateral_error, axial_error, rot_error = insertion_metrics(env, command_name, asset_cfg, body_offset=body_offset)
-    rot_term = 1.0 - torch.tanh(rot_error / std)
-    lateral_margin = torch.clamp(lateral_error - lateral_tolerance, min=0.0)
-    axial_margin = torch.clamp(axial_error - axial_tolerance, min=0.0)
-    lateral_gate = torch.exp(-torch.square(lateral_margin / lateral_std))
-    axial_gate = torch.exp(-torch.square(axial_margin / axial_std))
-    return rot_term * lateral_gate * axial_gate
-
-
 def insertion_success_reward(
     env: ManagerBasedRLEnv,
-    command_name: str,
-    asset_cfg: SceneEntityCfg,
-    body_offset: tuple[float, float, float] = PEG_TIP_BODY_OFFSET_POS,
-    xy_tolerance: float = 0.003,
-    z_tolerance: float = 0.003,
-    rot_tolerance: float = 0.15,
+    peg_cfg: SceneEntityCfg,
+    socket_cfg: SceneEntityCfg,
+    xy_tolerance: float = SOCKET_SUCCESS_XY_TOLERANCE_M,
+    z_tolerance: float = SOCKET_SUCCESS_Z_TOLERANCE_M,
+    rot_tolerance: float = SOCKET_SUCCESS_ROT_TOLERANCE_RAD,
 ) -> torch.Tensor:
-    """Binary success reward for insertion completion."""
+    """Binary success reward using the physical socket frame."""
 
     return insertion_success(
         env,
-        command_name,
-        asset_cfg,
-        body_offset=body_offset,
+        peg_cfg,
+        socket_cfg,
         xy_tolerance=xy_tolerance,
         z_tolerance=z_tolerance,
         rot_tolerance=rot_tolerance,

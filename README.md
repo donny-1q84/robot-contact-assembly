@@ -1,6 +1,6 @@
 # Robot Contact Assembly
 
-Contact-rich robot assembly project built around a narrow Isaac Lab `peg-in-hole` baseline. The current repository closes the full engineering loop for remote GPU training, evaluation, artifact archival, and experiment analysis instead of stopping at environment scaffolding.
+Robot assembly project built around a narrow Isaac Lab `peg-in-hole` workflow. Phase 1 closed the full remote training/evaluation/artifact loop with a proxy tip-to-socket task, and the current mainline runtime now upgrades that shell to a simple physical peg + guide-socket contact environment.
 
 ## Project snapshot
 
@@ -10,18 +10,29 @@ Contact-rich robot assembly project built around a narrow Isaac Lab `peg-in-hole
 - Control: relative differential IK
 - Policy: PPO (`rsl_rl`)
 - Execution model: local planning and artifact archive + remote Brev GPU runtime
-- Current outcome: stable near-insertion alignment, but no true insertion success yet under the current proxy task
+- Latest measured results: stable near-insertion alignment under the archived Phase 1 proxy task
+- Current runtime shell: explicit peg geometry, fixed guide-socket contact walls, and physical socket-frame success logic
+
+## Phase 1 Scope
+
+Phase 1 was intentionally a proxy precursor, not a finished contact assembly task:
+
+- peg tip was modeled as a fixed tool offset
+- socket target was modeled as a commanded pose
+- success was computed from pose thresholds instead of peg/socket geometry
+
+Those limitations are important context for every Phase 1 metric in this repo. The current runtime code has now moved to a contact-guided shell, but the latest published metrics in `experiments/` and `docs/phase1_cv_summary.md` still belong to the proxy phase until the first contact-shell transfer eval is recorded.
 
 ## Highlights
 
-- Custom Isaac Lab external task package for a contact-rich assembly-style manipulation problem
+- Custom Isaac Lab external task package that started as a proxy insertion task and now includes a contact-guided peg/socket shell
 - Reproducible remote experiment workflow on Brev for training, evaluation, checkpoint sweep, and artifact pullback
 - Structured failure analysis across multiple reward and curriculum variants instead of one-off PPO runs
 - CV-ready Phase 1 summary with concrete best-run metrics and next-step technical direction
 
 ## Best results so far
 
-The strongest runs in Phase 1 were:
+The strongest published Phase 1 runs were:
 
 - Base run `phase1_fix6_formal`
   - `lateral=0.0074`
@@ -37,8 +48,8 @@ The strongest runs in Phase 1 were:
 Interpretation:
 
 - the policy reliably learns socket approach and near-insertion alignment
-- the remaining bottleneck is late-stage rotational convergence
-- under the current proxy task design, further reward retuning showed diminishing returns
+- those metrics were achieved under the archived proxy task, not the new contact shell
+- under the proxy task design, late-stage reward retuning showed diminishing returns
 
 See [experiments/2026-04-05_phase1_rl_baseline.md](experiments/2026-04-05_phase1_rl_baseline.md) for the full run history and [docs/phase1_cv_summary.md](docs/phase1_cv_summary.md) for the concise CV/interview framing.
 
@@ -106,28 +117,68 @@ Phase 1 is to finish the `peg-in-hole` baseline contract:
 4. Add RL environment shell
 5. Add evaluation and artifact export flow
 
-## Current runtime scaffold
+## Current Runtime Scaffold
 
-The first runnable Isaac Lab shell is intentionally narrower than the final project:
+The current runnable Isaac Lab shell is still intentionally simple, but it now includes explicit contact geometry:
 
 - Robot: Franka Panda
 - Control: relative differential IK
-- Task scope: insertion-only baseline with a fixed peg-tip offset
+- Task scope: physical peg rigid body + fixed guide socket walls
 - Task IDs:
   - `RCA-PegInHole-Franka-IK-Rel-v0`
   - `RCA-PegInHole-Franka-IK-Rel-Play-v0`
+  - `RCA-PegInHole-Franka-IK-Rel-Polish-v0`
 
-This keeps the first environment aligned with the eventual peg-in-hole goal, while avoiding the extra moving parts of a full pick-and-insert pipeline in week one.
+The policy observation contract is still kept Phase-1 compatible so the best proxy checkpoint can be evaluated zero-shot in the new contact shell before adding force terms to the actor.
 
-## Current limitation
+## Current Limitation
 
-The current task is still a proxy insertion shell:
+The current task is no longer a pure proxy shell, but it is still not a final industrial socket model:
 
-- peg tip is modeled as a fixed tool offset
-- socket target is modeled as a commanded pose
-- success is not yet driven by explicit peg/socket contact geometry
+- the socket is a simple fixed guide built from collision walls, not a CAD-accurate round hole with chamfer
+- the contact shell has not yet been benchmarked with a published zero-shot transfer eval from `phase1_fix6_formal/model_50.pt`
+- force/contact sensing is present at the scene level, but the default policy observation width is still frozen for checkpoint compatibility
 
-This is enough for validating the training/evaluation system and for learning near-insertion behavior, but it is not yet the final assembly task design.
+This is enough to turn the project back into a real contact problem without taking on grasping, CAD assets, or sim-to-real scope yet.
+
+## First Contact Validation
+
+The first useful validation sequence for the new contact shell is:
+
+1. Run the remote smoke suite:
+   - `./scripts/run_remote_smoke_test.sh`
+2. Run the zero-shot transfer eval from the best Phase 1 proxy checkpoint:
+   - `./scripts/run_remote_contact_transfer_eval.sh`
+3. Pull the resulting artifacts back to the local archive:
+   - `./scripts/pull_artifacts.sh`
+
+What those commands do:
+
+- `run_remote_smoke_test.sh` now syncs the repo first, then runs compose health, env listing, zero-action rollout, random-action rollout, and scripted baseline sanity on the play task.
+- `run_remote_contact_transfer_eval.sh` runs both fixed-step policy eval and an optional recorded video for the default transfer target:
+  - run pattern: `.*phase1_fix6_formal.*`
+  - checkpoint: `model_50.pt`
+  - task: `RCA-PegInHole-Franka-IK-Rel-v0`
+- the video stage now defaults to `RCA_VIDEO_BACKEND=viewport`
+- the viewport path auto-injects the minimal rendering extensions with `--kit_args "--enable omni.replicator.core --enable omni.kit.material.library --enable omni.kit.viewport.rtx"` when no custom `--kit_args` are provided
+- `RCA_VIDEO_BACKEND=camera` is still available for explicit sensor debugging, but it is not the stable path on the current Brev setup
+- by default the wrapper keeps the eval artifacts even if the video step times out
+- `run_remote_record_video.sh` now force-kills lingering recorder jobs after the grace period with `RCA_VIDEO_TIMEOUT_KILL_SECONDS` so failed probes do not leave orphaned Isaac processes behind
+
+Useful overrides:
+
+- use a different play-task smoke target:
+  - `./scripts/run_remote_smoke_test.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-Play-v0 5 10 120`
+- evaluate a different checkpoint:
+  - `./scripts/run_remote_contact_transfer_eval.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-v0 32 400 42 '.*phase1_fix6_formal.*' model_50.pt 400`
+- make the video step optional and cap its runtime:
+  - `RCA_VIDEO_REQUIRED=0 RCA_VIDEO_TIMEOUT_SECONDS=60 ./scripts/run_remote_contact_transfer_eval.sh`
+- shorten the hard-kill grace period when debugging stuck video jobs:
+  - `RCA_VIDEO_TIMEOUT_SECONDS=60 RCA_VIDEO_TIMEOUT_KILL_SECONDS=10 ./scripts/run_remote_record_video.sh`
+- force explicit camera-sensor recording for debugging:
+  - `RCA_VIDEO_BACKEND=camera ./scripts/run_remote_contact_transfer_eval.sh`
+- force the wrapper to fail when video recording fails:
+  - `RCA_VIDEO_REQUIRED=1 ./scripts/run_remote_contact_transfer_eval.sh`
 
 ## Remote workflow
 
@@ -148,7 +199,7 @@ Once the runtime is bootstrapped, the shortest useful commands are:
 
 - Inspect remote runtime health:
   - `./scripts/check_remote_runtime.sh`
-- Full smoke test:
+- Full smoke suite for the contact shell:
   - `./scripts/run_remote_smoke_test.sh`
 - Headless zero-action rollout:
   - `./scripts/run_remote_zero_agent.sh`
@@ -160,12 +211,16 @@ Once the runtime is bootstrapped, the shortest useful commands are:
   - `./scripts/run_remote_scripted_eval.sh`
 - PPO training wrapper for the custom peg-in-hole task package:
   - `./scripts/run_remote_train_ppo.sh`
+- Short contact-baseline smoke run:
+  - `./scripts/run_remote_train_ppo.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-IK-Rel-v0 64 5 42 phase2_contact_smoke`
 - End-to-end polish cycle wrapper:
   - `./scripts/run_remote_polish_cycle.sh`
 - Cold-start Brev reprovision + polish cycle:
   - `./scripts/recreate_brev_and_run_polish.sh`
 - Fixed-step policy evaluation with JSON summary export:
   - `./scripts/run_remote_eval_policy.sh`
+- Zero-shot Phase-1-to-contact transfer eval + video wrapper:
+  - `./scripts/run_remote_contact_transfer_eval.sh`
 - Fixed-step checkpoint sweep over a matched run:
   - `./scripts/run_remote_eval_checkpoint_sweep.sh`
 - One-shot policy video recording:
@@ -203,21 +258,27 @@ After pulling artifacts, summarize a sweep locally with:
 
 The Brev host currently runs the streamed Isaac Sim stack via Docker. Because of that, the executable path for V1 is:
 
-- Isaac Sim runtime: `/isaac-sim/python.sh` inside the `isaac-sim` container
+- Streaming stack: `isaac-sim` container for WebRTC / viewer services
+- Task execution runtime: `/isaac-sim/python.sh` inside the `isaac-runner` container
 - Isaac Lab repo: mounted at `/workspace/IsaacLab`
 - Project repo: mounted from `/home/ubuntu/projects/robot-contact-assembly/repo/robot-contact-assembly`
 
-This avoids relying on the Brev host's system Python, which is not the right runtime for Isaac Lab + Isaac Sim.
+This avoids relying on the Brev host's system Python, which is not the right runtime for Isaac Lab + Isaac Sim, and avoids running evaluation or training scripts inside the long-lived streaming container.
 
 ## Current validated state
 
-Validated on `2026-03-29`:
+Validated on `2026-03-29` for the original proxy-task runtime:
 
 - remote `isaac-sim` container healthy
 - env registry works
 - `RCA-PegInHole-Franka-IK-Rel-Play-v0` launches in headless mode
 - zero-action smoke passes
 - random-action smoke passes
+
+Current contact-task work uses a split runtime:
+
+- `isaac-sim`: streaming / viewer service
+- `isaac-runner`: smoke, eval, and training execution target
 
 The RL stack is not yet treated as stable. Do not assume `rsl_rl` installation is reproducible until the runtime is pinned more tightly.
 

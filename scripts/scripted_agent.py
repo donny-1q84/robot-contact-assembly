@@ -11,17 +11,19 @@ import gymnasium as gym
 import torch
 import warp as wp
 
-from isaaclab.managers import SceneEntityCfg
-from isaaclab.utils.math import combine_frame_transforms, compute_pose_error, quat_inv, quat_mul
 from isaaclab_tasks.utils import add_launcher_args, launch_simulation, resolve_task_config
 
-from robot_contact_assembly_tasks.tasks.manager_based.manipulation.peg_in_hole.constants import (
-    PEG_TIP_BODY_OFFSET_POS,
-    PEG_TIP_BODY_OFFSET_ROT,
-)
-from robot_contact_assembly_tasks.tasks.manager_based.manipulation.peg_in_hole import mdp
 
-BODY_OFFSET = PEG_TIP_BODY_OFFSET_POS
+RigidObject = None
+SceneEntityCfg = None
+combine_frame_transforms = None
+compute_pose_error = None
+quat_inv = None
+quat_mul = None
+PEG_TIP_BODY_OFFSET_POS = None
+PEG_TIP_BODY_OFFSET_ROT = None
+mdp = None
+BODY_OFFSET = None
 
 
 def _identity_quat(reference: torch.Tensor) -> torch.Tensor:
@@ -52,6 +54,21 @@ parser.add_argument("--num_envs", type=int, default=None, help="Override number 
 parser.add_argument("--steps", type=int, default=200, help="Number of env steps to run before exit in headless mode.")
 parser.add_argument("--task", type=str, default="RCA-PegInHole-Franka-IK-Rel-Play-v0", help="Task name.")
 parser.add_argument("--seed", type=int, default=42, help="Deterministic seed for the scripted baseline.")
+parser.add_argument("--video", action="store_true", default=False, help="Record one scripted reference video.")
+parser.add_argument("--video_length", type=int, default=200, help="Length of the recorded video in steps.")
+parser.add_argument(
+    "--video_backend",
+    type=str,
+    default="viewport",
+    choices=("viewport",),
+    help="Video recording backend for the scripted rollout.",
+)
+parser.add_argument(
+    "--video_folder",
+    type=str,
+    default=None,
+    help="Optional directory for recorded videos. Defaults to a local scripted-video folder under /workspace/artifacts.",
+)
 parser.add_argument(
     "--summary-json",
     type=str,
@@ -81,6 +98,9 @@ parser.add_argument("--settle-rot-gain", type=float, default=1.5, help="Orientat
 parser.add_argument("--settle-rot-clamp", type=float, default=0.12, help="Orientation clamp during the final seating phase.")
 add_launcher_args(parser)
 args_cli, hydra_args = parser.parse_known_args()
+skip_auto_enable_cameras = os.environ.get("RCA_SKIP_AUTO_ENABLE_CAMERAS", "0") == "1"
+if args_cli.video and args_cli.video_backend == "viewport" and not skip_auto_enable_cameras:
+    args_cli.enable_cameras = True
 hydra_args.extend(
     [
         r"hydra.run.dir=/workspace/artifacts/hydra/${now:%Y-%m-%d}/${now:%H-%M-%S}",
@@ -100,11 +120,8 @@ def _tool_tip_pose_w(env_unwrapped, body_idx: int) -> tuple[torch.Tensor, torch.
 
 
 def _socket_pose_w(env_unwrapped) -> tuple[torch.Tensor, torch.Tensor]:
-    robot = env_unwrapped.scene["robot"]
-    command = env_unwrapped.command_manager.get_command("socket_pose")
-    root_pos_w = wp.to_torch(robot.data.root_pos_w)
-    root_quat_w = wp.to_torch(robot.data.root_quat_w)
-    return combine_frame_transforms(root_pos_w, root_quat_w, command[:, :3], command[:, 3:7])
+    socket = env_unwrapped.scene["socket_frame"]
+    return wp.to_torch(socket.data.root_pos_w), wp.to_torch(socket.data.root_quat_w)
 
 
 def _target_action_frame_pose_w(socket_pos_w: torch.Tensor, socket_quat_w: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -114,12 +131,25 @@ def _target_action_frame_pose_w(socket_pos_w: torch.Tensor, socket_quat_w: torch
 
 
 def main():
+    global RigidObject, SceneEntityCfg, combine_frame_transforms, compute_pose_error, quat_inv, quat_mul
+    global PEG_TIP_BODY_OFFSET_POS, PEG_TIP_BODY_OFFSET_ROT, mdp, BODY_OFFSET
+
     os.makedirs("/workspace/artifacts/hydra", exist_ok=True)
     torch.manual_seed(args_cli.seed)
     env_cfg, _ = resolve_task_config(args_cli.task, "")
     env_cfg.seed = args_cli.seed
 
     with launch_simulation(env_cfg, args_cli):
+        from isaaclab.assets import RigidObject
+        from isaaclab.managers import SceneEntityCfg
+        from isaaclab.utils.math import combine_frame_transforms, compute_pose_error, quat_inv, quat_mul
+        from robot_contact_assembly_tasks.tasks.manager_based.manipulation.peg_in_hole import mdp
+        from robot_contact_assembly_tasks.tasks.manager_based.manipulation.peg_in_hole.constants import (
+            PEG_TIP_BODY_OFFSET_POS,
+            PEG_TIP_BODY_OFFSET_ROT,
+        )
+
+        BODY_OFFSET = PEG_TIP_BODY_OFFSET_POS
         env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
         env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
         if args_cli.disable_fabric:
@@ -127,7 +157,28 @@ def main():
         # Keep a fixed target for the scripted baseline so convergence is measured against one command.
         env_cfg.commands.socket_pose.resampling_time_range = (1.0e6, 1.0e6)
 
-        env = gym.make(args_cli.task, cfg=env_cfg)
+        render_mode = "rgb_array" if args_cli.video and args_cli.video_backend == "viewport" else None
+        env = gym.make(args_cli.task, cfg=env_cfg, render_mode=render_mode)
+        video_folder = None
+        if args_cli.video:
+            video_folder = (
+                os.path.abspath(args_cli.video_folder)
+                if args_cli.video_folder
+                else os.path.join("/workspace/artifacts/videos/scripted", f"seed_{args_cli.seed}")
+            )
+            os.makedirs(video_folder, exist_ok=True)
+            env = gym.wrappers.RecordVideo(
+                env,
+                video_folder=video_folder,
+                step_trigger=lambda step: step == 0,
+                video_length=min(args_cli.video_length, args_cli.steps),
+                disable_logger=True,
+            )
+            print(
+                f"[SCRIPTED] recording video with {args_cli.video_backend} backend to {video_folder} "
+                f"(length={min(args_cli.video_length, args_cli.steps)})",
+                flush=True,
+            )
         env_unwrapped = env.unwrapped
         print(f"[INFO]: Gym observation space: {env.observation_space}", flush=True)
         print(f"[INFO]: Gym action space: {env.action_space}", flush=True)
@@ -136,8 +187,8 @@ def main():
         robot = env_unwrapped.scene["robot"]
         body_ids, _ = robot.find_bodies("panda_hand")
         body_idx = body_ids[0]
-        asset_cfg = SceneEntityCfg("robot", body_names=["panda_hand"])
-        asset_cfg.body_ids = [body_idx]
+        peg_cfg = SceneEntityCfg("peg")
+        socket_cfg = SceneEntityCfg("socket_frame")
 
         initial_lateral = None
         initial_axial = None
@@ -224,12 +275,8 @@ def main():
 
             env.step(actions)
 
-            lateral, axial, rot = mdp.insertion_metrics(
-                env_unwrapped, command_name="socket_pose", asset_cfg=asset_cfg, body_offset=BODY_OFFSET
-            )
-            success = mdp.insertion_success(
-                env_unwrapped, command_name="socket_pose", asset_cfg=asset_cfg, body_offset=BODY_OFFSET
-            )
+            lateral, axial, rot = mdp.insertion_metrics(env_unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg)
+            success = mdp.insertion_success(env_unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg)
 
             if step == 0:
                 initial_lateral = lateral.mean().item()
@@ -269,6 +316,8 @@ def main():
             "initial_rot": initial_rot,
             "final_rot": final_rot,
             "final_success_rate": final_success,
+            "video_backend": args_cli.video_backend if args_cli.video else None,
+            "video_folder": video_folder,
         }
         print(
             "[SCRIPTED] summary "
