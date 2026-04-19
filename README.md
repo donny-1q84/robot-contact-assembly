@@ -21,7 +21,7 @@ Phase 1 was intentionally a proxy precursor, not a finished contact assembly tas
 - socket target was modeled as a commanded pose
 - success was computed from pose thresholds instead of peg/socket geometry
 
-Those limitations are important context for every Phase 1 metric in this repo. The current runtime code has now moved to a contact-guided shell, but the latest published metrics in `experiments/` and `docs/phase1_cv_summary.md` still belong to the proxy phase until the first contact-shell transfer eval is recorded.
+Those limitations are important context for every Phase 1 metric in this repo. The current runtime code has now moved to a contact-guided shell, and the first contact-shell transfer eval has now been recorded separately from the archived proxy metrics.
 
 ## Highlights
 
@@ -136,10 +136,21 @@ The policy observation contract is still kept Phase-1 compatible so the best pro
 The current task is no longer a pure proxy shell, but it is still not a final industrial socket model:
 
 - the socket is a simple fixed guide built from collision walls, not a CAD-accurate round hole with chamfer
-- the contact shell has not yet been benchmarked with a published zero-shot transfer eval from `phase1_fix6_formal/model_50.pt`
+- the first zero-shot transfer eval from `phase1_fix6_formal/model_50.pt` failed with `success=0.000`, `final_lateral=0.5667`, `final_axial=0.4202`, and `final_rot=1.9165`
 - force/contact sensing is present at the scene level, but the default policy observation width is still frozen for checkpoint compatibility
 
 This is enough to turn the project back into a real contact problem without taking on grasping, CAD assets, or sim-to-real scope yet.
+
+## First Contact-Shell Validation
+
+The first contact-shell validation was run on `2026-04-19` against the upgraded peg + guide-wall scene.
+
+- smoke suite: passed
+- scripted baseline on the play task: unstable under contact, ending at `final_lateral=0.6042`, `final_axial=0.1477`, `final_rot=0.3168`, `success=0.000`
+- zero-shot transfer from `phase1_fix6_formal/model_50.pt`: failed, ending at `final_lateral=0.5667`, `final_axial=0.4202`, `final_rot=1.9165`, `success=0.000`
+- scripted viewport recording: timed out at `240s`, so the first contact-shell validation currently has logs and JSON metrics but no stable mp4 artifact
+
+See [experiments/2026-04-19_phase2_contact_shell_validation.md](experiments/2026-04-19_phase2_contact_shell_validation.md) for the exact commands, artifact paths, and interpretation.
 
 ## First Contact Validation
 

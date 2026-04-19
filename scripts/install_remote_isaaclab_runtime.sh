@@ -117,7 +117,7 @@ sudo docker run -d \
   -v \"${REMOTE_ROOT}/artifacts:/workspace/artifacts:rw\" \
   \"${ISAAC_SIM_IMAGE}\" \
   bash -lc \"sleep infinity\" >/dev/null
-sudo docker exec -i \"${TASK_CONTAINER_NAME}\" bash -lc \"
+sudo docker exec -u root -i \"${TASK_CONTAINER_NAME}\" bash -lc \"
 set -euo pipefail
 if ! command -v git >/dev/null 2>&1; then
   apt-get update
