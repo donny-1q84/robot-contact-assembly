@@ -19,7 +19,7 @@ for path in (
 
 importlib.invalidate_caches()
 
-from isaaclab.utils.math import combine_frame_transforms, compute_pose_error, quat_inv, quat_mul
+from isaaclab.utils.math import combine_frame_transforms, compute_pose_error
 
 from robot_contact_assembly_tasks.tasks.manager_based.manipulation.peg_in_hole.constants import (
     PEG_TIP_BODY_OFFSET_POS,
@@ -53,12 +53,6 @@ SETTLE_ROT_GAIN = 3.0
 SETTLE_ROT_CLAMP = 0.24
 
 
-def _identity_quat(reference: torch.Tensor) -> torch.Tensor:
-    quat = reference.new_zeros((reference.shape[0], 4))
-    quat[:, 3] = 1.0
-    return quat
-
-
 def _hand_pose_w(env, body_idx: int) -> tuple[torch.Tensor, torch.Tensor]:
     robot = env.scene["robot"]
     hand_pos_w = wp.to_torch(robot.data.body_pos_w)[:, body_idx]
@@ -69,7 +63,8 @@ def _hand_pose_w(env, body_idx: int) -> tuple[torch.Tensor, torch.Tensor]:
 def _action_frame_pose_w(env, body_idx: int) -> tuple[torch.Tensor, torch.Tensor]:
     hand_pos_w, hand_quat_w = _hand_pose_w(env, body_idx)
     offset_pos = hand_pos_w.new_tensor(BODY_OFFSET).unsqueeze(0).repeat(hand_pos_w.shape[0], 1)
-    return combine_frame_transforms(hand_pos_w, hand_quat_w, offset_pos, _identity_quat(hand_pos_w))
+    offset_quat = hand_pos_w.new_tensor(PEG_TIP_BODY_OFFSET_ROT).unsqueeze(0).repeat(hand_pos_w.shape[0], 1)
+    return combine_frame_transforms(hand_pos_w, hand_quat_w, offset_pos, offset_quat)
 
 
 def _tool_tip_pose_w(env, body_idx: int) -> tuple[torch.Tensor, torch.Tensor]:
@@ -80,17 +75,12 @@ def _tool_tip_pose_w(env, body_idx: int) -> tuple[torch.Tensor, torch.Tensor]:
 
 
 def _socket_pose_w(env) -> tuple[torch.Tensor, torch.Tensor]:
-    robot = env.scene["robot"]
-    command = env.command_manager.get_command("socket_pose")
-    root_pos_w = wp.to_torch(robot.data.root_pos_w)
-    root_quat_w = wp.to_torch(robot.data.root_quat_w)
-    return combine_frame_transforms(root_pos_w, root_quat_w, command[:, :3], command[:, 3:7])
+    socket = env.scene["socket_frame"]
+    return wp.to_torch(socket.data.root_pos_w), wp.to_torch(socket.data.root_quat_w)
 
 
 def _target_action_frame_pose_w(socket_pos_w: torch.Tensor, socket_quat_w: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    offset_quat = socket_pos_w.new_tensor(PEG_TIP_BODY_OFFSET_ROT).unsqueeze(0).repeat(socket_pos_w.shape[0], 1)
-    target_action_quat_w = quat_mul(socket_quat_w, quat_inv(offset_quat))
-    return socket_pos_w.clone(), target_action_quat_w
+    return socket_pos_w.clone(), socket_quat_w.clone()
 
 
 def main():
@@ -107,13 +97,6 @@ def main():
     robot = env.scene["robot"]
     body_ids, _ = robot.find_bodies("panda_hand")
     body_idx = body_ids[0]
-    asset_cfg = state.get("asset_cfg")
-    if asset_cfg is None:
-        from isaaclab.managers import SceneEntityCfg
-
-        asset_cfg = SceneEntityCfg("robot", body_names=["panda_hand"])
-        asset_cfg.body_ids = [body_idx]
-        state["asset_cfg"] = asset_cfg
 
     polish_state = state["polish_state"]
     settle_state = state["settle_state"]
@@ -163,12 +146,12 @@ def main():
 
     env.step(action)
 
-    lateral, axial, rot = mdp.insertion_metrics(
-        env.unwrapped, command_name="socket_pose", asset_cfg=asset_cfg, body_offset=BODY_OFFSET
-    )
-    success = mdp.insertion_success(
-        env.unwrapped, command_name="socket_pose", asset_cfg=asset_cfg, body_offset=BODY_OFFSET
-    )
+    from isaaclab.managers import SceneEntityCfg
+
+    peg_cfg = SceneEntityCfg("peg")
+    socket_cfg = SceneEntityCfg("socket_frame")
+    lateral, axial, rot = mdp.insertion_metrics(env.unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg)
+    success = mdp.insertion_success(env.unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg)
 
     print(
         "live-step "

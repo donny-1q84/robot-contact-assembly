@@ -56,11 +56,8 @@ def _tool_tip_pose_w(env_unwrapped, body_idx: int) -> tuple[torch.Tensor, torch.
 
 
 def _socket_pose_w(env_unwrapped) -> tuple[torch.Tensor, torch.Tensor]:
-    robot = env_unwrapped.scene["robot"]
-    command = env_unwrapped.command_manager.get_command("socket_pose")
-    root_pos_w = wp.to_torch(robot.data.root_pos_w)
-    root_quat_w = wp.to_torch(robot.data.root_quat_w)
-    return combine_frame_transforms(root_pos_w, root_quat_w, command[:, :3], command[:, 3:7])
+    socket = env_unwrapped.scene["socket_frame"]
+    return wp.to_torch(socket.data.root_pos_w), wp.to_torch(socket.data.root_quat_w)
 
 
 def _print_pose_debug(label: str, tip_pos_w, tip_quat_w, socket_pos_w, socket_quat_w) -> None:

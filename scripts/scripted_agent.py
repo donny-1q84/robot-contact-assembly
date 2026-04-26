@@ -18,18 +18,10 @@ RigidObject = None
 SceneEntityCfg = None
 combine_frame_transforms = None
 compute_pose_error = None
-quat_inv = None
-quat_mul = None
 PEG_TIP_BODY_OFFSET_POS = None
 PEG_TIP_BODY_OFFSET_ROT = None
 mdp = None
 BODY_OFFSET = None
-
-
-def _identity_quat(reference: torch.Tensor) -> torch.Tensor:
-    quat = reference.new_zeros((reference.shape[0], 4))
-    quat[:, 3] = 1.0
-    return quat
 
 
 def _hand_pose_w(env_unwrapped, body_idx: int) -> tuple[torch.Tensor, torch.Tensor]:
@@ -42,7 +34,8 @@ def _hand_pose_w(env_unwrapped, body_idx: int) -> tuple[torch.Tensor, torch.Tens
 def _action_frame_pose_w(env_unwrapped, body_idx: int) -> tuple[torch.Tensor, torch.Tensor]:
     hand_pos_w, hand_quat_w = _hand_pose_w(env_unwrapped, body_idx)
     offset_pos = hand_pos_w.new_tensor(BODY_OFFSET).unsqueeze(0).repeat(hand_pos_w.shape[0], 1)
-    return combine_frame_transforms(hand_pos_w, hand_quat_w, offset_pos, _identity_quat(hand_pos_w))
+    offset_quat = hand_pos_w.new_tensor(PEG_TIP_BODY_OFFSET_ROT).unsqueeze(0).repeat(hand_pos_w.shape[0], 1)
+    return combine_frame_transforms(hand_pos_w, hand_quat_w, offset_pos, offset_quat)
 
 
 def _clamp_actions(values: torch.Tensor, limit: torch.Tensor | float) -> torch.Tensor:
@@ -125,13 +118,11 @@ def _socket_pose_w(env_unwrapped) -> tuple[torch.Tensor, torch.Tensor]:
 
 
 def _target_action_frame_pose_w(socket_pos_w: torch.Tensor, socket_quat_w: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    offset_quat = socket_pos_w.new_tensor(PEG_TIP_BODY_OFFSET_ROT).unsqueeze(0).repeat(socket_pos_w.shape[0], 1)
-    target_action_quat_w = quat_mul(socket_quat_w, quat_inv(offset_quat))
-    return socket_pos_w.clone(), target_action_quat_w
+    return socket_pos_w.clone(), socket_quat_w.clone()
 
 
 def main():
-    global RigidObject, SceneEntityCfg, combine_frame_transforms, compute_pose_error, quat_inv, quat_mul
+    global RigidObject, SceneEntityCfg, combine_frame_transforms, compute_pose_error
     global PEG_TIP_BODY_OFFSET_POS, PEG_TIP_BODY_OFFSET_ROT, mdp, BODY_OFFSET
 
     os.makedirs("/workspace/artifacts/hydra", exist_ok=True)
@@ -142,7 +133,7 @@ def main():
     with launch_simulation(env_cfg, args_cli):
         from isaaclab.assets import RigidObject
         from isaaclab.managers import SceneEntityCfg
-        from isaaclab.utils.math import combine_frame_transforms, compute_pose_error, quat_inv, quat_mul
+        from isaaclab.utils.math import combine_frame_transforms, compute_pose_error
         from robot_contact_assembly_tasks.tasks.manager_based.manipulation.peg_in_hole import mdp
         from robot_contact_assembly_tasks.tasks.manager_based.manipulation.peg_in_hole.constants import (
             PEG_TIP_BODY_OFFSET_POS,

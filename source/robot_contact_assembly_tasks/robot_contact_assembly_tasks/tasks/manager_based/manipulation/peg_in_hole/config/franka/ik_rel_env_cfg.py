@@ -4,7 +4,7 @@ from isaaclab.controllers.differential_ik_cfg import DifferentialIKControllerCfg
 from isaaclab.envs.mdp.actions.actions_cfg import DifferentialInverseKinematicsActionCfg
 from isaaclab.utils import configclass
 
-from ...constants import PEG_TIP_BODY_OFFSET_POS
+from ...constants import PEG_TIP_BODY_OFFSET_POS, PEG_TIP_BODY_OFFSET_ROT
 from ...peg_in_hole_env_cfg import PegInHoleEnvCfg
 from ...peg_in_hole_env_cfg import PegInHoleContactEnvCfg
 
@@ -29,7 +29,10 @@ class FrankaPegInHoleEnvCfg(PegInHoleEnvCfg):
             body_name="panda_hand",
             controller=DifferentialIKControllerCfg(command_type="pose", use_relative_mode=True, ik_method="dls"),
             scale=0.5,
-            body_offset=DifferentialInverseKinematicsActionCfg.OffsetCfg(pos=PEG_TIP_BODY_OFFSET_POS),
+            body_offset=DifferentialInverseKinematicsActionCfg.OffsetCfg(
+                pos=PEG_TIP_BODY_OFFSET_POS,
+                rot=PEG_TIP_BODY_OFFSET_ROT,
+            ),
         )
 
         self.commands.socket_pose.body_name = "panda_hand"
@@ -76,7 +79,10 @@ class FrankaPegInHoleContactEnvCfg(PegInHoleContactEnvCfg):
             body_name="panda_hand",
             controller=DifferentialIKControllerCfg(command_type="pose", use_relative_mode=True, ik_method="dls"),
             scale=0.2,
-            body_offset=DifferentialInverseKinematicsActionCfg.OffsetCfg(pos=PEG_TIP_BODY_OFFSET_POS),
+            body_offset=DifferentialInverseKinematicsActionCfg.OffsetCfg(
+                pos=PEG_TIP_BODY_OFFSET_POS,
+                rot=PEG_TIP_BODY_OFFSET_ROT,
+            ),
         )
 
         self.commands.socket_pose.body_name = "panda_hand"

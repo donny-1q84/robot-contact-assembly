@@ -1,10 +1,10 @@
 """Shared geometry constants for the contact-guided peg-in-hole shell."""
 
-# Controller-side tip frame used by the relative IK action. This stays aligned with the
-# Phase 1 proxy task so old checkpoints still target the same nominal tip pose.
+# Controller-side tip frame used by the relative IK action. Isaac Lab quaternions use
+# `(w, x, y, z)`, so this is the yaw-only tip offset derived from PEG_TIP_YAW_OFFSET_RAD.
 PEG_TIP_BODY_OFFSET_POS = (0.0, 0.0, 0.1034)
-PEG_TIP_BODY_OFFSET_ROT = (0.0, 0.0, 0.41435253798529015, 0.9101164619240488)
 PEG_TIP_YAW_OFFSET_RAD = 0.8544625639915466
+PEG_TIP_BODY_OFFSET_ROT = (0.9101164619240488, 0.0, 0.0, 0.41435253798529015)
 
 # Physical peg geometry.
 PEG_RADIUS_M = 0.010
