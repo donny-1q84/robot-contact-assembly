@@ -97,6 +97,7 @@ Remote Brev GPU VM:
 
 See [architecture.md](docs/architecture.md) and [task_breakdown.md](docs/task_breakdown.md).
 For the shortest GPU-session workflow, use [phase1_gpu_session_runbook.md](docs/phase1_gpu_session_runbook.md).
+Before creating any paid GPU instance, use [gpu_selection_policy.md](docs/gpu_selection_policy.md) to compare live Brev prices and choose the best-value instance for the specific job.
 
 ## Repository layout
 
