@@ -13,6 +13,7 @@ TASK_CONTAINER_NAME="${RCA_REMOTE_TASK_CONTAINER:-isaac-runner}"
 WEB_VIEWER_PORT="${WEB_VIEWER_PORT:-8210}"
 ISAACSIM_SIGNAL_PORT="${ISAACSIM_SIGNAL_PORT:-49100}"
 ISAACSIM_STREAM_PORT="${ISAACSIM_STREAM_PORT:-47998}"
+SKIP_STREAM_STACK="${RCA_SKIP_STREAM_STACK:-0}"
 
 COMPOSE_BASE="sudo docker compose -p isim -f ${REMOTE_COMPOSE_ROOT}/tools/docker/docker-compose.yml -f ${REMOTE_COMPOSE_ROOT}/tools/docker/docker-compose.override.yml -f ${REMOTE_OVERRIDE_FILE}"
 
@@ -87,7 +88,7 @@ fi
 if [ ! -d \"${REMOTE_ISAACLAB_DIR}/.git\" ]; then
   sudo rm -rf \"${REMOTE_ISAACLAB_DIR}\"
   git clone --depth 1 --branch develop https://github.com/isaac-sim/IsaacLab.git \"${REMOTE_ISAACLAB_DIR}\"
-  sudo chown -R ubuntu:ubuntu \"${REMOTE_ISAACLAB_DIR}\"
+  sudo chown -R \"\$(id -un):\$(id -gn)\" \"${REMOTE_ISAACLAB_DIR}\"
 else
   cd \"${REMOTE_ISAACLAB_DIR}\"
   git fetch origin develop --depth 1
@@ -102,8 +103,20 @@ if [ -z \"\$HOST_IP\" ]; then
   HOST_IP=127.0.0.1
   echo \"[runtime] warning: public IP resolution failed; falling back to 127.0.0.1 for viewer config\" >&2
 fi
+cat > \"${REMOTE_OVERRIDE_FILE}\" <<EOF
+services:
+  isaac-sim:
+    volumes:
+      - ${REMOTE_REPO_DIR}:/workspace/robot-contact-assembly:rw
+      - ${REMOTE_ISAACLAB_DIR}:/workspace/IsaacLab:rw
+      - ${REMOTE_ROOT}/artifacts:/workspace/artifacts:rw
+EOF
 cd \"${REMOTE_COMPOSE_ROOT}\"
-ISAAC_SIM_IMAGE=\"${ISAAC_SIM_IMAGE}\" WEB_VIEWER_PORT=\"${WEB_VIEWER_PORT}\" ISAACSIM_SIGNAL_PORT=\"${ISAACSIM_SIGNAL_PORT}\" ISAACSIM_STREAM_PORT=\"${ISAACSIM_STREAM_PORT}\" ISAACSIM_HOST=\"\$HOST_IP\" ${COMPOSE_BASE} up -d --build
+if [ \"${SKIP_STREAM_STACK}\" = \"1\" ]; then
+  echo \"[runtime] skipping streaming compose stack; headless task container only\"
+else
+  ISAAC_SIM_IMAGE=\"${ISAAC_SIM_IMAGE}\" WEB_VIEWER_PORT=\"${WEB_VIEWER_PORT}\" ISAACSIM_SIGNAL_PORT=\"${ISAACSIM_SIGNAL_PORT}\" ISAACSIM_STREAM_PORT=\"${ISAACSIM_STREAM_PORT}\" ISAACSIM_HOST=\"\$HOST_IP\" ${COMPOSE_BASE} up -d --build
+fi
 sudo docker rm -f \"${TASK_CONTAINER_NAME}\" >/dev/null 2>&1 || true
 sudo docker run -d \
   --name \"${TASK_CONTAINER_NAME}\" \
@@ -136,6 +149,12 @@ fi
 /isaac-sim/python.sh -m pip install h5py
 /isaac-sim/python.sh -m pip install hydra-core
 /isaac-sim/python.sh -m pip install --editable /workspace/robot-contact-assembly/source/robot_contact_assembly_tasks
+TENSOR_API_DIR=\$(find /isaac-sim/extscache -path '*/omni/physics/tensors' -type d | head -n 1 || true)
+if [ -n \"\$TENSOR_API_DIR\" ] && [ ! -f \"\$TENSOR_API_DIR/api.py\" ] && [ -f \"\$TENSOR_API_DIR/impl/api.py\" ]; then
+  cat > \"\$TENSOR_API_DIR/api.py\" <<'PYEOF'
+from .impl.api import *
+PYEOF
+fi
 \"
 '"
 

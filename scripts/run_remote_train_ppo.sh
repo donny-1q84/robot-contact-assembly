@@ -53,6 +53,10 @@ LATEST_CHECKPOINT=\"\"
 if [[ -n \"\${LATEST_RUN}\" ]]; then
   LATEST_CHECKPOINT=\"\$(find \"\${LATEST_RUN}\" -maxdepth 1 -type f -name 'model_*.pt' | sort | tail -n 1 || true)\"
 fi
+if [[ -z \"\${LATEST_CHECKPOINT}\" ]]; then
+  echo \"[train-ppo] no checkpoint found for run_name=${RUN_NAME}\" >&2
+  exit 2
+fi
 {
   echo \"task=${TASK_NAME}\"
   echo \"experiment_name=${EXPERIMENT_NAME}\"

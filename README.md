@@ -193,17 +193,31 @@ Interpretation:
 - Phase 2 has crossed the tooling threshold from "contact shell exists" to "direct contact training path is alive"
 - the next meaningful step is a longer direct contact-baseline run, not more proxy transfer experiments
 
-## Current Blocker
+## First Direct Contact Baseline
 
-The next planned run is `phase2_contact_baseline_v2`, but the latest attempt to launch it on a fresh Brev machine was blocked by runtime bootstrap, not by task code:
+The first longer direct-contact PPO baseline was completed on `2026-04-26` after switching the remote runtime to a headless-only Brev path:
 
-- fresh GPU instances could be created and reached by SSH
-- repo bootstrap and sync succeeded
-- the tuned direct-contact config is already committed locally
-- the failure happened during fresh-machine `nvcr.io/nvidia/isaac-sim:6.0.0-dev2` bootstrap inside `install_remote_isaaclab_runtime.sh`
-- no new baseline metrics were produced from that blocked attempt
+- instance type: `massedcompute_L40S`
+- task: `RCA-PegInHole-Franka-IK-Rel-Contact-v0`
+- run: `phase2_contact_baseline_v2`
+- training budget: `64 envs`, `100` PPO iterations, seed `42`
+- best saved checkpoint from the run: `model_99.pt`
 
-Until the fresh-machine Isaac Sim image pull/compose path is healthy again, the correct next step is to retry runtime bootstrap, not to retune PPO blindly.
+Fixed-step eval on `model_99.pt` with `16` envs and `400` steps produced:
+
+- `final_success_rate=0.000`
+- `best_success_rate=0.000`
+- `final_lateral=0.4725`
+- `final_axial=0.4217`
+- `final_rot=1.9343`
+
+Interpretation:
+
+- the direct contact-training path now works end-to-end on a fresh GPU instance
+- reward increased during training, but `insertion_progress` and `insertion_success` stayed at zero
+- the current contact task is therefore still not learning insertion; the next useful work is local task/reward diagnosis before spending more GPU time
+
+See [experiments/2026-04-26_phase2_direct_contact_baseline.md](experiments/2026-04-26_phase2_direct_contact_baseline.md) for the exact commands, runtime workaround, artifacts, and next decision.
 
 ## First Contact Validation
 
