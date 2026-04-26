@@ -19,7 +19,7 @@ If any instance is already running and it is not part of the current task, stop 
 
 Use the task, not the GPU name, as the selector.
 
-- For cheap scripted gates, runtime checks, and non-training evals, prefer the cheapest single-GPU instance with enough VRAM to boot Isaac Sim reliably. A single L4 can be acceptable if the job is headless and short.
+- For cheap scripted gates, runtime checks, and non-training evals, prefer the cheapest single-GPU instance with enough VRAM to boot Isaac Sim reliably. A single L4 can be acceptable only after the fixed headless-container path has been validated; do not use it for cold Isaac bring-up when time matters.
 - For PPO/RL training in Isaac Lab, prefer one strong single GPU with at least 40 GB VRAM. L40S is currently the default value target when it is available and not much more expensive than weaker options.
 - Avoid multi-T4 as the default even when the total VRAM number looks attractive. Isaac Sim and this repo's wrappers are not designed to benefit from several weak GPUs for one environment/training job.
 - Use A100/H100/H200 only when a specific workload needs it. For this project phase, they are usually overkill unless the price is unusually close to L40S.
@@ -36,6 +36,8 @@ Checked on `2026-04-26` with 500 GB target disk:
 - `gpu-h100-sxm.1gpu-16vcpu-200gb`, H100 80 GB, about `$3.54/hr`: powerful, but only use if a short high-VRAM/high-throughput job justifies the premium.
 
 These prices are not stable. Re-run the preflight commands every time.
+
+The `2026-04-26` L4 gate attempt showed that a cold L4 can waste time during Isaac startup if the task container accidentally starts an extra streaming Kit process. See `experiments/2026-04-26_phase2_l4_gate_attempt.md`.
 
 ## Creation Strategy
 
