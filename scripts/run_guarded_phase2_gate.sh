@@ -1,0 +1,283 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+BREV_BIN="${BREV_BIN:-/Users/Shenghan/bin/brev}"
+INSTANCE_NAME="${RCA_GATE_INSTANCE_NAME:-isaac-phase2-gate}"
+INSTANCE_TYPE="${RCA_GATE_INSTANCE_TYPE:-}"
+GATE_PROFILE="${RCA_GATE_PROFILE:-balanced}"
+MIN_DISK="${RCA_GATE_MIN_DISK:-500}"
+CREATE_TIMEOUT="${RCA_GATE_CREATE_TIMEOUT:-900}"
+READY_TIMEOUT_SECONDS="${RCA_GATE_READY_TIMEOUT_SECONDS:-900}"
+DELETE_TIMEOUT_SECONDS="${RCA_GATE_DELETE_TIMEOUT_SECONDS:-600}"
+BREV_QUERY_TIMEOUT="${RCA_GATE_BREV_QUERY_TIMEOUT:-45}"
+BREV_MUTATION_TIMEOUT="${RCA_GATE_BREV_MUTATION_TIMEOUT:-180}"
+DELETE_ON_EXIT="${RCA_GATE_DELETE_ON_EXIT:-1}"
+KEEP_ON_FAILURE="${RCA_GATE_KEEP_ON_FAILURE:-0}"
+ALLOW_DIRTY="${RCA_ALLOW_DIRTY:-0}"
+
+TASK_NAME="${RCA_GATE_TASK:-RCA-PegInHole-Franka-IK-Rel-Contact-Play-v0}"
+NUM_ENVS="${RCA_GATE_NUM_ENVS:-1}"
+STEPS="${RCA_GATE_STEPS:-240}"
+SEEDS="${RCA_GATE_SEEDS:-42}"
+EVAL_TIMEOUT_SECONDS="${RCA_GATE_EVAL_TIMEOUT_SECONDS:-600}"
+EXTRA_AGENT_ARGS="${RCA_GATE_EXTRA_AGENT_ARGS:-}"
+
+RUN_ID="$(date -u +"%Y-%m-%dT%H-%M-%SZ")"
+LOCAL_RUN_DIR="${REPO_ROOT}/artifacts/gpu_gate/${RUN_ID}_${INSTANCE_NAME}"
+mkdir -p "${LOCAL_RUN_DIR}"
+exec > >(tee -a "${LOCAL_RUN_DIR}/gate.log") 2>&1
+
+REMOTE_USER=""
+REMOTE_ROOT=""
+REMOTE_COMPOSE_ROOT=""
+CREATED_INSTANCE=0
+FINAL_STATUS=0
+
+log() {
+  echo "[guarded-gate] $*"
+}
+
+run_with_timeout() {
+  local timeout_seconds="$1"
+  shift
+
+  local output_file status_file pid deadline status
+  output_file="${LOCAL_RUN_DIR}/.timeout_$$_${RANDOM}.out"
+  status_file="${LOCAL_RUN_DIR}/.timeout_$$_${RANDOM}.status"
+
+  (
+    set +e
+    "$@" >"${output_file}" 2>&1
+    printf '%s' "$?" >"${status_file}"
+  ) &
+  pid=$!
+  deadline=$((SECONDS + timeout_seconds))
+
+  while kill -0 "${pid}" 2>/dev/null; do
+    if (( SECONDS >= deadline )); then
+      kill "${pid}" 2>/dev/null || true
+      sleep 1
+      kill -9 "${pid}" 2>/dev/null || true
+      wait "${pid}" 2>/dev/null || true
+      cat "${output_file}" 2>/dev/null || true
+      rm -f "${output_file}" "${status_file}"
+      return 124
+    fi
+    sleep 1
+  done
+
+  wait "${pid}" 2>/dev/null || true
+  cat "${output_file}" 2>/dev/null || true
+  if [[ -f "${status_file}" ]]; then
+    status="$(cat "${status_file}")"
+  else
+    status=1
+  fi
+  rm -f "${output_file}" "${status_file}"
+  return "${status}"
+}
+
+run_brev_ls_all() {
+  run_with_timeout "${BREV_QUERY_TIMEOUT}" "${BREV_BIN}" ls --all
+}
+
+run_brev_json_all() {
+  run_with_timeout "${BREV_QUERY_TIMEOUT}" "${BREV_BIN}" ls --json --all
+}
+
+run_brev_search() {
+  run_with_timeout "${BREV_QUERY_TIMEOUT}" "${BREV_BIN}" search "$@"
+}
+
+org_is_empty() {
+  local json
+  json="$(run_brev_json_all 2>/dev/null || true)"
+  [[ "${json}" == "null" || "${json}" == "[]" || -z "${json}" ]]
+}
+
+wait_for_ready() {
+  local deadline output
+  deadline=$((SECONDS + READY_TIMEOUT_SECONDS))
+  while (( SECONDS < deadline )); do
+    output="$(run_brev_ls_all || true)"
+    printf '%s\n' "${output}"
+    if printf '%s\n' "${output}" | awk -v name="${INSTANCE_NAME}" '$1 == name && $2 == "RUNNING" && $3 == "COMPLETED" && $4 == "READY" { found = 1 } END { exit found ? 0 : 1 }'; then
+      return 0
+    fi
+    sleep 10
+  done
+  return 1
+}
+
+wait_for_empty_org() {
+  local deadline
+  deadline=$((SECONDS + DELETE_TIMEOUT_SECONDS))
+  while (( SECONDS < deadline )); do
+    if org_is_empty; then
+      run_brev_ls_all || true
+      return 0
+    fi
+    run_brev_ls_all || true
+    sleep 10
+  done
+  return 1
+}
+
+cleanup() {
+  local status=$?
+  FINAL_STATUS="${status}"
+  set +e
+
+  log "cleanup status=${status}"
+  if [[ -n "${REMOTE_ROOT}" ]]; then
+    log "pulling artifacts before shutdown"
+    bash "${SCRIPT_DIR}/pull_artifacts.sh" "${INSTANCE_NAME}" "${REMOTE_ROOT}" "${REPO_ROOT}/artifacts" || true
+  fi
+
+  if [[ "${CREATED_INSTANCE}" == "1" && "${DELETE_ON_EXIT}" == "1" && ( "${KEEP_ON_FAILURE}" != "1" || "${status}" == "0" ) ]]; then
+    log "deleting instance ${INSTANCE_NAME}"
+    run_with_timeout "${BREV_MUTATION_TIMEOUT}" "${BREV_BIN}" delete "${INSTANCE_NAME}" || true
+    if wait_for_empty_org; then
+      log "confirmed no visible instances after delete"
+    else
+      log "warning: instance list did not become empty before delete timeout"
+      run_brev_ls_all || true
+      run_brev_json_all || true
+    fi
+  else
+    log "skipping delete: CREATED_INSTANCE=${CREATED_INSTANCE} DELETE_ON_EXIT=${DELETE_ON_EXIT} KEEP_ON_FAILURE=${KEEP_ON_FAILURE} status=${status}"
+    run_brev_ls_all || true
+  fi
+
+  cat > "${LOCAL_RUN_DIR}/gate_metadata.env" <<EOF
+run_id=${RUN_ID}
+instance_name=${INSTANCE_NAME}
+instance_type=${INSTANCE_TYPE}
+gate_profile=${GATE_PROFILE}
+task_name=${TASK_NAME}
+num_envs=${NUM_ENVS}
+steps=${STEPS}
+seeds=${SEEDS}
+eval_timeout_seconds=${EVAL_TIMEOUT_SECONDS}
+remote_user=${REMOTE_USER}
+remote_root=${REMOTE_ROOT}
+remote_compose_root=${REMOTE_COMPOSE_ROOT}
+final_status=${FINAL_STATUS}
+EOF
+  log "local run dir: ${LOCAL_RUN_DIR}"
+  exit "${status}"
+}
+
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+choose_instance_type() {
+  if [[ -n "${INSTANCE_TYPE}" ]]; then
+    log "using explicit RCA_GATE_INSTANCE_TYPE=${INSTANCE_TYPE}"
+    return 0
+  fi
+
+  local search_output selected
+  case "${GATE_PROFILE}" in
+    balanced)
+      log "selecting cheapest visible single L40S candidate"
+      search_output="$(run_brev_search --gpu-name L40S --min-total-vram 40 --min-disk "${MIN_DISK}" --stoppable --sort price)"
+      printf '%s\n' "${search_output}" | tee "${LOCAL_RUN_DIR}/brev_search_l40s.txt"
+      selected="$(printf '%s\n' "${search_output}" | awk '$4 == "L40S" && $5 == 1 { print $1; exit }')"
+      ;;
+    cheap)
+      log "selecting cheapest visible single L4 candidate"
+      search_output="$(run_brev_search --gpu-name L4 --min-total-vram 24 --min-disk "${MIN_DISK}" --stoppable --sort price)"
+      printf '%s\n' "${search_output}" | tee "${LOCAL_RUN_DIR}/brev_search_l4.txt"
+      selected="$(printf '%s\n' "${search_output}" | awk '$4 == "L4" && $5 == 1 { print $1; exit }')"
+      ;;
+    *)
+      echo "[guarded-gate] unknown RCA_GATE_PROFILE=${GATE_PROFILE}; use balanced or cheap" >&2
+      return 2
+      ;;
+  esac
+
+  if [[ -z "${selected}" ]]; then
+    echo "[guarded-gate] could not select an instance type for profile=${GATE_PROFILE}" >&2
+    return 2
+  fi
+  INSTANCE_TYPE="${selected}"
+  log "selected instance_type=${INSTANCE_TYPE}"
+}
+
+main() {
+  log "repo=${REPO_ROOT}"
+  log "run_id=${RUN_ID}"
+  log "preflight: checking git state"
+  git -C "${REPO_ROOT}" status --short --branch
+  if [[ "${ALLOW_DIRTY}" != "1" && -n "$(git -C "${REPO_ROOT}" status --porcelain)" ]]; then
+    echo "[guarded-gate] repo has uncommitted changes; commit first or set RCA_ALLOW_DIRTY=1" >&2
+    return 2
+  fi
+
+  log "preflight: current Brev instances"
+  run_brev_ls_all || true
+  if ! org_is_empty; then
+    echo "[guarded-gate] refusing to create a new instance because the org is not empty" >&2
+    run_brev_json_all || true
+    return 2
+  fi
+
+  log "preflight: recording live price tables"
+  run_brev_search --min-total-vram 24 --min-disk "${MIN_DISK}" --stoppable --sort price | head -40 | tee "${LOCAL_RUN_DIR}/brev_search_24gb.txt"
+  run_brev_search --min-total-vram 32 --min-disk "${MIN_DISK}" --stoppable --sort price | head -40 | tee "${LOCAL_RUN_DIR}/brev_search_32gb.txt"
+  run_brev_search --min-total-vram 40 --min-disk "${MIN_DISK}" --stoppable --sort price | head -40 | tee "${LOCAL_RUN_DIR}/brev_search_40gb.txt"
+
+  choose_instance_type
+
+  log "creating ${INSTANCE_NAME} type=${INSTANCE_TYPE}"
+  CREATED_INSTANCE=1
+  "${BREV_BIN}" create "${INSTANCE_NAME}" --type "${INSTANCE_TYPE}" --min-disk "${MIN_DISK}" --stoppable --timeout "${CREATE_TIMEOUT}"
+
+  log "waiting for instance readiness"
+  wait_for_ready
+
+  log "refreshing Brev SSH config"
+  run_with_timeout "${BREV_MUTATION_TIMEOUT}" "${BREV_BIN}" refresh || true
+
+  log "probing remote host"
+  ssh "${INSTANCE_NAME}" 'whoami && hostname && nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader && df -h /'
+  REMOTE_USER="$(ssh "${INSTANCE_NAME}" 'whoami')"
+  REMOTE_ROOT="${RCA_REMOTE_ROOT:-/home/${REMOTE_USER}/projects/robot-contact-assembly}"
+  REMOTE_COMPOSE_ROOT="${RCA_REMOTE_COMPOSE_ROOT:-/home/${REMOTE_USER}/isaac-compose}"
+  log "remote_user=${REMOTE_USER}"
+  log "remote_root=${REMOTE_ROOT}"
+  log "remote_compose_root=${REMOTE_COMPOSE_ROOT}"
+
+  log "bootstrapping workspace"
+  bash "${SCRIPT_DIR}/bootstrap_brev_workspace.sh" "${INSTANCE_NAME}" "${REMOTE_ROOT}"
+
+  log "syncing repository"
+  bash "${SCRIPT_DIR}/sync_to_brev.sh" "${INSTANCE_NAME}" "${REMOTE_ROOT}"
+
+  log "installing headless Isaac Lab runtime"
+  RCA_SKIP_STREAM_STACK=1 bash "${SCRIPT_DIR}/install_remote_isaaclab_runtime.sh" "${INSTANCE_NAME}" "${REMOTE_ROOT}" "${REMOTE_COMPOSE_ROOT}"
+
+  log "checking runtime"
+  bash "${SCRIPT_DIR}/check_remote_runtime.sh" "${INSTANCE_NAME}" "${REMOTE_ROOT}" "${REMOTE_COMPOSE_ROOT}"
+
+  log "running scripted contact gate"
+  bash "${SCRIPT_DIR}/run_remote_scripted_eval.sh" \
+    "${INSTANCE_NAME}" \
+    "${REMOTE_ROOT}" \
+    "${REMOTE_COMPOSE_ROOT}" \
+    "${TASK_NAME}" \
+    "${NUM_ENVS}" \
+    "${STEPS}" \
+    "${SEEDS}" \
+    "${EVAL_TIMEOUT_SECONDS}" \
+    "${EXTRA_AGENT_ARGS}"
+
+  log "gate completed"
+}
+
+main "$@"

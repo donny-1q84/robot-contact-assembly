@@ -15,6 +15,28 @@ Run these commands before creating an instance:
 
 If any instance is already running and it is not part of the current task, stop and resolve it before creating another one.
 
+## Guarded Gate Wrapper
+
+For the next Phase 2 contact-shell validation, prefer the guarded wrapper instead of manually creating a Brev instance:
+
+```bash
+scripts/run_guarded_phase2_gate.sh
+```
+
+What the wrapper does:
+
+- refuses to start if the git tree is dirty, unless `RCA_ALLOW_DIRTY=1`
+- refuses to start if Brev already shows an instance in the org
+- records live Brev price tables before creation
+- chooses the cheapest visible single L40S by default (`RCA_GATE_PROFILE=balanced`)
+- uses L4 only when explicitly requested with `RCA_GATE_PROFILE=cheap`
+- installs the headless Isaac Lab runtime with the streaming stack skipped
+- runs the scripted Phase 2 contact gate
+- pulls artifacts back to the external SSD
+- deletes the GPU instance on exit and checks that the org is empty
+
+The wrapper also applies short timeouts to Brev list/search/delete calls, because Brev CLI queries have previously printed a result but failed to exit cleanly. Do not bypass this wrapper for short paid validation runs unless there is a specific reason.
+
 ## Selection Rules
 
 Use the task, not the GPU name, as the selector.

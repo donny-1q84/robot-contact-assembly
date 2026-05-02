@@ -98,6 +98,7 @@ Remote Brev GPU VM:
 See [architecture.md](docs/architecture.md) and [task_breakdown.md](docs/task_breakdown.md).
 For the shortest GPU-session workflow, use [phase1_gpu_session_runbook.md](docs/phase1_gpu_session_runbook.md).
 Before creating any paid GPU instance, use [gpu_selection_policy.md](docs/gpu_selection_policy.md) to compare live Brev prices and choose the best-value instance for the specific job.
+For the next Phase 2 contact-shell gate, use `scripts/run_guarded_phase2_gate.sh` so price capture, runtime install, artifact pullback, deletion, and final empty-org checks happen in one controlled flow.
 
 ## Repository layout
 
