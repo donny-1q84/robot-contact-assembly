@@ -609,3 +609,56 @@ Pass condition remains:
 - scripted final lateral and axial errors improve from reset
 - rotation no longer remains near `~2 rad`
 - `best_lateral` reaches the approach corridor or final pose is close enough to justify one short PPO smoke
+
+## Attempt 10: L4 Diagnostic With Forward-Rotated Translation
+
+Command:
+
+```bash
+RCA_GATE_INSTANCE_NAME=isaac-phase2-forward-debug-l4 \
+RCA_GATE_INSTANCE_TYPE='g2-standard-4:nvidia-l4:1' \
+RCA_GATE_CREATE_TIMEOUT=900 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_STEPS=20 \
+RCA_GATE_EXTRA_AGENT_ARGS='--debug-action-steps 5' \
+scripts/run_guarded_phase2_gate.sh
+```
+
+Result:
+
+- Brev successfully created `isaac-phase2-forward-debug-l4`.
+- Runtime bootstrap completed and registered the contact task.
+- The scripted evaluation timed out with status `124`.
+- No eval JSON was produced.
+- The pulled log stopped during Isaac headless startup before `AppLauncher initialization complete`, environment setup, or any `[ACTION-DEBUG]` output.
+- Cleanup deleted the instance.
+- The guarded script and independent checks confirmed no visible instances:
+  - `brev ls instances --all`: `No instances`
+  - `brev ls instances --json --all`: `null`
+
+Key evidence:
+
+```text
+[INFO]: Loading experience file: /workspace/IsaacLab/apps/isaaclab.python.headless.kit
+E0000 ... descriptor_database.cc:633] File already exists in database: grpc/health/v1/health.proto
+W0000 ... message.cc:301] Protobuf GeneratedMessageFactory: File is already registered: grpc/health/v1/health.proto
+[scripted-eval] seed=42 failed with status=124
+```
+
+Interpretation:
+
+- This attempt did not validate or invalidate the forward-rotated action mapping.
+- The timeout happened before the task entered the control loop, so there are no action-frame diagnostics to interpret.
+- Older L4 runs reached `AppLauncher initialization complete` and the action loop from the same `health: starting` container state, so this is best treated as an intermittent Isaac/Brev headless startup hang rather than a controller regression.
+
+Follow-up fix:
+
+- `scripts/run_remote_scripted_eval.sh` now supports same-instance retries through `RCA_SCRIPTED_EVAL_RETRIES` and defaults to one retry.
+- Each retry writes a distinct log path (`seed_<seed>_attempt_<n>.log`) while keeping the final summary path stable.
+- Failed attempts remove stale summary JSON before rerun and kill any leftover `scripts/scripted_agent.py` process before retrying.
+
+Next useful action:
+
+1. Do not run PPO yet.
+2. Re-run the same 20-step diagnostic once, relying on the same-instance retry wrapper if the first Isaac launch hangs.
+3. Pass condition remains unchanged: after a negative world-Z error, the next `action_pos.z` must decrease toward the approach pose instead of increasing.
