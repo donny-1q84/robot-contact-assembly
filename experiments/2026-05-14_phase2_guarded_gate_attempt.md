@@ -177,8 +177,8 @@ Follow-up fix:
 
 - No Brev instances are visible in org `NCA-57cf-29515`.
 - Runtime setup is now solved on the L4 fallback.
-- The first scripted contact gate ran but failed.
-- The next attempt should reuse the L4 fallback after the scripted gating fix.
+- The scripted contact gate still fails because the remote wrapper was overriding the scripted controller thresholds.
+- The next attempt should reuse the L4 fallback after the wrapper fix.
 
 ## Attempt 4: L4 With Retry-Hardened Installer
 
@@ -242,6 +242,61 @@ Local outputs:
 - `artifacts/evaluations/scripted/2026-05-14T17-13-48Z/seed_42.log`
 - `artifacts/gpu_gate/2026-05-14T16-51-36Z_isaac-phase2-gate-l4/gate.log`
 
+## Attempt 5: L4 After Scripted Gating Patch
+
+Command:
+
+```bash
+RCA_GATE_INSTANCE_NAME=isaac-phase2-gate-l4 \
+RCA_GATE_INSTANCE_TYPE='g2-standard-4:nvidia-l4:1' \
+RCA_GATE_CREATE_TIMEOUT=900 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+scripts/run_guarded_phase2_gate.sh
+```
+
+Result:
+
+- Brev successfully created `isaac-phase2-gate-l4`.
+- Runtime bootstrap completed again.
+- Scripted gate ran for seed `42`.
+- Metrics were unchanged from Attempt 4.
+- Cleanup deleted the instance, and post-cleanup checks showed no visible instances.
+
+Metrics:
+
+```json
+{
+  "initial_lateral": 0.09503934532403946,
+  "final_lateral": 0.11525661498308182,
+  "initial_axial": 0.2692160904407501,
+  "final_axial": 0.23030611872673035,
+  "initial_rot": 2.3476452827453613,
+  "final_rot": 2.450565814971924,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Interpretation:
+
+- The attempted scripted gating patch was not actually exercised.
+- `scripts/run_remote_scripted_eval.sh` was forcing these permissive arguments:
+  - `--approach-height 0.0`
+  - `--approach-xy-tol 1.0`
+  - `--approach-rot-tol 10.0`
+- Those overrides make `insert_ready=1.000` from the beginning, bypassing the realistic approach gate.
+
+Follow-up fix:
+
+- `scripts/run_remote_scripted_eval.sh` no longer hard-codes permissive scripted-controller thresholds.
+- It now uses `scripted_agent.py` defaults unless `RCA_SCRIPTED_AGENT_ARGS` or explicit extra args are supplied.
+
+Local outputs:
+
+- `artifacts/evaluations/scripted/2026-05-14T17-50-13Z/seed_42.json`
+- `artifacts/evaluations/scripted/2026-05-14T17-50-13Z/seed_42.log`
+- `artifacts/gpu_gate/2026-05-14T17-29-50Z_isaac-phase2-gate-l4/gate.log`
+
 ## Next Decision
 
 Do not run PPO yet.
@@ -249,7 +304,7 @@ Do not run PPO yet.
 Next useful action:
 
 1. Confirm `brev ls instances --all` and `brev ls instances --json --all` both return normally.
-2. Re-run the guarded gate on the L4 fallback after the scripted gating fix:
+2. Re-run the guarded gate on the L4 fallback after the wrapper threshold fix:
 
 ```bash
 RCA_GATE_INSTANCE_NAME=isaac-phase2-gate-l4 \
