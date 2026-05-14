@@ -941,3 +941,62 @@ Next useful action:
 2. Commit the calibrated scripted-controller plumbing.
 3. Run one short L4 gate with `RCA_GATE_USE_CALIBRATED_SCRIPTED=1`, `RCA_GATE_SCRIPTED_STEPS=80`, and `--debug-action-steps 8`.
 4. Pass condition: final lateral/axial should be better than initial, or at least best lateral/axial should improve without the late-run divergence seen in this attempt.
+
+## Attempt 14: Calibrated One-Hot Gate Blocked by Partial Brev Create Failure
+
+Command:
+
+```bash
+RCA_GATE_COMMAND=calibration_then_scripted_eval \
+RCA_GATE_USE_CALIBRATED_SCRIPTED=1 \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-calibrated-onehot-l4 \
+RCA_GATE_INSTANCE_TYPE='g2-standard-4:nvidia-l4:1' \
+RCA_GATE_CREATE_TIMEOUT=900 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_EVAL_TIMEOUT_SECONDS=300 \
+RCA_ACTION_CALIBRATION_RETRIES=1 \
+RCA_SCRIPTED_EVAL_RETRIES=1 \
+RCA_GATE_CALIBRATION_STEPS=4 \
+RCA_GATE_SCRIPTED_STEPS=80 \
+RCA_GATE_SCRIPTED_EXTRA_AGENT_ARGS='--debug-action-steps 8' \
+scripts/run_guarded_phase2_gate.sh
+```
+
+Result:
+
+- The price snapshot was recorded.
+- The L4 remained the cheapest viable option at about `$0.85/hr`.
+- Brev API returned `unexpected EOF` during `createWorkspace`.
+- The CLI reported `created 0/1 instances`.
+- Despite that failure, the org later showed a partially created instance:
+  - name: `isaac-phase2-calibrated-onehot-l4`
+  - id: `ongdllsy5`
+  - type: `g2-standard-4:nvidia-l4:1`
+  - status sequence observed: `STARTING/PENDING` -> `RUNNING/BUILDING` -> `DELETING`
+- No Isaac runtime was installed.
+- No calibration or scripted eval ran.
+- The instance was manually deleted after the first cleanup delete hit a Brev backend timeout.
+- Final independent checks returned:
+  - `brev ls instances --all`: `No instances`
+  - `brev ls instances --json --all`: `null`
+
+Local log:
+
+- `artifacts/gpu_gate/2026-05-14T22-32-20Z_isaac-phase2-calibrated-onehot-l4/gate.log`
+
+Interpretation:
+
+- This was a Brev control-plane partial-create failure, not a project-code failure.
+- The key safety lesson is that `brev create` can return failure while a billable instance still appears shortly afterward.
+- This is the same class of risk as the previous ghost-instance incidents; do not retry immediately when the control plane behaves this way.
+
+Follow-up safety fix:
+
+- `scripts/run_guarded_phase2_gate.sh` now re-issues `brev delete <instance>` during cleanup if the target instance remains visible.
+- The retry is rate-limited by `RCA_GATE_DELETE_RETRY_INTERVAL_SECONDS` and only targets the instance name created by the current gate.
+
+Next useful action:
+
+1. Do not open another GPU immediately after this partial-create failure.
+2. Commit the repeated-delete cleanup fix.
+3. Later, rerun the calibrated one-hot gate only after Brev instance listing is stable and the org is confirmed empty.

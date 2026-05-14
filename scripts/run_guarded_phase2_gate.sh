@@ -12,6 +12,7 @@ MIN_DISK="${RCA_GATE_MIN_DISK:-500}"
 CREATE_TIMEOUT="${RCA_GATE_CREATE_TIMEOUT:-900}"
 READY_TIMEOUT_SECONDS="${RCA_GATE_READY_TIMEOUT_SECONDS:-900}"
 DELETE_TIMEOUT_SECONDS="${RCA_GATE_DELETE_TIMEOUT_SECONDS:-600}"
+DELETE_RETRY_INTERVAL_SECONDS="${RCA_GATE_DELETE_RETRY_INTERVAL_SECONDS:-30}"
 BREV_QUERY_TIMEOUT="${RCA_GATE_BREV_QUERY_TIMEOUT:-45}"
 BREV_MUTATION_TIMEOUT="${RCA_GATE_BREV_MUTATION_TIMEOUT:-180}"
 DELETE_ON_EXIT="${RCA_GATE_DELETE_ON_EXIT:-1}"
@@ -131,14 +132,23 @@ wait_for_ready() {
 }
 
 wait_for_empty_org() {
-  local deadline
+  local deadline last_delete_retry output
   deadline=$((SECONDS + DELETE_TIMEOUT_SECONDS))
+  last_delete_retry=0
   while (( SECONDS < deadline )); do
     if org_is_empty; then
       run_brev_ls_all || true
       return 0
     fi
-    run_brev_ls_all || true
+    output="$(run_brev_ls_all || true)"
+    printf '%s\n' "${output}"
+    if printf '%s\n' "${output}" | awk -v name="${INSTANCE_NAME}" '$1 == name { found = 1 } END { exit found ? 0 : 1 }'; then
+      if (( SECONDS - last_delete_retry >= DELETE_RETRY_INTERVAL_SECONDS )); then
+        log "target instance ${INSTANCE_NAME} still visible during cleanup; re-issuing delete"
+        run_with_timeout "${BREV_MUTATION_TIMEOUT}" "${BREV_BIN}" delete "${INSTANCE_NAME}" || true
+        last_delete_retry="${SECONDS}"
+      fi
+    fi
     sleep 10
   done
   return 1
