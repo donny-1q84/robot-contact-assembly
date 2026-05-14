@@ -105,10 +105,11 @@ def main():
             target_pos_w = socket_pos_w.clone()
             target_pos_w[:, 2] += args_cli.approach_height
 
-            direct_pos_error, direct_axis_angle_error = compute_pose_error(
+            socket_rel_pos, _ = subtract_frame_transforms(socket_pos_w, socket_quat_w, tip_pos_w, tip_quat_w)
+            _, direct_axis_angle_error = compute_pose_error(
                 tip_pos_w, tip_quat_w, socket_pos_w, socket_quat_w, rot_error_type="axis_angle"
             )
-            lateral_error = torch.linalg.norm(direct_pos_error[:, :2], dim=1)
+            lateral_error = torch.linalg.norm(socket_rel_pos[:, :2], dim=1)
             orientation_error = torch.linalg.norm(direct_axis_angle_error, dim=1)
             align_mask = (lateral_error < args_cli.approach_xy_tol) & (orientation_error < args_cli.approach_rot_tol)
             target_pos_w[align_mask] = socket_pos_w[align_mask]

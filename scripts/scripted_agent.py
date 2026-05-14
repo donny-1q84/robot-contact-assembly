@@ -198,22 +198,15 @@ def main():
                 break
 
             action_pos_w, action_quat_w = _action_frame_pose_w(env_unwrapped, body_idx)
-            tip_pos_w, tip_quat_w = _tool_tip_pose_w(env_unwrapped, body_idx)
             socket_pos_w, socket_quat_w = _socket_pose_w(env_unwrapped)
             target_action_pos_w, target_action_quat_w = _target_action_frame_pose_w(socket_pos_w, socket_quat_w)
 
             target_pos_w = target_action_pos_w.clone()
             target_pos_w[:, 2] += args_cli.approach_height
 
-            direct_pos_error, _ = compute_pose_error(
-                tip_pos_w, tip_quat_w, socket_pos_w, socket_quat_w, rot_error_type="axis_angle"
+            lateral_error, axial_error, orientation_error = mdp.insertion_metrics(
+                env_unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg
             )
-            lateral_error = torch.linalg.norm(direct_pos_error[:, :2], dim=1)
-            _, direct_axis_angle_error = compute_pose_error(
-                tip_pos_w, tip_quat_w, socket_pos_w, socket_quat_w, rot_error_type="axis_angle"
-            )
-            orientation_error = torch.linalg.norm(direct_axis_angle_error, dim=1)
-            axial_error = torch.abs(direct_pos_error[:, 2])
             align_mask = (lateral_error < args_cli.approach_xy_tol) & (orientation_error < args_cli.approach_rot_tol)
             target_pos_w[align_mask] = target_action_pos_w[align_mask]
             polish_mask = (lateral_error < args_cli.polish_xy_tol) & (axial_error < args_cli.polish_z_tol)

@@ -176,8 +176,71 @@ Follow-up fix:
 ## Current State
 
 - No Brev instances are visible in org `NCA-57cf-29515`.
-- No scripted contact gate result has been produced yet.
-- The next attempt should reuse the L4 fallback and the retry-hardened installer.
+- Runtime setup is now solved on the L4 fallback.
+- The first scripted contact gate ran but failed.
+- The next attempt should reuse the L4 fallback after the scripted gating fix.
+
+## Attempt 4: L4 With Retry-Hardened Installer
+
+Command:
+
+```bash
+RCA_GATE_INSTANCE_NAME=isaac-phase2-gate-l4 \
+RCA_GATE_INSTANCE_TYPE='g2-standard-4:nvidia-l4:1' \
+RCA_GATE_CREATE_TIMEOUT=900 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+scripts/run_guarded_phase2_gate.sh
+```
+
+Result:
+
+- Brev successfully created `isaac-phase2-gate-l4`.
+- Runtime bootstrap completed with the retry-hardened installer.
+- Isaac Lab runtime check passed.
+- The contact play task registered correctly with force-aware observations:
+  - task: `RCA-PegInHole-Franka-IK-Rel-Contact-Play-v0`
+  - observation width: `42`
+  - action width: `6`
+- Scripted gate ran for seed `42` and 240 steps.
+- Artifacts were pulled locally.
+- Cleanup deleted the instance, and an independent post-cleanup query returned:
+  - `brev ls instances --all`: `No instances`
+  - `brev ls instances --json --all`: `null`
+
+Metrics:
+
+```json
+{
+  "initial_lateral": 0.09503934532403946,
+  "final_lateral": 0.11525661498308182,
+  "initial_axial": 0.2692160904407501,
+  "final_axial": 0.23030611872673035,
+  "initial_rot": 2.3476452827453613,
+  "final_rot": 2.450565814971924,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Interpretation:
+
+- Runtime setup is now solved.
+- The scripted controller gate is still failing.
+- The failure is not a PPO issue yet; PPO should still not be run.
+- The log showed `insert_ready=1.000` from the beginning despite socket-frame lateral error being about `9.5 cm` and rotation error about `2.35 rad`.
+- Root cause: scripted/live/debug controller gating used `compute_pose_error(...)` in the action/source frame, while success metrics use socket-frame errors from `mdp.insertion_metrics(...)`. This caused premature insertion instead of first aligning over the socket.
+
+Follow-up fix:
+
+- `scripts/scripted_agent.py` now gates approach/polish/settle phases using `mdp.insertion_metrics(...)`.
+- `scripts/live_step_scripted_baseline.py` now uses the same socket-frame metrics.
+- `scripts/debug_pose_alignment.py` now uses socket-frame lateral error for phase debugging.
+
+Local outputs:
+
+- `artifacts/evaluations/scripted/2026-05-14T17-13-48Z/seed_42.json`
+- `artifacts/evaluations/scripted/2026-05-14T17-13-48Z/seed_42.log`
+- `artifacts/gpu_gate/2026-05-14T16-51-36Z_isaac-phase2-gate-l4/gate.log`
 
 ## Next Decision
 
@@ -186,7 +249,7 @@ Do not run PPO yet.
 Next useful action:
 
 1. Confirm `brev ls instances --all` and `brev ls instances --json --all` both return normally.
-2. Re-run the guarded gate on the L4 fallback because it reached `READY` and only failed on a transient pip download:
+2. Re-run the guarded gate on the L4 fallback after the scripted gating fix:
 
 ```bash
 RCA_GATE_INSTANCE_NAME=isaac-phase2-gate-l4 \

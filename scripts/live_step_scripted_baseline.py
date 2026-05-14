@@ -102,19 +102,19 @@ def main():
     settle_state = state["settle_state"]
 
     action_pos_w, action_quat_w = _action_frame_pose_w(env, body_idx)
-    tip_pos_w, tip_quat_w = _tool_tip_pose_w(env, body_idx)
     socket_pos_w, socket_quat_w = _socket_pose_w(env)
     target_action_pos_w, target_action_quat_w = _target_action_frame_pose_w(socket_pos_w, socket_quat_w)
 
     target_pos_w = target_action_pos_w.clone()
     target_pos_w[:, 2] += APPROACH_HEIGHT
 
-    direct_pos_error, direct_axis_angle_error = compute_pose_error(
-        tip_pos_w, tip_quat_w, socket_pos_w, socket_quat_w, rot_error_type="axis_angle"
+    from isaaclab.managers import SceneEntityCfg
+
+    peg_cfg = SceneEntityCfg("peg")
+    socket_cfg = SceneEntityCfg("socket_frame")
+    lateral_error, axial_error, orientation_error = mdp.insertion_metrics(
+        env.unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg
     )
-    lateral_error = torch.linalg.norm(direct_pos_error[:, :2], dim=1)
-    axial_error = torch.abs(direct_pos_error[:, 2])
-    orientation_error = torch.linalg.norm(direct_axis_angle_error, dim=1)
 
     align_mask = (lateral_error < APPROACH_XY_TOL) & (orientation_error < APPROACH_ROT_TOL)
     target_pos_w[align_mask] = target_action_pos_w[align_mask]
@@ -146,10 +146,6 @@ def main():
 
     env.step(action)
 
-    from isaaclab.managers import SceneEntityCfg
-
-    peg_cfg = SceneEntityCfg("peg")
-    socket_cfg = SceneEntityCfg("socket_frame")
     lateral, axial, rot = mdp.insertion_metrics(env.unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg)
     success = mdp.insertion_success(env.unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg)
 
