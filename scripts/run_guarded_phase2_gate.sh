@@ -94,8 +94,11 @@ run_brev_search() {
 
 org_is_empty() {
   local json
-  json="$(run_brev_json_all 2>/dev/null || true)"
-  [[ "${json}" == "null" || "${json}" == "[]" || -z "${json}" ]]
+  if ! json="$(run_brev_json_all 2>/dev/null)"; then
+    log "Brev JSON instance query failed; treating org as not empty"
+    return 1
+  fi
+  [[ "${json}" == "null" || "${json}" == "[]" ]]
 }
 
 wait_for_ready() {
