@@ -50,7 +50,7 @@ parser.add_argument("--num_envs", type=int, default=1, help="Number of environme
 parser.add_argument("--task", type=str, default="RCA-PegInHole-Franka-IK-Rel-Contact-Play-v0", help="Task name.")
 parser.add_argument("--seed", type=int, default=42, help="Seed used for deterministic reset.")
 parser.add_argument("--steps-per-probe", type=int, default=4, help="Number of repeated env steps per one-hot action.")
-parser.add_argument("--zero-steps-before", type=int, default=1, help="Zero-action settling steps before each probe.")
+parser.add_argument("--zero-steps-before", type=int, default=30, help="Zero-action settling steps before each probe.")
 parser.add_argument("--action-magnitude", type=float, default=0.12, help="One-hot raw action magnitude to probe.")
 parser.add_argument("--summary-json", type=str, default=None, help="Optional path to write a JSON summary.")
 add_launcher_args(parser)

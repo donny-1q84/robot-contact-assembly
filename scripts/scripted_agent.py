@@ -107,6 +107,12 @@ parser.add_argument(
     default=0,
     help="Print detailed action-frame diagnostics for the first N control steps.",
 )
+parser.add_argument(
+    "--warmup-steps",
+    type=int,
+    default=30,
+    help="Zero-action settling steps after reset before measuring and applying the scripted controller.",
+)
 parser.add_argument("--polish-xy-tol", type=float, default=0.008, help="Lateral tolerance to enter the near-contact polish phase.")
 parser.add_argument("--polish-z-tol", type=float, default=0.012, help="Axial tolerance to enter the near-contact polish phase.")
 parser.add_argument("--polish-pos-gain", type=float, default=1.2, help="Lateral position gain during the near-contact polish phase.")
@@ -208,6 +214,12 @@ def main():
         print(f"[INFO]: Gym observation space: {env.observation_space}", flush=True)
         print(f"[INFO]: Gym action space: {env.action_space}", flush=True)
         env.reset()
+
+        if args_cli.warmup_steps > 0:
+            zero_actions = torch.zeros(env.action_space.shape, device=env_unwrapped.device)
+            for _ in range(args_cli.warmup_steps):
+                env.step(zero_actions)
+            print(f"[SCRIPTED] completed zero-action warmup steps={args_cli.warmup_steps}", flush=True)
 
         robot = env_unwrapped.scene["robot"]
         body_ids, _ = robot.find_bodies("panda_hand")
