@@ -102,10 +102,10 @@ def _quat_multiply(lhs: torch.Tensor, rhs: torch.Tensor) -> torch.Tensor:
     )
 
 
-def _rotate_vector_inverse(quat: torch.Tensor, vec: torch.Tensor) -> torch.Tensor:
+def _rotate_vector(quat: torch.Tensor, vec: torch.Tensor) -> torch.Tensor:
     zeros = torch.zeros_like(vec[..., :1])
     vec_quat = torch.cat((zeros, vec), dim=-1)
-    return _quat_multiply(_quat_multiply(_quat_conjugate(quat), vec_quat), quat)[..., 1:]
+    return _quat_multiply(_quat_multiply(quat, vec_quat), _quat_conjugate(quat))[..., 1:]
 
 
 def main():
@@ -160,7 +160,7 @@ def main():
     pos_error, axis_angle_error = compute_pose_error(
         action_pos_w, action_quat_w, target_pos_w, target_quat_w, rot_error_type="axis_angle"
     )
-    local_pos_error = _rotate_vector_inverse(action_quat_w, pos_error)
+    action_pos_error = _rotate_vector(action_quat_w, pos_error)
 
     action = torch.zeros(env.action_space.shape, device=env.unwrapped.device)
     pos_gain = torch.full_like(pos_error, POS_GAIN)
@@ -176,7 +176,7 @@ def main():
     rot_clamp[polish_state] = POLISH_ROT_CLAMP
     rot_clamp[settle_state] = SETTLE_ROT_CLAMP
 
-    action[:, :3] = torch.maximum(torch.minimum(pos_gain * local_pos_error, pos_clamp), -pos_clamp)
+    action[:, :3] = torch.maximum(torch.minimum(pos_gain * action_pos_error, pos_clamp), -pos_clamp)
     action[:, 3:6] = torch.maximum(torch.minimum(rot_gain * axis_angle_error, rot_clamp), -rot_clamp)
 
     env.step(action)

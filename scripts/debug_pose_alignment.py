@@ -79,10 +79,10 @@ def _quat_multiply(lhs: torch.Tensor, rhs: torch.Tensor) -> torch.Tensor:
     )
 
 
-def _rotate_vector_inverse(quat: torch.Tensor, vec: torch.Tensor) -> torch.Tensor:
+def _rotate_vector(quat: torch.Tensor, vec: torch.Tensor) -> torch.Tensor:
     zeros = torch.zeros_like(vec[..., :1])
     vec_quat = torch.cat((zeros, vec), dim=-1)
-    return _quat_multiply(_quat_multiply(_quat_conjugate(quat), vec_quat), quat)[..., 1:]
+    return _quat_multiply(_quat_multiply(quat, vec_quat), _quat_conjugate(quat))[..., 1:]
 
 
 def _print_pose_debug(label: str, tip_pos_w, tip_quat_w, socket_pos_w, socket_quat_w) -> None:
@@ -153,9 +153,9 @@ def main():
             pos_error, axis_angle_error = compute_pose_error(
                 tip_pos_w, tip_quat_w, target_pos_w, target_quat_w, rot_error_type="axis_angle"
             )
-            local_pos_error = _rotate_vector_inverse(tip_quat_w, pos_error)
+            action_pos_error = _rotate_vector(tip_quat_w, pos_error)
             actions = torch.zeros(env.action_space.shape, device=env_unwrapped.device)
-            actions[:, :3] = torch.clamp(args_cli.pos_gain * local_pos_error, -args_cli.pos_clamp, args_cli.pos_clamp)
+            actions[:, :3] = torch.clamp(args_cli.pos_gain * action_pos_error, -args_cli.pos_clamp, args_cli.pos_clamp)
             actions[:, 3:6] = torch.clamp(args_cli.rot_gain * axis_angle_error, -args_cli.rot_clamp, args_cli.rot_clamp)
             env.step(actions)
             tip_pos_w, tip_quat_w = _tool_tip_pose_w(env_unwrapped, body_idx)

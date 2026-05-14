@@ -521,9 +521,85 @@ Local outputs:
 
 Do not run PPO yet.
 
+## Attempt 9: L4 Diagnostic With Inverse-Rotated Translation
+
+Command:
+
+```bash
+RCA_GATE_INSTANCE_NAME=isaac-phase2-local-frame-debug-l4 \
+RCA_GATE_INSTANCE_TYPE='g2-standard-4:nvidia-l4:1' \
+RCA_GATE_CREATE_TIMEOUT=900 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_STEPS=20 \
+RCA_GATE_EXTRA_AGENT_ARGS='--debug-action-steps 5' \
+scripts/run_guarded_phase2_gate.sh
+```
+
+Result:
+
+- Brev successfully created `isaac-phase2-local-frame-debug-l4`.
+- Runtime bootstrap completed.
+- A 20-step diagnostic ran with inverse-rotated translation commands.
+- Artifacts were pulled locally.
+- Cleanup deleted the instance.
+- The guarded script and independent checks confirmed no visible instances:
+  - `brev ls instances --all`: `No instances`
+  - `brev ls instances --json --all`: `null`
+
+Metrics:
+
+```json
+{
+  "initial_lateral": 0.09411080181598663,
+  "final_lateral": 0.3611857295036316,
+  "best_lateral": 0.06679326295852661,
+  "best_lateral_step": 3,
+  "initial_axial": 0.2691607177257538,
+  "final_axial": 0.5302352905273438,
+  "best_axial": 0.2691607177257538,
+  "best_axial_step": 0,
+  "initial_rot": 2.3528833389282227,
+  "final_rot": 2.4263880252838135,
+  "best_rot": 2.040851354598999,
+  "best_rot_step": 9,
+  "final_success_rate": 0.0
+}
+```
+
+Key diagnostic evidence:
+
+```text
+step=0000 pos_error.z=-0.1412 action_pos_error.z=-0.1254 raw_action.z=-0.1200
+step=0001 action_pos.z=0.4169
+step=0002 action_pos.z=0.4530
+step=0003 action_pos.z=0.4890
+step=0004 action_pos.z=0.5252
+```
+
+Interpretation:
+
+- Inverse-rotating the world error was not the correct action mapping.
+- The command still moved the tip upward when the desired world correction was downward.
+- The observed mapping suggests the action-space translation basis needs the opposite y/z signs from the inverse-rotated vector.
+
+Follow-up fix:
+
+- Replace the inverse rotation with forward quaternion rotation for the action-space translation vector.
+- Keep the debug output label as `action_pos_error` so future logs show the command-space vector directly.
+
+Local outputs:
+
+- `artifacts/evaluations/scripted/2026-05-14T19-59-23Z/seed_42.json`
+- `artifacts/evaluations/scripted/2026-05-14T19-59-23Z/seed_42.log`
+- `artifacts/gpu_gate/2026-05-14T19-37-29Z_isaac-phase2-local-frame-debug-l4/gate.log`
+
+## Revised Next Decision 3
+
+Do not run PPO yet.
+
 Next useful action:
 
-1. Commit the local-frame translation fix.
+1. Commit the forward-rotated action-space translation fix.
 2. Run one more 20-step L4 diagnostic with `--debug-action-steps 5`.
 3. Pass condition for the diagnostic: after a negative world-Z error, the next `action_pos.z` must decrease toward the approach pose instead of increase.
 4. Only if the diagnostic passes should a 240-step scripted gate be run.
