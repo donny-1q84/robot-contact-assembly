@@ -25,6 +25,8 @@ SEEDS="${RCA_GATE_SEEDS:-42}"
 EVAL_TIMEOUT_SECONDS="${RCA_GATE_EVAL_TIMEOUT_SECONDS:-600}"
 EXTRA_AGENT_ARGS="${RCA_GATE_EXTRA_AGENT_ARGS:-}"
 GATE_COMMAND="${RCA_GATE_COMMAND:-scripted_eval}"
+CALIBRATION_STEPS="${RCA_GATE_CALIBRATION_STEPS:-${STEPS}}"
+SCRIPTED_STEPS="${RCA_GATE_SCRIPTED_STEPS:-${STEPS}}"
 
 RUN_ID="$(date -u +"%Y-%m-%dT%H-%M-%SZ")"
 LOCAL_RUN_DIR="${REPO_ROOT}/artifacts/gpu_gate/${RUN_ID}_${INSTANCE_NAME}"
@@ -174,6 +176,8 @@ gate_command=${GATE_COMMAND}
 task_name=${TASK_NAME}
 num_envs=${NUM_ENVS}
 steps=${STEPS}
+calibration_steps=${CALIBRATION_STEPS}
+scripted_steps=${SCRIPTED_STEPS}
 seeds=${SEEDS}
 eval_timeout_seconds=${EVAL_TIMEOUT_SECONDS}
 remote_user=${REMOTE_USER}
@@ -300,13 +304,36 @@ main() {
         "${REMOTE_ROOT}" \
         "${REMOTE_COMPOSE_ROOT}" \
         "${TASK_NAME}" \
-        "${STEPS}" \
+        "${CALIBRATION_STEPS}" \
         "${SEEDS%%,*}" \
         "${EVAL_TIMEOUT_SECONDS}" \
         "${EXTRA_AGENT_ARGS}"
       ;;
+    calibration_then_scripted_eval)
+      log "running relative IK action calibration gate"
+      bash "${SCRIPT_DIR}/run_remote_action_calibration.sh" \
+        "${INSTANCE_NAME}" \
+        "${REMOTE_ROOT}" \
+        "${REMOTE_COMPOSE_ROOT}" \
+        "${TASK_NAME}" \
+        "${CALIBRATION_STEPS}" \
+        "${SEEDS%%,*}" \
+        "${EVAL_TIMEOUT_SECONDS}" \
+        "${EXTRA_AGENT_ARGS}"
+      log "running scripted contact gate after calibration"
+      bash "${SCRIPT_DIR}/run_remote_scripted_eval.sh" \
+        "${INSTANCE_NAME}" \
+        "${REMOTE_ROOT}" \
+        "${REMOTE_COMPOSE_ROOT}" \
+        "${TASK_NAME}" \
+        "${NUM_ENVS}" \
+        "${SCRIPTED_STEPS}" \
+        "${SEEDS}" \
+        "${EVAL_TIMEOUT_SECONDS}" \
+        "${EXTRA_AGENT_ARGS}"
+      ;;
     *)
-      echo "[guarded-gate] unknown RCA_GATE_COMMAND=${GATE_COMMAND}; use scripted_eval or action_calibration" >&2
+      echo "[guarded-gate] unknown RCA_GATE_COMMAND=${GATE_COMMAND}; use scripted_eval, action_calibration, or calibration_then_scripted_eval" >&2
       return 2
       ;;
   esac
