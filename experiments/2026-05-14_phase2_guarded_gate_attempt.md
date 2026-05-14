@@ -94,7 +94,7 @@ Local log:
 
 - `artifacts/gpu_gate/2026-05-14T15-59-26Z_isaac-phase2-gate-aws/gate.log`
 
-## Current State
+## State After Attempt 2
 
 - No remote scripted gate result was produced.
 - No Isaac runtime was started.
@@ -116,6 +116,69 @@ Follow-up fix:
 - `scripts/run_guarded_phase2_gate.sh` now uses `brev ls instances --all` and `brev ls instances --json --all` instead of plain `brev ls`.
 - If the JSON query times out only after printing an exact empty-org marker (`null` or `[]`), the guarded script accepts that marker; any other failed instance query remains fail-closed.
 
+## Attempt 3: GCP L4 Fallback
+
+Command:
+
+```bash
+RCA_GATE_INSTANCE_NAME=isaac-phase2-gate-l4 \
+RCA_GATE_INSTANCE_TYPE='g2-standard-4:nvidia-l4:1' \
+RCA_GATE_CREATE_TIMEOUT=900 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+scripts/run_guarded_phase2_gate.sh
+```
+
+Selected type:
+
+- `g2-standard-4:nvidia-l4:1`
+- NVIDIA L4, 24 GB VRAM
+- recorded price: about `$0.85/hr`
+
+Result:
+
+- Brev successfully created `isaac-phase2-gate-l4`.
+- The instance became `RUNNING / COMPLETED / READY`.
+- Remote probe succeeded:
+  - GPU: `NVIDIA L4`, 23034 MiB
+  - driver: `580.126.20`
+  - root disk: 125 GB
+- Docker successfully pulled `nvcr.io/nvidia/isaac-sim:6.0.0-dev2`.
+- Runtime setup failed inside `./isaaclab.sh --install assets,physx,tasks` while installing `setuptools<82.0.0`:
+
+```text
+ERROR: Could not install packages due to an OSError: ('Connection broken: IncompleteRead(0 bytes read, 1 more expected)', IncompleteRead(0 bytes read, 1 more expected))
+```
+
+Interpretation:
+
+- This was a transient pip/network failure during runtime bootstrap, not a task-code failure.
+- Isaac did not reach the scripted controller gate.
+- No PPO training was run.
+
+Cleanup:
+
+- Artifacts were pulled before shutdown.
+- The guarded script deleted `isaac-phase2-gate-l4`.
+- Deletion stayed in `DELETING` for several minutes, then the script confirmed `No instances in org NCA-57cf-29515`.
+- An independent post-cleanup query also returned:
+  - `brev ls instances --all`: `No instances`
+  - `brev ls instances --json --all`: `null`
+
+Local log:
+
+- `artifacts/gpu_gate/2026-05-14T16-21-21Z_isaac-phase2-gate-l4/gate.log`
+
+Follow-up fix:
+
+- `scripts/install_remote_isaaclab_runtime.sh` now exports longer pip timeout/retry settings.
+- IsaacLab and project pip installs are wrapped in `retry_cmd` so transient `IncompleteRead` failures retry before the whole GPU gate fails.
+
+## Current State
+
+- No Brev instances are visible in org `NCA-57cf-29515`.
+- No scripted contact gate result has been produced yet.
+- The next attempt should reuse the L4 fallback and the retry-hardened installer.
+
 ## Next Decision
 
 Do not run PPO yet.
@@ -123,11 +186,13 @@ Do not run PPO yet.
 Next useful action:
 
 1. Confirm `brev ls instances --all` and `brev ls instances --json --all` both return normally.
-2. Re-run the guarded gate using the AWS L40S fallback first:
+2. Re-run the guarded gate on the L4 fallback because it reached `READY` and only failed on a transient pip download:
 
 ```bash
-RCA_GATE_INSTANCE_NAME=isaac-phase2-gate-aws \
-RCA_GATE_INSTANCE_TYPE=g6e.xlarge \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-gate-l4 \
+RCA_GATE_INSTANCE_TYPE='g2-standard-4:nvidia-l4:1' \
+RCA_GATE_CREATE_TIMEOUT=900 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
 scripts/run_guarded_phase2_gate.sh
 ```
 

@@ -150,6 +150,30 @@ sudo docker run -d \
 
 sudo docker exec -u root -i "${TASK_CONTAINER_NAME}" bash -s <<'CONTAINER_SCRIPT'
 set -euo pipefail
+
+export PIP_DEFAULT_TIMEOUT="${PIP_DEFAULT_TIMEOUT:-120}"
+export PIP_RETRIES="${PIP_RETRIES:-10}"
+
+retry_cmd() {
+  local attempts="$1"
+  local delay_seconds="$2"
+  shift 2
+
+  local attempt status
+  status=0
+  for attempt in $(seq 1 "${attempts}"); do
+    if "$@"; then
+      return 0
+    fi
+    status=$?
+    echo "[runtime] command failed with status ${status} (attempt ${attempt}/${attempts}): $*" >&2
+    if [ "${attempt}" -lt "${attempts}" ]; then
+      sleep "${delay_seconds}"
+    fi
+  done
+  return "${status}"
+}
+
 if ! command -v git >/dev/null 2>&1; then
   apt-get update
   apt-get install -y git
@@ -158,15 +182,15 @@ ln -sfn /isaac-sim /workspace/IsaacLab/_isaac_sim
 mkdir -p /workspace/artifacts/hydra
 chown -R 1234:1234 /workspace/artifacts
 cd /workspace/IsaacLab
-./isaaclab.sh --install assets,physx,tasks
-/isaac-sim/python.sh -m pip install --editable /workspace/IsaacLab/source/isaaclab_contrib
-/isaac-sim/python.sh -m pip install --editable /workspace/IsaacLab/source/isaaclab_rl
+retry_cmd 3 20 ./isaaclab.sh --install assets,physx,tasks
+retry_cmd 3 20 /isaac-sim/python.sh -m pip install --editable /workspace/IsaacLab/source/isaaclab_contrib
+retry_cmd 3 20 /isaac-sim/python.sh -m pip install --editable /workspace/IsaacLab/source/isaaclab_rl
 if ! /isaac-sim/python.sh -m pip show rsl-rl-lib >/dev/null 2>&1; then
-  /isaac-sim/python.sh -m pip install rsl-rl-lib==5.0.1 onnxscript\>=0.5 numpy==2.3.1 pillow==12.1.1
+  retry_cmd 3 20 /isaac-sim/python.sh -m pip install rsl-rl-lib==5.0.1 onnxscript\>=0.5 numpy==2.3.1 pillow==12.1.1
 fi
-/isaac-sim/python.sh -m pip install h5py
-/isaac-sim/python.sh -m pip install hydra-core
-/isaac-sim/python.sh -m pip install --editable /workspace/robot-contact-assembly/source/robot_contact_assembly_tasks
+retry_cmd 3 20 /isaac-sim/python.sh -m pip install h5py
+retry_cmd 3 20 /isaac-sim/python.sh -m pip install hydra-core
+retry_cmd 3 20 /isaac-sim/python.sh -m pip install --editable /workspace/robot-contact-assembly/source/robot_contact_assembly_tasks
 TENSOR_API_DIR="$(find /isaac-sim/extscache -path '*/omni/physics/tensors' -type d 2>/dev/null | head -n 1 || true)"
 if [ -n "${TENSOR_API_DIR}" ] && [ ! -f "${TENSOR_API_DIR}/api.py" ] && [ -f "${TENSOR_API_DIR}/impl/api.py" ]; then
   cat > "${TENSOR_API_DIR}/api.py" <<'PYEOF'
