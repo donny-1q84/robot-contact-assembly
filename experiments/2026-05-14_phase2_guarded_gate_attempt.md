@@ -662,3 +662,90 @@ Next useful action:
 1. Do not run PPO yet.
 2. Re-run the same 20-step diagnostic once, relying on the same-instance retry wrapper if the first Isaac launch hangs.
 3. Pass condition remains unchanged: after a negative world-Z error, the next `action_pos.z` must decrease toward the approach pose instead of increasing.
+
+## Attempt 11: Forward-Rotated Translation With Same-Instance Retry Wrapper
+
+Command:
+
+```bash
+RCA_GATE_INSTANCE_NAME=isaac-phase2-forward-retry-l4 \
+RCA_GATE_INSTANCE_TYPE='g2-standard-4:nvidia-l4:1' \
+RCA_GATE_CREATE_TIMEOUT=900 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_EVAL_TIMEOUT_SECONDS=300 \
+RCA_SCRIPTED_EVAL_RETRIES=1 \
+RCA_GATE_STEPS=20 \
+RCA_GATE_EXTRA_AGENT_ARGS='--debug-action-steps 5' \
+scripts/run_guarded_phase2_gate.sh
+```
+
+Price selection:
+
+- The live price table showed `g2-standard-4:nvidia-l4:1` at `$0.85/hr`.
+- The cheapest visible L40S candidate was about `$1.86/hr`.
+- L4 remained the cheapest viable option for short scripted diagnostics.
+
+Result:
+
+- Brev successfully created `isaac-phase2-forward-retry-l4`.
+- Runtime bootstrap completed.
+- The first scripted attempt ran successfully; the retry path was not needed.
+- Artifacts were pulled locally.
+- Cleanup deleted the instance.
+- Independent post-cleanup checks returned:
+  - `brev ls instances --all`: `No instances`
+  - `brev ls instances --json --all`: `null`
+
+Metrics:
+
+```json
+{
+  "initial_lateral": 0.0947134792804718,
+  "final_lateral": 0.36225566267967224,
+  "best_lateral": 0.06749198585748672,
+  "best_lateral_step": 3,
+  "initial_axial": 0.2692587077617645,
+  "final_axial": 0.5294179320335388,
+  "best_axial": 0.2692587077617645,
+  "best_axial_step": 0,
+  "initial_rot": 2.3530170917510986,
+  "final_rot": 2.4446558952331543,
+  "best_rot": 2.036428689956665,
+  "best_rot_step": 9,
+  "final_success_rate": 0.0
+}
+```
+
+Key diagnostic evidence:
+
+```text
+step=0000 pos_error.z=-0.1412 action_pos_error.z=-0.1384 raw_action.z=-0.1200
+step=0001 action_pos.z=0.4170
+step=0002 action_pos.z=0.4532
+step=0003 action_pos.z=0.4893
+step=0004 action_pos.z=0.5253
+```
+
+Interpretation:
+
+- Forward-rotating the world error still produced a negative Z action command.
+- A negative Z action command still moved the action frame upward in world Z.
+- Across the direct, inverse-rotated, and forward-rotated diagnostics, the observed translational action mapping is consistent with:
+  - action X: same sign as desired world correction
+  - action Y: opposite sign
+  - action Z: opposite sign
+- The controller problem is therefore no longer "which quaternion transform"; it is a translational action-axis sign convention mismatch.
+
+Follow-up fix:
+
+- `scripts/scripted_agent.py` now applies explicit translational action-axis signs, defaulting to `1,-1,-1`.
+- The sign convention is configurable with `--action-axis-signs`.
+- Debug output now prints both `action_pos_error` and `signed_action_pos_error`.
+- `scripts/live_step_scripted_baseline.py` and `scripts/debug_pose_alignment.py` were updated to use the same default sign convention.
+
+Next useful action:
+
+1. Do not run PPO yet.
+2. Locally validate the updated scripts with `py_compile`, `bash -n`, and `git diff --check`.
+3. Commit the axis-sign fix.
+4. Only then run one last 20-step diagnostic; pass condition is `raw_action.z > 0` at step 0 and `action_pos.z` decreasing on subsequent steps.

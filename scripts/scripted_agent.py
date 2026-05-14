@@ -65,6 +65,19 @@ def _rotate_vector(quat: torch.Tensor, vec: torch.Tensor) -> torch.Tensor:
     vec_quat = torch.cat((zeros, vec), dim=-1)
     return _quat_multiply(_quat_multiply(quat, vec_quat), _quat_conjugate(quat))[..., 1:]
 
+
+def _parse_action_axis_signs(value: str) -> tuple[float, float, float]:
+    parts = [part.strip() for part in value.split(",")]
+    if len(parts) != 3:
+        raise argparse.ArgumentTypeError("expected three comma-separated values, e.g. 1,-1,-1")
+    try:
+        signs = tuple(float(part) for part in parts)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("axis signs must be numeric") from exc
+    if any(sign == 0.0 for sign in signs):
+        raise argparse.ArgumentTypeError("axis signs must be non-zero")
+    return signs
+
 parser = argparse.ArgumentParser(description="Scripted baseline for robot_contact_assembly Isaac Lab tasks.")
 parser.add_argument("--disable_fabric", action="store_true", default=False, help="Disable fabric.")
 parser.add_argument("--num_envs", type=int, default=None, help="Override number of environments.")
@@ -106,6 +119,12 @@ parser.add_argument("--pos-gain", type=float, default=2.0, help="Proportional ga
 parser.add_argument("--rot-gain", type=float, default=2.0, help="Proportional gain for axis-angle orientation error.")
 parser.add_argument("--pos-clamp", type=float, default=0.12, help="Clamp applied to each translational action dimension.")
 parser.add_argument("--rot-clamp", type=float, default=0.4, help="Clamp applied to each rotational action dimension.")
+parser.add_argument(
+    "--action-axis-signs",
+    type=_parse_action_axis_signs,
+    default=(1.0, -1.0, -1.0),
+    help="Comma-separated translational action-axis signs. Debug logs show the signed command vector.",
+)
 parser.add_argument(
     "--debug-action-steps",
     type=int,
@@ -237,6 +256,7 @@ def main():
         rotate_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         polish_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         settle_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
+        action_axis_signs = torch.tensor(args_cli.action_axis_signs, device=env_unwrapped.device).unsqueeze(0)
 
         sim = env_unwrapped.sim
         for step in range(args_cli.steps):
@@ -291,6 +311,7 @@ def main():
                 action_pos_w, action_quat_w, target_pos_w, target_quat_w, rot_error_type="axis_angle"
             )
             action_pos_error = _rotate_vector(action_quat_w, pos_error)
+            signed_action_pos_error = action_pos_error * action_axis_signs
 
             actions = torch.zeros(env.action_space.shape, device=env_unwrapped.device)
             rot_gain = torch.full_like(axis_angle_error, args_cli.rot_gain)
@@ -300,12 +321,12 @@ def main():
             rot_clamp[polish_state] = args_cli.polish_rot_clamp
             rot_clamp[settle_state] = args_cli.settle_rot_clamp
 
-            actions[:, :3] = _clamp_actions(args_cli.pos_gain * action_pos_error, args_cli.pos_clamp)
+            actions[:, :3] = _clamp_actions(args_cli.pos_gain * signed_action_pos_error, args_cli.pos_clamp)
             actions[:, 3:6] = _clamp_actions(rot_gain * axis_angle_error, rot_clamp)
 
             if polish_only.any():
                 actions[polish_only, :2] = _clamp_actions(
-                    args_cli.polish_pos_gain * action_pos_error[polish_only, :2],
+                    args_cli.polish_pos_gain * signed_action_pos_error[polish_only, :2],
                     args_cli.polish_pos_clamp,
                 )
                 actions[polish_only, 2] = 0.0
@@ -316,11 +337,11 @@ def main():
 
             if settle_state.any():
                 actions[settle_state, :2] = _clamp_actions(
-                    args_cli.settle_pos_gain * action_pos_error[settle_state, :2],
+                    args_cli.settle_pos_gain * signed_action_pos_error[settle_state, :2],
                     args_cli.settle_pos_clamp,
                 )
                 actions[settle_state, 2] = _clamp_actions(
-                    args_cli.settle_z_gain * action_pos_error[settle_state, 2],
+                    args_cli.settle_z_gain * signed_action_pos_error[settle_state, 2],
                     args_cli.settle_z_clamp,
                 )
                 actions[settle_state, 3:6] = _clamp_actions(
@@ -336,6 +357,7 @@ def main():
                     f"approach_pos={approach_pos_w[0].tolist()} "
                     f"pos_error={pos_error[0].tolist()} "
                     f"action_pos_error={action_pos_error[0].tolist()} "
+                    f"signed_action_pos_error={signed_action_pos_error[0].tolist()} "
                     f"axis_angle_error={axis_angle_error[0].tolist()} "
                     f"raw_action={actions[0].tolist()}",
                     flush=True,
@@ -404,6 +426,7 @@ def main():
             "video_backend": args_cli.video_backend if args_cli.video else None,
             "video_folder": video_folder,
             "coupled_approach": args_cli.coupled_approach,
+            "action_axis_signs": list(args_cli.action_axis_signs),
         }
         print(
             "[SCRIPTED] summary "

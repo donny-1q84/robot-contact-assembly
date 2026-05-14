@@ -39,6 +39,7 @@ POS_GAIN = 2.0
 ROT_GAIN = 2.0
 POS_CLAMP = 0.12
 ROT_CLAMP = 0.4
+ACTION_AXIS_SIGNS = (1.0, -1.0, -1.0)
 
 POLISH_XY_TOL = 0.002
 POLISH_Z_TOL = 0.002
@@ -161,6 +162,8 @@ def main():
         action_pos_w, action_quat_w, target_pos_w, target_quat_w, rot_error_type="axis_angle"
     )
     action_pos_error = _rotate_vector(action_quat_w, pos_error)
+    action_axis_signs = torch.tensor(ACTION_AXIS_SIGNS, device=env.unwrapped.device).unsqueeze(0)
+    signed_action_pos_error = action_pos_error * action_axis_signs
 
     action = torch.zeros(env.action_space.shape, device=env.unwrapped.device)
     pos_gain = torch.full_like(pos_error, POS_GAIN)
@@ -176,7 +179,7 @@ def main():
     rot_clamp[polish_state] = POLISH_ROT_CLAMP
     rot_clamp[settle_state] = SETTLE_ROT_CLAMP
 
-    action[:, :3] = torch.maximum(torch.minimum(pos_gain * action_pos_error, pos_clamp), -pos_clamp)
+    action[:, :3] = torch.maximum(torch.minimum(pos_gain * signed_action_pos_error, pos_clamp), -pos_clamp)
     action[:, 3:6] = torch.maximum(torch.minimum(rot_gain * axis_angle_error, rot_clamp), -rot_clamp)
 
     env.step(action)

@@ -21,6 +21,20 @@ from robot_contact_assembly_tasks.tasks.manager_based.manipulation.peg_in_hole.c
 
 BODY_OFFSET = PEG_TIP_BODY_OFFSET_POS
 
+
+def _parse_action_axis_signs(value: str) -> tuple[float, float, float]:
+    parts = [part.strip() for part in value.split(",")]
+    if len(parts) != 3:
+        raise argparse.ArgumentTypeError("expected three comma-separated values, e.g. 1,-1,-1")
+    try:
+        signs = tuple(float(part) for part in parts)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("axis signs must be numeric") from exc
+    if any(sign == 0.0 for sign in signs):
+        raise argparse.ArgumentTypeError("axis signs must be non-zero")
+    return signs
+
+
 parser = argparse.ArgumentParser(description="Debug pose alignment for the peg-in-hole scripted baseline.")
 parser.add_argument("--disable_fabric", action="store_true", default=False, help="Disable fabric.")
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments.")
@@ -34,6 +48,12 @@ parser.add_argument("--pos-gain", type=float, default=2.0, help="Proportional ga
 parser.add_argument("--rot-gain", type=float, default=2.0, help="Proportional gain for axis-angle orientation error.")
 parser.add_argument("--pos-clamp", type=float, default=0.12, help="Clamp applied to each translational action dimension.")
 parser.add_argument("--rot-clamp", type=float, default=0.4, help="Clamp applied to each rotational action dimension.")
+parser.add_argument(
+    "--action-axis-signs",
+    type=_parse_action_axis_signs,
+    default=(1.0, -1.0, -1.0),
+    help="Comma-separated translational action-axis signs.",
+)
 add_launcher_args(parser)
 args_cli, hydra_args = parser.parse_known_args()
 hydra_args.extend(
@@ -121,6 +141,7 @@ def main():
         body_idx = body_ids[0]
         asset_cfg = SceneEntityCfg("robot", body_names=["panda_hand"])
         asset_cfg.body_ids = [body_idx]
+        action_axis_signs = torch.tensor(args_cli.action_axis_signs, device=env_unwrapped.device).unsqueeze(0)
 
         tip_pos_w, tip_quat_w = _tool_tip_pose_w(env_unwrapped, body_idx)
         socket_pos_w, socket_quat_w = _socket_pose_w(env_unwrapped)
@@ -154,8 +175,13 @@ def main():
                 tip_pos_w, tip_quat_w, target_pos_w, target_quat_w, rot_error_type="axis_angle"
             )
             action_pos_error = _rotate_vector(tip_quat_w, pos_error)
+            signed_action_pos_error = action_pos_error * action_axis_signs
             actions = torch.zeros(env.action_space.shape, device=env_unwrapped.device)
-            actions[:, :3] = torch.clamp(args_cli.pos_gain * action_pos_error, -args_cli.pos_clamp, args_cli.pos_clamp)
+            actions[:, :3] = torch.clamp(
+                args_cli.pos_gain * signed_action_pos_error,
+                -args_cli.pos_clamp,
+                args_cli.pos_clamp,
+            )
             actions[:, 3:6] = torch.clamp(args_cli.rot_gain * axis_angle_error, -args_cli.rot_clamp, args_cli.rot_clamp)
             env.step(actions)
             tip_pos_w, tip_quat_w = _tool_tip_pose_w(env_unwrapped, body_idx)
