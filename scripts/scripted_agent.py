@@ -82,6 +82,12 @@ parser.add_argument("--pos-gain", type=float, default=2.0, help="Proportional ga
 parser.add_argument("--rot-gain", type=float, default=2.0, help="Proportional gain for axis-angle orientation error.")
 parser.add_argument("--pos-clamp", type=float, default=0.12, help="Clamp applied to each translational action dimension.")
 parser.add_argument("--rot-clamp", type=float, default=0.4, help="Clamp applied to each rotational action dimension.")
+parser.add_argument(
+    "--debug-action-steps",
+    type=int,
+    default=0,
+    help="Print detailed action-frame diagnostics for the first N control steps.",
+)
 parser.add_argument("--polish-xy-tol", type=float, default=0.008, help="Lateral tolerance to enter the near-contact polish phase.")
 parser.add_argument("--polish-z-tol", type=float, default=0.012, help="Axial tolerance to enter the near-contact polish phase.")
 parser.add_argument("--polish-pos-gain", type=float, default=1.2, help="Lateral position gain during the near-contact polish phase.")
@@ -152,6 +158,8 @@ def main():
         env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
         if args_cli.disable_fabric:
             env_cfg.sim.use_fabric = False
+        step_dt = env_cfg.sim.dt * env_cfg.decimation
+        env_cfg.episode_length_s = max(env_cfg.episode_length_s, (args_cli.steps + 2) * step_dt)
         # Keep a fixed target for the scripted baseline so convergence is measured against one command.
         env_cfg.commands.socket_pose.resampling_time_range = (1.0e6, 1.0e6)
 
@@ -196,6 +204,12 @@ def main():
         final_rot = None
         final_success = None
         success_step = None
+        best_lateral = float("inf")
+        best_lateral_step = None
+        best_axial = float("inf")
+        best_axial_step = None
+        best_rot = float("inf")
+        best_rot_step = None
         rotate_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         polish_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         settle_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
@@ -289,6 +303,18 @@ def main():
                     args_cli.settle_rot_clamp,
                 )
 
+            if step < args_cli.debug_action_steps:
+                print(
+                    f"[ACTION-DEBUG] step={step:04d} "
+                    f"action_pos={action_pos_w[0].tolist()} "
+                    f"socket_pos={socket_pos_w[0].tolist()} "
+                    f"approach_pos={approach_pos_w[0].tolist()} "
+                    f"pos_error={pos_error[0].tolist()} "
+                    f"axis_angle_error={axis_angle_error[0].tolist()} "
+                    f"raw_action={actions[0].tolist()}",
+                    flush=True,
+                )
+
             env.step(actions)
 
             lateral, axial, rot = mdp.insertion_metrics(env_unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg)
@@ -303,6 +329,15 @@ def main():
             final_axial = axial.mean().item()
             final_rot = rot.mean().item()
             final_success = success.float().mean().item()
+            if final_lateral < best_lateral:
+                best_lateral = final_lateral
+                best_lateral_step = step
+            if final_axial < best_axial:
+                best_axial = final_axial
+                best_axial_step = step
+            if final_rot < best_rot:
+                best_rot = final_rot
+                best_rot_step = step
 
             if step % 25 == 0 or step == args_cli.steps - 1:
                 print(
@@ -334,6 +369,12 @@ def main():
             "initial_rot": initial_rot,
             "final_rot": final_rot,
             "final_success_rate": final_success,
+            "best_lateral": best_lateral,
+            "best_lateral_step": best_lateral_step,
+            "best_axial": best_axial,
+            "best_axial_step": best_axial_step,
+            "best_rot": best_rot,
+            "best_rot_step": best_rot_step,
             "video_backend": args_cli.video_backend if args_cli.video else None,
             "video_folder": video_folder,
             "coupled_approach": args_cli.coupled_approach,
@@ -344,6 +385,9 @@ def main():
             f"initial_lateral={summary['initial_lateral']:.4f} final_lateral={summary['final_lateral']:.4f} "
             f"initial_axial={summary['initial_axial']:.4f} final_axial={summary['final_axial']:.4f} "
             f"initial_rot={summary['initial_rot']:.4f} final_rot={summary['final_rot']:.4f} "
+            f"best_lateral={summary['best_lateral']:.4f}@{summary['best_lateral_step']} "
+            f"best_axial={summary['best_axial']:.4f}@{summary['best_axial_step']} "
+            f"best_rot={summary['best_rot']:.4f}@{summary['best_rot_step']} "
             f"final_success_rate={summary['final_success_rate']:.3f} "
             f"success_step={summary['success_step']}",
             flush=True,

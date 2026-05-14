@@ -366,15 +366,89 @@ Local outputs:
 
 Do not run PPO yet.
 
+## Attempt 7: L4 With Position-First Scripted Controller
+
+Command:
+
+```bash
+RCA_GATE_INSTANCE_NAME=isaac-phase2-gate-l4 \
+RCA_GATE_INSTANCE_TYPE='g2-standard-4:nvidia-l4:1' \
+RCA_GATE_CREATE_TIMEOUT=900 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+scripts/run_guarded_phase2_gate.sh
+```
+
+Result:
+
+- Brev successfully created `isaac-phase2-gate-l4`.
+- Runtime bootstrap completed.
+- Scripted gate ran for seed `42`.
+- Artifacts were pulled locally.
+- Cleanup deleted the instance.
+- Deletion lingered in `DELETING`/`STOPPING`, then the guarded script confirmed no visible instances.
+- Independent post-cleanup checks returned:
+  - `brev ls instances --all`: `No instances`
+  - `brev ls instances --json --all`: `null`
+
+Metrics:
+
+```json
+{
+  "coupled_approach": false,
+  "initial_lateral": 0.0942068099975586,
+  "final_lateral": 0.11525661498308182,
+  "initial_axial": 0.2691607177257538,
+  "final_axial": 0.23030611872673035,
+  "initial_rot": 2.351423501968384,
+  "final_rot": 2.450565814971924,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Key rollout trace:
+
+```text
+step=0000 lateral=0.0942 axial=0.2692 rot=2.3514 position_ready=0.000
+step=0025 lateral=0.4303 axial=0.3573 rot=2.8790 position_ready=0.000
+step=0075 lateral=0.7936 axial=0.4869 rot=1.1157 position_ready=0.000
+step=0175 lateral=0.2801 axial=0.6904 rot=1.5295 position_ready=0.000
+step=0225 lateral=0.1691 axial=0.0264 rot=1.1143 position_ready=0.000
+step=0239 lateral=0.1153 axial=0.2303 rot=2.4506 position_ready=0.000
+```
+
+Interpretation:
+
+- The controller still does not pass the gate.
+- The position-first patch prevented the scripted state machine from prematurely rotating/inserting, but the approach action itself still does not reliably reduce socket-frame lateral error.
+- `position_ready=0.000` throughout, so the failure is earlier than rotation or insertion.
+- The final row is suspect because `240` steps matches the default `8.0s` episode timeout. Isaac Lab can auto-reset at timeout, making `final_*` potentially post-reset rather than terminal rollout state.
+
+Follow-up fix:
+
+- `scripts/scripted_agent.py` now extends `env_cfg.episode_length_s` to cover the requested scripted horizon.
+- The summary now records `best_lateral`, `best_axial`, and `best_rot` with step indices, so timeout/reset artifacts do not hide mid-rollout behavior.
+- The script now supports `--debug-action-steps N` to print first-step action-frame diagnostics before opening a longer GPU run.
+
+Local outputs:
+
+- `artifacts/evaluations/scripted/2026-05-14T18-58-33Z/seed_42.json`
+- `artifacts/evaluations/scripted/2026-05-14T18-58-33Z/seed_42.log`
+- `artifacts/gpu_gate/2026-05-14T18-34-53Z_isaac-phase2-gate-l4/gate.log`
+
+## Revised Next Decision
+
+Do not run PPO yet.
+
 Next useful action:
 
-1. Commit the position-first scripted-controller fix.
-2. Run one more guarded L4 scripted gate only after confirming the org is empty.
-3. If the new scripted gate improves lateral and axial errors, then record a short video and consider one PPO smoke test.
-4. If the new scripted gate still diverges, pause GPU work again and add a one-step IK/action diagnostic before spending more.
+1. Commit the metric/debug fix.
+2. Run at most one short L4 diagnostic with `RCA_GATE_EXTRA_AGENT_ARGS='--debug-action-steps 5'`.
+3. Use the printed `action_pos`, `socket_pos`, `approach_pos`, `pos_error`, and `raw_action` to decide whether the remaining bug is sign, frame, action scaling, or reachability.
+4. Only after the one-step diagnostic proves the action points the correct way should another scripted gate or PPO smoke be considered.
 
 Pass condition remains:
 
 - scripted final lateral and axial errors improve from reset
 - rotation no longer remains near `~2 rad`
-- `insertion_progress` becomes non-zero or final pose is close enough to justify one short PPO smoke
+- `best_lateral` reaches the approach corridor or final pose is close enough to justify one short PPO smoke
