@@ -81,11 +81,11 @@ run_with_timeout() {
 }
 
 run_brev_ls_all() {
-  run_with_timeout "${BREV_QUERY_TIMEOUT}" "${BREV_BIN}" ls --all
+  run_with_timeout "${BREV_QUERY_TIMEOUT}" "${BREV_BIN}" ls instances --all
 }
 
 run_brev_json_all() {
-  run_with_timeout "${BREV_QUERY_TIMEOUT}" "${BREV_BIN}" ls --json --all
+  run_with_timeout "${BREV_QUERY_TIMEOUT}" "${BREV_BIN}" ls instances --json --all
 }
 
 run_brev_search() {
@@ -93,12 +93,21 @@ run_brev_search() {
 }
 
 org_is_empty() {
-  local json
-  if ! json="$(run_brev_json_all 2>/dev/null)"; then
-    log "Brev JSON instance query failed; treating org as not empty"
+  local json status normalized
+  set +e
+  json="$(run_brev_json_all 2>/dev/null)"
+  status=$?
+  set -e
+  normalized="$(printf '%s' "${json}" | tr -d '[:space:]')"
+  if [[ "${status}" -ne 0 ]]; then
+    if [[ "${normalized}" == "null" || "${normalized}" == "[]" ]]; then
+      log "Brev JSON instance query timed out after returning ${normalized}; accepting exact empty-org marker"
+      return 0
+    fi
+    log "Brev JSON instance query failed without an exact empty-org marker; treating org as not empty"
     return 1
   fi
-  [[ "${json}" == "null" || "${json}" == "[]" ]]
+  [[ "${normalized}" == "null" || "${normalized}" == "[]" ]]
 }
 
 wait_for_ready() {

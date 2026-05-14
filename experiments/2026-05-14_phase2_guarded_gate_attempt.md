@@ -102,15 +102,28 @@ Local log:
 - No Brev process remained locally after cleanup.
 - Git remained clean after committing the safety fix.
 
+## Follow-up CLI Diagnosis
+
+Later probing showed the Brev backend was healthy and the org query worked, but the plain instance-list command path was unreliable:
+
+- `brev healthcheck`: passed
+- `brev ls orgs --json`: passed
+- `brev ls instances --json --all`: returned `null`
+- plain `brev ls --json --all`: timed out
+
+Follow-up fix:
+
+- `scripts/run_guarded_phase2_gate.sh` now uses `brev ls instances --all` and `brev ls instances --json --all` instead of plain `brev ls`.
+- If the JSON query times out only after printing an exact empty-org marker (`null` or `[]`), the guarded script accepts that marker; any other failed instance query remains fail-closed.
+
 ## Next Decision
 
 Do not run PPO yet.
 
 Next useful action:
 
-1. Wait until Brev instance queries are stable.
-2. Confirm `brev ls --all` and `brev ls --json --all` both return normally.
-3. Re-run the guarded gate using the AWS L40S fallback first:
+1. Confirm `brev ls instances --all` and `brev ls instances --json --all` both return normally.
+2. Re-run the guarded gate using the AWS L40S fallback first:
 
 ```bash
 RCA_GATE_INSTANCE_NAME=isaac-phase2-gate-aws \

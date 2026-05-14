@@ -7,7 +7,8 @@ This project should not default to one fixed GPU type. Before every paid GPU ses
 Run these commands before creating an instance:
 
 ```bash
-/Users/Shenghan/bin/brev ls
+/Users/Shenghan/bin/brev ls instances --all
+/Users/Shenghan/bin/brev ls instances --json --all
 /Users/Shenghan/bin/brev search --min-total-vram 24 --min-disk 500 --stoppable --sort price | head -40
 /Users/Shenghan/bin/brev search --min-total-vram 32 --min-disk 500 --stoppable --sort price | head -40
 /Users/Shenghan/bin/brev search --min-total-vram 40 --min-disk 500 --stoppable --sort price | head -40
@@ -35,7 +36,7 @@ What the wrapper does:
 - pulls artifacts back to the external SSD
 - deletes the GPU instance on exit and checks that the org is empty
 
-The wrapper also applies short timeouts to Brev list/search/delete calls, because Brev CLI queries have previously printed a result but failed to exit cleanly. Do not bypass this wrapper for short paid validation runs unless there is a specific reason.
+The wrapper also applies short timeouts to Brev list/search/delete calls, because Brev CLI queries have previously printed a result but failed to exit cleanly. It uses `brev ls instances` explicitly instead of plain `brev ls`, because plain `brev ls --json --all` has previously hung. If the JSON query times out only after printing an exact empty-org marker (`null` or `[]`), the wrapper accepts that marker; any other failed query remains fail-closed. Do not bypass this wrapper for short paid validation runs unless there is a specific reason.
 
 ## Selection Rules
 
@@ -78,7 +79,7 @@ Use an explicit type after comparing prices:
 If the selected type fails with a Brev API or provider error, check:
 
 ```bash
-/Users/Shenghan/bin/brev ls
+/Users/Shenghan/bin/brev ls instances --all
 ```
 
 Only then try one explicit fallback type. Do not keep retrying indefinitely.
