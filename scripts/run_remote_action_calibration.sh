@@ -16,6 +16,7 @@ RETRY_COUNT="${RCA_ACTION_CALIBRATION_RETRIES:-1}"
 TIMESTAMP_UTC="$(date -u +"%Y-%m-%dT%H-%M-%SZ")"
 REMOTE_CALIBRATION_DIR="/workspace/artifacts/calibration/relative_ik_action/${TIMESTAMP_UTC}"
 SUMMARY_PATH="${REMOTE_CALIBRATION_DIR}/seed_${SEED}.json"
+LATEST_SUMMARY_PATH="/workspace/artifacts/calibration/relative_ik_action/latest_seed_${SEED}.json"
 
 echo "[action-calibration] env=${RCA_ENV_NAME} task=${TASK_NAME} steps_per_probe=${STEPS_PER_PROBE}"
 echo "[action-calibration] seed=${SEED}"
@@ -67,5 +68,7 @@ if [[ ${status} -ne 0 ]]; then
 fi
 
 echo "[action-calibration] summaries:"
+rca_remote_container_exec "cp '${SUMMARY_PATH}' '${LATEST_SUMMARY_PATH}'"
+echo "[action-calibration] latest summary: ${LATEST_SUMMARY_PATH}"
 rca_remote_container_exec "ls -1 '${REMOTE_CALIBRATION_DIR}'"
 echo "[action-calibration] output dir: ${REMOTE_CALIBRATION_DIR}"

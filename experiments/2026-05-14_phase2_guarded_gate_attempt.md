@@ -847,3 +847,97 @@ scripts/run_guarded_phase2_gate.sh
 ```
 
 3. Use the measured `response_matrix_world_delta_per_raw_action` to decide whether the scripted baseline can stay in relative IK mode or should switch to an absolute target-pose IK wrapper.
+
+## Attempt 13: Warmup Calibration Then Scripted Gate on the Same L4
+
+Command:
+
+```bash
+RCA_GATE_COMMAND=calibration_then_scripted_eval \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-warmup-combined-l4 \
+RCA_GATE_INSTANCE_TYPE='g2-standard-4:nvidia-l4:1' \
+RCA_GATE_CREATE_TIMEOUT=900 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_EVAL_TIMEOUT_SECONDS=300 \
+RCA_ACTION_CALIBRATION_RETRIES=1 \
+RCA_SCRIPTED_EVAL_RETRIES=1 \
+RCA_GATE_CALIBRATION_STEPS=4 \
+RCA_GATE_SCRIPTED_STEPS=80 \
+scripts/run_guarded_phase2_gate.sh
+```
+
+Price selection:
+
+- Explicitly used `g2-standard-4:nvidia-l4:1`.
+- The live price table again showed the L4 as the cheapest viable option at about `$0.85/hr`.
+
+Artifacts:
+
+- Calibration JSON: `artifacts/calibration/relative_ik_action/2026-05-14T22-20-37Z/seed_42.json`
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-14T22-21-36Z/seed_42.json`
+- Gate log: `artifacts/gpu_gate/2026-05-14T22-05-29Z_isaac-phase2-warmup-combined-l4/gate.log`
+
+Result:
+
+- Runtime bootstrap completed.
+- Calibration and scripted eval both ran successfully on the same instance.
+- Artifacts were pulled locally.
+- Cleanup deleted the instance.
+- The guarded script confirmed `No instances in org NCA-57cf-29515`.
+- Independent checks also returned:
+  - `brev ls instances --all`: `No instances`
+  - `brev ls instances --json --all`: `null`
+
+Calibration metrics:
+
+```json
+{
+  "zero_delta_action_pos": [-0.001131683588027954, 0.014671146869659424, 0.0016485750675201416],
+  "response_matrix_world_delta_per_raw_action": [
+    [0.06291121244430542, -0.035278186202049255, 0.05632166936993599],
+    [-0.019952405244112015, 0.04557172209024429, 0.019709020853042603],
+    [-0.003956382162868977, 0.020646551623940468, 0.05501943081617355]
+  ]
+}
+```
+
+Scripted metrics:
+
+```json
+{
+  "initial_lateral": 0.533628523349762,
+  "final_lateral": 0.5557739734649658,
+  "best_lateral": 0.26182493567466736,
+  "best_lateral_step": 19,
+  "initial_axial": 0.26867949962615967,
+  "final_axial": 0.34838253259658813,
+  "best_axial": 0.10499545931816101,
+  "best_axial_step": 12,
+  "initial_rot": 3.1094396114349365,
+  "final_rot": 1.0175015926361084,
+  "best_rot": 0.14498676359653473,
+  "best_rot_step": 50,
+  "final_success_rate": 0.0
+}
+```
+
+Interpretation:
+
+- The 30-step zero-action warmup fixed the major reset transient. Previous calibration saw about `+0.147 m` z drift under zero action; this run reduced zero-action z drift over four steps to about `+0.0016 m`.
+- The direct proportional scripted controller still fails because the relative IK action response is coupled. It briefly improves both lateral and axial errors, but then overshoots/diverges.
+- The controller should stop issuing saturated multi-axis position commands. The useful next step is a calibrated one-hot scripted controller that chooses the empirically best one-hot raw action from the calibration JSON at each control step.
+
+Follow-up fix:
+
+- `scripts/scripted_agent.py` now supports `--position-control-mode calibrated-onehot`.
+- The calibrated mode loads the calibration JSON and greedily selects the one-hot raw action predicted to reduce root-frame position error, avoiding cancellation from saturated multi-axis commands.
+- `scripts/run_remote_action_calibration.sh` now copies the latest calibration JSON to a stable path:
+  - `/workspace/artifacts/calibration/relative_ik_action/latest_seed_<seed>.json`
+- `scripts/run_guarded_phase2_gate.sh` now supports separate calibration/scripted extra args and `RCA_GATE_USE_CALIBRATED_SCRIPTED=1` for calibration-then-scripted gates.
+
+Next useful action:
+
+1. Run local syntax checks.
+2. Commit the calibrated scripted-controller plumbing.
+3. Run one short L4 gate with `RCA_GATE_USE_CALIBRATED_SCRIPTED=1`, `RCA_GATE_SCRIPTED_STEPS=80`, and `--debug-action-steps 8`.
+4. Pass condition: final lateral/axial should be better than initial, or at least best lateral/axial should improve without the late-run divergence seen in this attempt.

@@ -54,6 +54,36 @@ def _parse_action_axis_signs(value: str) -> tuple[float, float, float]:
         raise argparse.ArgumentTypeError("axis signs must be non-zero")
     return signs
 
+
+def _load_calibrated_position_response(path: str) -> tuple[list[dict[str, list[float]]], int]:
+    with open(path, "r", encoding="utf-8") as f:
+        summary = json.load(f)
+
+    probes = summary.get("probes")
+    if not isinstance(probes, dict):
+        raise ValueError(f"calibration JSON missing probes: {path}")
+
+    candidates = []
+    for name in ("x_pos", "x_neg", "y_pos", "y_neg", "z_pos", "z_neg"):
+        probe = probes.get(name)
+        if not isinstance(probe, dict):
+            raise ValueError(f"calibration JSON missing probe {name}: {path}")
+        action_xyz = probe.get("action_xyz")
+        delta_pos = probe.get("delta_action_pos")
+        if not (
+            isinstance(action_xyz, list)
+            and isinstance(delta_pos, list)
+            and len(action_xyz) == 3
+            and len(delta_pos) == 3
+        ):
+            raise ValueError(f"calibration probe {name} has invalid action/delta fields: {path}")
+        candidates.append({"name": name, "action_xyz": action_xyz, "delta_pos": delta_pos})
+
+    steps_per_probe = int(summary.get("steps_per_probe", 1))
+    if steps_per_probe <= 0:
+        raise ValueError(f"calibration JSON has invalid steps_per_probe={steps_per_probe}: {path}")
+    return candidates, steps_per_probe
+
 parser = argparse.ArgumentParser(description="Scripted baseline for robot_contact_assembly Isaac Lab tasks.")
 parser.add_argument("--disable_fabric", action="store_true", default=False, help="Disable fabric.")
 parser.add_argument("--num_envs", type=int, default=None, help="Override number of environments.")
@@ -100,6 +130,21 @@ parser.add_argument(
     type=_parse_action_axis_signs,
     default=(1.0, 1.0, 1.0),
     help="Comma-separated root-frame translational action-axis signs. Debug logs show the signed command vector.",
+)
+parser.add_argument(
+    "--position-control-mode",
+    choices=("direct", "calibrated-onehot"),
+    default="direct",
+    help=(
+        "Position controller. 'direct' applies proportional root-frame deltas; "
+        "'calibrated-onehot' greedily selects the calibrated one-hot raw action predicted to reduce position error."
+    ),
+)
+parser.add_argument(
+    "--position-response-json",
+    type=str,
+    default=None,
+    help="Calibration JSON from scripts/calibrate_relative_ik_action.py, required for calibrated-onehot mode.",
 )
 parser.add_argument(
     "--debug-action-steps",
@@ -245,6 +290,30 @@ def main():
         polish_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         settle_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         action_axis_signs = torch.tensor(args_cli.action_axis_signs, device=env_unwrapped.device).unsqueeze(0)
+        calibrated_candidate_names: list[str] = []
+        calibrated_candidate_actions = None
+        calibrated_candidate_deltas = None
+        if args_cli.position_control_mode == "calibrated-onehot":
+            if not args_cli.position_response_json:
+                raise ValueError("--position-response-json is required when --position-control-mode=calibrated-onehot")
+            candidates, steps_per_probe = _load_calibrated_position_response(args_cli.position_response_json)
+            calibrated_candidate_names = [candidate["name"] for candidate in candidates]
+            calibrated_candidate_actions = torch.tensor(
+                [candidate["action_xyz"] for candidate in candidates],
+                dtype=torch.float32,
+                device=env_unwrapped.device,
+            )
+            calibrated_candidate_deltas = torch.tensor(
+                [candidate["delta_pos"] for candidate in candidates],
+                dtype=torch.float32,
+                device=env_unwrapped.device,
+            ) / float(steps_per_probe)
+            print(
+                "[SCRIPTED] loaded calibrated one-hot position response "
+                f"path={args_cli.position_response_json} candidates={calibrated_candidate_names} "
+                f"steps_per_probe={steps_per_probe}",
+                flush=True,
+            )
 
         sim = env_unwrapped.sim
         for step in range(args_cli.steps):
@@ -311,7 +380,15 @@ def main():
             rot_clamp[polish_state] = args_cli.polish_rot_clamp
             rot_clamp[settle_state] = args_cli.settle_rot_clamp
 
-            actions[:, :3] = _clamp_actions(args_cli.pos_gain * signed_action_pos_error, args_cli.pos_clamp)
+            if args_cli.position_control_mode == "calibrated-onehot":
+                assert calibrated_candidate_actions is not None
+                assert calibrated_candidate_deltas is not None
+                predicted_next_errors = signed_action_pos_error[:, None, :] - calibrated_candidate_deltas[None, :, :]
+                selected_candidate_idxs = torch.argmin(torch.linalg.norm(predicted_next_errors, dim=-1), dim=1)
+                actions[:, :3] = calibrated_candidate_actions[selected_candidate_idxs]
+            else:
+                selected_candidate_idxs = None
+                actions[:, :3] = _clamp_actions(args_cli.pos_gain * signed_action_pos_error, args_cli.pos_clamp)
             actions[:, 3:6] = _clamp_actions(rot_gain * axis_angle_error, rot_clamp)
 
             if polish_only.any():
@@ -349,6 +426,9 @@ def main():
                     f"action_pos_error={action_pos_error[0].tolist()} "
                     f"signed_action_pos_error={signed_action_pos_error[0].tolist()} "
                     f"axis_angle_error={axis_angle_error[0].tolist()} "
+                    f"position_control_mode={args_cli.position_control_mode} "
+                    f"selected_calibrated_action="
+                    f"{calibrated_candidate_names[int(selected_candidate_idxs[0].item())] if selected_candidate_idxs is not None else None} "
                     f"raw_action={actions[0].tolist()}",
                     flush=True,
                 )
@@ -417,6 +497,8 @@ def main():
             "video_folder": video_folder,
             "coupled_approach": args_cli.coupled_approach,
             "action_axis_signs": list(args_cli.action_axis_signs),
+            "position_control_mode": args_cli.position_control_mode,
+            "position_response_json": args_cli.position_response_json,
         }
         print(
             "[SCRIPTED] summary "

@@ -24,6 +24,9 @@ STEPS="${RCA_GATE_STEPS:-240}"
 SEEDS="${RCA_GATE_SEEDS:-42}"
 EVAL_TIMEOUT_SECONDS="${RCA_GATE_EVAL_TIMEOUT_SECONDS:-600}"
 EXTRA_AGENT_ARGS="${RCA_GATE_EXTRA_AGENT_ARGS:-}"
+CALIBRATION_EXTRA_AGENT_ARGS="${RCA_GATE_CALIBRATION_EXTRA_AGENT_ARGS:-${EXTRA_AGENT_ARGS}}"
+SCRIPTED_EXTRA_AGENT_ARGS="${RCA_GATE_SCRIPTED_EXTRA_AGENT_ARGS:-${EXTRA_AGENT_ARGS}}"
+USE_CALIBRATED_SCRIPTED="${RCA_GATE_USE_CALIBRATED_SCRIPTED:-0}"
 GATE_COMMAND="${RCA_GATE_COMMAND:-scripted_eval}"
 CALIBRATION_STEPS="${RCA_GATE_CALIBRATION_STEPS:-${STEPS}}"
 SCRIPTED_STEPS="${RCA_GATE_SCRIPTED_STEPS:-${STEPS}}"
@@ -173,6 +176,7 @@ instance_name=${INSTANCE_NAME}
 instance_type=${INSTANCE_TYPE}
 gate_profile=${GATE_PROFILE}
 gate_command=${GATE_COMMAND}
+use_calibrated_scripted=${USE_CALIBRATED_SCRIPTED}
 task_name=${TASK_NAME}
 num_envs=${NUM_ENVS}
 steps=${STEPS}
@@ -307,7 +311,7 @@ main() {
         "${CALIBRATION_STEPS}" \
         "${SEEDS%%,*}" \
         "${EVAL_TIMEOUT_SECONDS}" \
-        "${EXTRA_AGENT_ARGS}"
+        "${CALIBRATION_EXTRA_AGENT_ARGS}"
       ;;
     calibration_then_scripted_eval)
       log "running relative IK action calibration gate"
@@ -319,8 +323,13 @@ main() {
         "${CALIBRATION_STEPS}" \
         "${SEEDS%%,*}" \
         "${EVAL_TIMEOUT_SECONDS}" \
-        "${EXTRA_AGENT_ARGS}"
+        "${CALIBRATION_EXTRA_AGENT_ARGS}"
       log "running scripted contact gate after calibration"
+      combined_scripted_args="${SCRIPTED_EXTRA_AGENT_ARGS}"
+      if [[ "${USE_CALIBRATED_SCRIPTED}" == "1" ]]; then
+        latest_calibration_json="/workspace/artifacts/calibration/relative_ik_action/latest_seed_${SEEDS%%,*}.json"
+        combined_scripted_args="${combined_scripted_args} --position-control-mode calibrated-onehot --position-response-json ${latest_calibration_json}"
+      fi
       bash "${SCRIPT_DIR}/run_remote_scripted_eval.sh" \
         "${INSTANCE_NAME}" \
         "${REMOTE_ROOT}" \
@@ -330,7 +339,7 @@ main() {
         "${SCRIPTED_STEPS}" \
         "${SEEDS}" \
         "${EVAL_TIMEOUT_SECONDS}" \
-        "${EXTRA_AGENT_ARGS}"
+        "${combined_scripted_args}"
       ;;
     *)
       echo "[guarded-gate] unknown RCA_GATE_COMMAND=${GATE_COMMAND}; use scripted_eval, action_calibration, or calibration_then_scripted_eval" >&2
