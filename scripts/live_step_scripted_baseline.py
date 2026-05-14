@@ -31,9 +31,10 @@ from robot_contact_assembly_tasks.tasks.manager_based.manipulation.peg_in_hole i
 STATE_KEY = "_rca_live_demo_state"
 BODY_OFFSET = PEG_TIP_BODY_OFFSET_POS
 
-APPROACH_HEIGHT = 0.0
-APPROACH_XY_TOL = 1.0
-APPROACH_ROT_TOL = 10.0
+APPROACH_HEIGHT = 0.05
+APPROACH_XY_TOL = 0.015
+APPROACH_Z_TOL = 0.02
+APPROACH_ROT_TOL = 0.25
 POS_GAIN = 2.0
 ROT_GAIN = 2.0
 POS_CLAMP = 0.12
@@ -93,6 +94,8 @@ def main():
         state["polish_state"] = torch.zeros(env.unwrapped.num_envs, dtype=torch.bool, device=env.unwrapped.device)
     if "settle_state" not in state:
         state["settle_state"] = torch.zeros(env.unwrapped.num_envs, dtype=torch.bool, device=env.unwrapped.device)
+    if "rotate_state" not in state:
+        state["rotate_state"] = torch.zeros(env.unwrapped.num_envs, dtype=torch.bool, device=env.unwrapped.device)
 
     robot = env.scene["robot"]
     body_ids, _ = robot.find_bodies("panda_hand")
@@ -100,13 +103,11 @@ def main():
 
     polish_state = state["polish_state"]
     settle_state = state["settle_state"]
+    rotate_state = state["rotate_state"]
 
     action_pos_w, action_quat_w = _action_frame_pose_w(env, body_idx)
     socket_pos_w, socket_quat_w = _socket_pose_w(env)
     target_action_pos_w, target_action_quat_w = _target_action_frame_pose_w(socket_pos_w, socket_quat_w)
-
-    target_pos_w = target_action_pos_w.clone()
-    target_pos_w[:, 2] += APPROACH_HEIGHT
 
     from isaaclab.managers import SceneEntityCfg
 
@@ -116,15 +117,24 @@ def main():
         env.unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg
     )
 
-    align_mask = (lateral_error < APPROACH_XY_TOL) & (orientation_error < APPROACH_ROT_TOL)
-    target_pos_w[align_mask] = target_action_pos_w[align_mask]
+    approach_pos_w = target_action_pos_w.clone()
+    approach_pos_w[:, 2] += APPROACH_HEIGHT
+    target_pos_w = approach_pos_w.clone()
+    target_quat_w = action_quat_w.clone()
+
+    approach_z_error = torch.abs(action_pos_w[:, 2] - approach_pos_w[:, 2])
+    position_ready = (lateral_error < APPROACH_XY_TOL) & (approach_z_error < APPROACH_Z_TOL)
+    rotate_state |= position_ready
+    target_quat_w[rotate_state] = target_action_quat_w[rotate_state]
+    insert_mask = rotate_state & (lateral_error < APPROACH_XY_TOL) & (orientation_error < APPROACH_ROT_TOL)
+    target_pos_w[insert_mask] = target_action_pos_w[insert_mask]
 
     polish_mask = (lateral_error < POLISH_XY_TOL) & (axial_error < POLISH_Z_TOL)
     polish_state |= polish_mask
     settle_state |= polish_state & (orientation_error < SETTLE_ROT_TOL)
 
     pos_error, axis_angle_error = compute_pose_error(
-        action_pos_w, action_quat_w, target_pos_w, target_action_quat_w, rot_error_type="axis_angle"
+        action_pos_w, action_quat_w, target_pos_w, target_quat_w, rot_error_type="axis_angle"
     )
 
     action = torch.zeros(env.action_space.shape, device=env.unwrapped.device)
@@ -155,6 +165,9 @@ def main():
         f"axial={axial.mean().item():.4f} "
         f"rot={rot.mean().item():.4f} "
         f"success={success.float().mean().item():.3f} "
+        f"position={position_ready.float().mean().item():.3f} "
+        f"rotate={rotate_state.float().mean().item():.3f} "
+        f"insert={insert_mask.float().mean().item():.3f} "
         f"polish={polish_state.float().mean().item():.3f} "
         f"settle={settle_state.float().mean().item():.3f}"
     )

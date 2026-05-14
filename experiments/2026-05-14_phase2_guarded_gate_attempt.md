@@ -297,14 +297,9 @@ Local outputs:
 - `artifacts/evaluations/scripted/2026-05-14T17-50-13Z/seed_42.log`
 - `artifacts/gpu_gate/2026-05-14T17-29-50Z_isaac-phase2-gate-l4/gate.log`
 
-## Next Decision
+## Attempt 6: L4 After Wrapper Threshold Fix
 
-Do not run PPO yet.
-
-Next useful action:
-
-1. Confirm `brev ls instances --all` and `brev ls instances --json --all` both return normally.
-2. Re-run the guarded gate on the L4 fallback after the wrapper threshold fix:
+Command:
 
 ```bash
 RCA_GATE_INSTANCE_NAME=isaac-phase2-gate-l4 \
@@ -314,10 +309,72 @@ RCA_GATE_READY_TIMEOUT_SECONDS=900 \
 scripts/run_guarded_phase2_gate.sh
 ```
 
+Result:
+
+- Brev successfully created `isaac-phase2-gate-l4`.
+- Runtime bootstrap completed.
+- Scripted gate ran for seed `42`.
+- The wrapper threshold fix was exercised: `insert_ready=0.000` from step `0000` through step `0239`.
+- Artifacts were pulled locally.
+- Cleanup deleted the instance.
+- Deletion lingered in `DELETING`, then `STOPPING`, but the guarded script eventually confirmed no visible instances.
+- Independent post-cleanup checks returned:
+  - `brev ls instances --all`: `No instances`
+  - `brev ls instances --json --all`: `null`
+
+Metrics:
+
+```json
+{
+  "initial_lateral": 0.09503934532403946,
+  "final_lateral": 0.11525661498308182,
+  "initial_axial": 0.2692160904407501,
+  "final_axial": 0.23030611872673035,
+  "initial_rot": 2.3476452827453613,
+  "final_rot": 2.450565814971924,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Interpretation:
+
+- Runtime setup is solved.
+- The wrapper bug is solved.
+- The remaining blocker is the scripted controller, not PPO.
+- Since `insert_ready=0.000` throughout, the controller correctly refused to insert before alignment.
+- However, lateral error still failed to improve, which means the approach action itself is not reliably driving the peg tip toward the socket corridor.
+- The likely issue is that the controller is coupling a large orientation correction with the gross approach motion, causing the tip to arc away from the socket during relative IK.
+
+Follow-up fix:
+
+- `scripts/scripted_agent.py` now uses a position-first state machine by default:
+  - translate the peg tip to a hold pose above the socket while keeping the current orientation,
+  - rotate in place only after the lateral and approach-height tolerances are met,
+  - insert only after lateral and orientation tolerances are met.
+- `scripts/live_step_scripted_baseline.py` now uses the same realistic thresholds and phase logic.
+- `scripts/debug_pose_alignment.py` now matches the same phase logic for diagnostics.
+- The legacy coupled controller remains available with `--coupled-approach`.
+
+Local outputs:
+
+- `artifacts/evaluations/scripted/2026-05-14T18-17-39Z/seed_42.json`
+- `artifacts/evaluations/scripted/2026-05-14T18-17-39Z/seed_42.log`
+- `artifacts/gpu_gate/2026-05-14T17-56-39Z_isaac-phase2-gate-l4/gate.log`
+
+## Next Decision
+
+Do not run PPO yet.
+
+Next useful action:
+
+1. Commit the position-first scripted-controller fix.
+2. Run one more guarded L4 scripted gate only after confirming the org is empty.
+3. If the new scripted gate improves lateral and axial errors, then record a short video and consider one PPO smoke test.
+4. If the new scripted gate still diverges, pause GPU work again and add a one-step IK/action diagnostic before spending more.
+
 Pass condition remains:
 
 - scripted final lateral and axial errors improve from reset
-- rotation does not remain near `~2 rad`
+- rotation no longer remains near `~2 rad`
 - `insertion_progress` becomes non-zero or final pose is close enough to justify one short PPO smoke
-
-If the fallback also fails to provision or Brev API remains unstable, pause GPU work and continue local code/documentation cleanup instead of retrying repeatedly.

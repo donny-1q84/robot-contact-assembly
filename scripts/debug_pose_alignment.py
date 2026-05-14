@@ -26,9 +26,10 @@ parser.add_argument("--disable_fabric", action="store_true", default=False, help
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments.")
 parser.add_argument("--steps", type=int, default=220, help="Number of env steps to run.")
 parser.add_argument("--task", type=str, default="RCA-PegInHole-Franka-IK-Rel-Play-v0", help="Task name.")
-parser.add_argument("--approach-height", type=float, default=0.0, help="Approach offset over the target along +Z.")
-parser.add_argument("--approach-xy-tol", type=float, default=0.01, help="Lateral tolerance before switching to insertion.")
-parser.add_argument("--approach-rot-tol", type=float, default=10.0, help="Orientation tolerance before switching to insertion.")
+parser.add_argument("--approach-height", type=float, default=0.05, help="Approach offset over the target along +Z.")
+parser.add_argument("--approach-xy-tol", type=float, default=0.015, help="Lateral tolerance before rotating in place.")
+parser.add_argument("--approach-z-tol", type=float, default=0.02, help="World-Z tolerance for the pre-insertion hold pose.")
+parser.add_argument("--approach-rot-tol", type=float, default=0.25, help="Orientation tolerance before switching to insertion.")
 parser.add_argument("--pos-gain", type=float, default=2.0, help="Proportional gain for position error.")
 parser.add_argument("--rot-gain", type=float, default=2.0, help="Proportional gain for axis-angle orientation error.")
 parser.add_argument("--pos-clamp", type=float, default=0.12, help="Clamp applied to each translational action dimension.")
@@ -100,10 +101,13 @@ def main():
         tip_pos_w, tip_quat_w = _tool_tip_pose_w(env_unwrapped, body_idx)
         socket_pos_w, socket_quat_w = _socket_pose_w(env_unwrapped)
         _print_pose_debug("initial", tip_pos_w, tip_quat_w, socket_pos_w, socket_quat_w)
+        rotate_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
 
         for _ in range(args_cli.steps):
-            target_pos_w = socket_pos_w.clone()
-            target_pos_w[:, 2] += args_cli.approach_height
+            approach_pos_w = socket_pos_w.clone()
+            approach_pos_w[:, 2] += args_cli.approach_height
+            target_pos_w = approach_pos_w.clone()
+            target_quat_w = tip_quat_w.clone()
 
             socket_rel_pos, _ = subtract_frame_transforms(socket_pos_w, socket_quat_w, tip_pos_w, tip_quat_w)
             _, direct_axis_angle_error = compute_pose_error(
@@ -111,11 +115,19 @@ def main():
             )
             lateral_error = torch.linalg.norm(socket_rel_pos[:, :2], dim=1)
             orientation_error = torch.linalg.norm(direct_axis_angle_error, dim=1)
-            align_mask = (lateral_error < args_cli.approach_xy_tol) & (orientation_error < args_cli.approach_rot_tol)
-            target_pos_w[align_mask] = socket_pos_w[align_mask]
+            approach_z_error = torch.abs(tip_pos_w[:, 2] - approach_pos_w[:, 2])
+            position_ready = (lateral_error < args_cli.approach_xy_tol) & (
+                approach_z_error < args_cli.approach_z_tol
+            )
+            rotate_state |= position_ready
+            target_quat_w[rotate_state] = socket_quat_w[rotate_state]
+            insert_mask = rotate_state & (lateral_error < args_cli.approach_xy_tol) & (
+                orientation_error < args_cli.approach_rot_tol
+            )
+            target_pos_w[insert_mask] = socket_pos_w[insert_mask]
 
             pos_error, axis_angle_error = compute_pose_error(
-                tip_pos_w, tip_quat_w, target_pos_w, socket_quat_w, rot_error_type="axis_angle"
+                tip_pos_w, tip_quat_w, target_pos_w, target_quat_w, rot_error_type="axis_angle"
             )
             actions = torch.zeros(env.action_space.shape, device=env_unwrapped.device)
             actions[:, :3] = torch.clamp(args_cli.pos_gain * pos_error, -args_cli.pos_clamp, args_cli.pos_clamp)

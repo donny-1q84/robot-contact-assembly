@@ -70,7 +70,14 @@ parser.add_argument(
 )
 parser.add_argument("--approach-height", type=float, default=0.05, help="Approach offset over the target along +Z.")
 parser.add_argument("--approach-xy-tol", type=float, default=0.015, help="Lateral tolerance before switching to insertion.")
+parser.add_argument("--approach-z-tol", type=float, default=0.02, help="World-Z tolerance for the pre-insertion hold pose.")
 parser.add_argument("--approach-rot-tol", type=float, default=0.25, help="Orientation tolerance before switching to insertion.")
+parser.add_argument(
+    "--coupled-approach",
+    action="store_true",
+    default=False,
+    help="Use the legacy controller that rotates while translating toward the socket.",
+)
 parser.add_argument("--pos-gain", type=float, default=2.0, help="Proportional gain for position error.")
 parser.add_argument("--rot-gain", type=float, default=2.0, help="Proportional gain for axis-angle orientation error.")
 parser.add_argument("--pos-clamp", type=float, default=0.12, help="Clamp applied to each translational action dimension.")
@@ -189,6 +196,7 @@ def main():
         final_rot = None
         final_success = None
         success_step = None
+        rotate_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         polish_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         settle_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
 
@@ -201,14 +209,38 @@ def main():
             socket_pos_w, socket_quat_w = _socket_pose_w(env_unwrapped)
             target_action_pos_w, target_action_quat_w = _target_action_frame_pose_w(socket_pos_w, socket_quat_w)
 
-            target_pos_w = target_action_pos_w.clone()
-            target_pos_w[:, 2] += args_cli.approach_height
-
             lateral_error, axial_error, orientation_error = mdp.insertion_metrics(
                 env_unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg
             )
-            align_mask = (lateral_error < args_cli.approach_xy_tol) & (orientation_error < args_cli.approach_rot_tol)
-            target_pos_w[align_mask] = target_action_pos_w[align_mask]
+
+            approach_pos_w = target_action_pos_w.clone()
+            approach_pos_w[:, 2] += args_cli.approach_height
+            target_pos_w = approach_pos_w.clone()
+            target_quat_w = target_action_quat_w.clone()
+
+            if args_cli.coupled_approach:
+                position_ready = (lateral_error < args_cli.approach_xy_tol) & (
+                    orientation_error < args_cli.approach_rot_tol
+                )
+                rotate_state |= position_ready
+                insert_mask = position_ready
+            else:
+                # Decouple gross translation from large orientation changes. With a rigid tip offset, rotating
+                # while still far from the socket can move the tip away from the approach corridor.
+                approach_z_error = torch.abs(action_pos_w[:, 2] - approach_pos_w[:, 2])
+                position_ready = (lateral_error < args_cli.approach_xy_tol) & (
+                    approach_z_error < args_cli.approach_z_tol
+                )
+                rotate_state |= position_ready
+                target_quat_w = action_quat_w.clone()
+                target_quat_w[rotate_state] = target_action_quat_w[rotate_state]
+                insert_mask = (
+                    rotate_state
+                    & (lateral_error < args_cli.approach_xy_tol)
+                    & (orientation_error < args_cli.approach_rot_tol)
+                )
+
+            target_pos_w[insert_mask] = target_action_pos_w[insert_mask]
             polish_mask = (lateral_error < args_cli.polish_xy_tol) & (axial_error < args_cli.polish_z_tol)
             polish_state |= polish_mask
             settle_mask = polish_state & (lateral_error < args_cli.settle_xy_tol) & (orientation_error < args_cli.settle_rot_tol)
@@ -218,7 +250,7 @@ def main():
             target_pos_w[polish_only, 2] = action_pos_w[polish_only, 2]
 
             pos_error, axis_angle_error = compute_pose_error(
-                action_pos_w, action_quat_w, target_pos_w, target_action_quat_w, rot_error_type="axis_angle"
+                action_pos_w, action_quat_w, target_pos_w, target_quat_w, rot_error_type="axis_angle"
             )
 
             actions = torch.zeros(env.action_space.shape, device=env_unwrapped.device)
@@ -276,7 +308,9 @@ def main():
                 print(
                     f"[SCRIPTED] step={step:04d} lateral={final_lateral:.4f} axial={final_axial:.4f} "
                     f"rot={final_rot:.4f} success_rate={final_success:.3f} "
-                    f"insert_ready={align_mask.float().mean().item():.3f} "
+                    f"position_ready={position_ready.float().mean().item():.3f} "
+                    f"rotate_ready={rotate_state.float().mean().item():.3f} "
+                    f"insert_ready={insert_mask.float().mean().item():.3f} "
                     f"polish_ready={polish_only.float().mean().item():.3f} "
                     f"settle_ready={settle_state.float().mean().item():.3f}",
                     flush=True,
@@ -302,6 +336,7 @@ def main():
             "final_success_rate": final_success,
             "video_backend": args_cli.video_backend if args_cli.video else None,
             "video_folder": video_folder,
+            "coupled_approach": args_cli.coupled_approach,
         }
         print(
             "[SCRIPTED] summary "
