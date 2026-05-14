@@ -39,7 +39,7 @@ POS_GAIN = 2.0
 ROT_GAIN = 2.0
 POS_CLAMP = 0.12
 ROT_CLAMP = 0.4
-ACTION_AXIS_SIGNS = (1.0, -1.0, -1.0)
+ACTION_AXIS_SIGNS = (1.0, 1.0, 1.0)
 
 POLISH_XY_TOL = 0.002
 POLISH_Z_TOL = 0.002
@@ -83,30 +83,6 @@ def _socket_pose_w(env) -> tuple[torch.Tensor, torch.Tensor]:
 
 def _target_action_frame_pose_w(socket_pos_w: torch.Tensor, socket_quat_w: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     return socket_pos_w.clone(), socket_quat_w.clone()
-
-
-def _quat_conjugate(quat: torch.Tensor) -> torch.Tensor:
-    return torch.cat((quat[..., :1], -quat[..., 1:]), dim=-1)
-
-
-def _quat_multiply(lhs: torch.Tensor, rhs: torch.Tensor) -> torch.Tensor:
-    w1, x1, y1, z1 = lhs.unbind(dim=-1)
-    w2, x2, y2, z2 = rhs.unbind(dim=-1)
-    return torch.stack(
-        (
-            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
-            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
-        ),
-        dim=-1,
-    )
-
-
-def _rotate_vector(quat: torch.Tensor, vec: torch.Tensor) -> torch.Tensor:
-    zeros = torch.zeros_like(vec[..., :1])
-    vec_quat = torch.cat((zeros, vec), dim=-1)
-    return _quat_multiply(_quat_multiply(quat, vec_quat), _quat_conjugate(quat))[..., 1:]
 
 
 def main():
@@ -161,7 +137,7 @@ def main():
     pos_error, axis_angle_error = compute_pose_error(
         action_pos_w, action_quat_w, target_pos_w, target_quat_w, rot_error_type="axis_angle"
     )
-    action_pos_error = _rotate_vector(action_quat_w, pos_error)
+    action_pos_error = pos_error
     action_axis_signs = torch.tensor(ACTION_AXIS_SIGNS, device=env.unwrapped.device).unsqueeze(0)
     signed_action_pos_error = action_pos_error * action_axis_signs
 

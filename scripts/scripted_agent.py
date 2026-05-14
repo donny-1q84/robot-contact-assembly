@@ -42,30 +42,6 @@ def _clamp_actions(values: torch.Tensor, limit: torch.Tensor | float) -> torch.T
     return torch.clamp(values, min=-limit, max=limit)
 
 
-def _quat_conjugate(quat: torch.Tensor) -> torch.Tensor:
-    return torch.cat((quat[..., :1], -quat[..., 1:]), dim=-1)
-
-
-def _quat_multiply(lhs: torch.Tensor, rhs: torch.Tensor) -> torch.Tensor:
-    w1, x1, y1, z1 = lhs.unbind(dim=-1)
-    w2, x2, y2, z2 = rhs.unbind(dim=-1)
-    return torch.stack(
-        (
-            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
-            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
-        ),
-        dim=-1,
-    )
-
-
-def _rotate_vector(quat: torch.Tensor, vec: torch.Tensor) -> torch.Tensor:
-    zeros = torch.zeros_like(vec[..., :1])
-    vec_quat = torch.cat((zeros, vec), dim=-1)
-    return _quat_multiply(_quat_multiply(quat, vec_quat), _quat_conjugate(quat))[..., 1:]
-
-
 def _parse_action_axis_signs(value: str) -> tuple[float, float, float]:
     parts = [part.strip() for part in value.split(",")]
     if len(parts) != 3:
@@ -122,8 +98,8 @@ parser.add_argument("--rot-clamp", type=float, default=0.4, help="Clamp applied 
 parser.add_argument(
     "--action-axis-signs",
     type=_parse_action_axis_signs,
-    default=(1.0, -1.0, -1.0),
-    help="Comma-separated translational action-axis signs. Debug logs show the signed command vector.",
+    default=(1.0, 1.0, 1.0),
+    help="Comma-separated root-frame translational action-axis signs. Debug logs show the signed command vector.",
 )
 parser.add_argument(
     "--debug-action-steps",
@@ -310,7 +286,9 @@ def main():
             pos_error, axis_angle_error = compute_pose_error(
                 action_pos_w, action_quat_w, target_pos_w, target_quat_w, rot_error_type="axis_angle"
             )
-            action_pos_error = _rotate_vector(action_quat_w, pos_error)
+            # Isaac Lab's relative IK action applies translational deltas directly in the robot root frame.
+            # Do not rotate the Cartesian error into the end-effector frame here.
+            action_pos_error = pos_error
             signed_action_pos_error = action_pos_error * action_axis_signs
 
             actions = torch.zeros(env.action_space.shape, device=env_unwrapped.device)

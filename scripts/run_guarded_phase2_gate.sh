@@ -24,6 +24,7 @@ STEPS="${RCA_GATE_STEPS:-240}"
 SEEDS="${RCA_GATE_SEEDS:-42}"
 EVAL_TIMEOUT_SECONDS="${RCA_GATE_EVAL_TIMEOUT_SECONDS:-600}"
 EXTRA_AGENT_ARGS="${RCA_GATE_EXTRA_AGENT_ARGS:-}"
+GATE_COMMAND="${RCA_GATE_COMMAND:-scripted_eval}"
 
 RUN_ID="$(date -u +"%Y-%m-%dT%H-%M-%SZ")"
 LOCAL_RUN_DIR="${REPO_ROOT}/artifacts/gpu_gate/${RUN_ID}_${INSTANCE_NAME}"
@@ -169,6 +170,7 @@ run_id=${RUN_ID}
 instance_name=${INSTANCE_NAME}
 instance_type=${INSTANCE_TYPE}
 gate_profile=${GATE_PROFILE}
+gate_command=${GATE_COMMAND}
 task_name=${TASK_NAME}
 num_envs=${NUM_ENVS}
 steps=${STEPS}
@@ -277,17 +279,37 @@ main() {
   log "checking runtime"
   bash "${SCRIPT_DIR}/check_remote_runtime.sh" "${INSTANCE_NAME}" "${REMOTE_ROOT}" "${REMOTE_COMPOSE_ROOT}"
 
-  log "running scripted contact gate"
-  bash "${SCRIPT_DIR}/run_remote_scripted_eval.sh" \
-    "${INSTANCE_NAME}" \
-    "${REMOTE_ROOT}" \
-    "${REMOTE_COMPOSE_ROOT}" \
-    "${TASK_NAME}" \
-    "${NUM_ENVS}" \
-    "${STEPS}" \
-    "${SEEDS}" \
-    "${EVAL_TIMEOUT_SECONDS}" \
-    "${EXTRA_AGENT_ARGS}"
+  case "${GATE_COMMAND}" in
+    scripted_eval)
+      log "running scripted contact gate"
+      bash "${SCRIPT_DIR}/run_remote_scripted_eval.sh" \
+        "${INSTANCE_NAME}" \
+        "${REMOTE_ROOT}" \
+        "${REMOTE_COMPOSE_ROOT}" \
+        "${TASK_NAME}" \
+        "${NUM_ENVS}" \
+        "${STEPS}" \
+        "${SEEDS}" \
+        "${EVAL_TIMEOUT_SECONDS}" \
+        "${EXTRA_AGENT_ARGS}"
+      ;;
+    action_calibration)
+      log "running relative IK action calibration gate"
+      bash "${SCRIPT_DIR}/run_remote_action_calibration.sh" \
+        "${INSTANCE_NAME}" \
+        "${REMOTE_ROOT}" \
+        "${REMOTE_COMPOSE_ROOT}" \
+        "${TASK_NAME}" \
+        "${STEPS}" \
+        "${SEEDS%%,*}" \
+        "${EVAL_TIMEOUT_SECONDS}" \
+        "${EXTRA_AGENT_ARGS}"
+      ;;
+    *)
+      echo "[guarded-gate] unknown RCA_GATE_COMMAND=${GATE_COMMAND}; use scripted_eval or action_calibration" >&2
+      return 2
+      ;;
+  esac
 
   log "gate completed"
 }

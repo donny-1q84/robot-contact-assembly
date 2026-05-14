@@ -749,3 +749,101 @@ Next useful action:
 2. Locally validate the updated scripts with `py_compile`, `bash -n`, and `git diff --check`.
 3. Commit the axis-sign fix.
 4. Only then run one last 20-step diagnostic; pass condition is `raw_action.z > 0` at step 0 and `action_pos.z` decreasing on subsequent steps.
+
+## Attempt 12: Explicit Axis Signs Still Diverge; Switch to Empirical Action Calibration
+
+Command:
+
+```bash
+RCA_GATE_INSTANCE_NAME=isaac-phase2-axis-sign-debug-l4 \
+RCA_GATE_INSTANCE_TYPE='g2-standard-4:nvidia-l4:1' \
+RCA_GATE_CREATE_TIMEOUT=900 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_EVAL_TIMEOUT_SECONDS=300 \
+RCA_SCRIPTED_EVAL_RETRIES=1 \
+RCA_GATE_STEPS=20 \
+RCA_GATE_EXTRA_AGENT_ARGS='--debug-action-steps 5' \
+scripts/run_guarded_phase2_gate.sh
+```
+
+Price selection:
+
+- The live price table again showed `g2-standard-4:nvidia-l4:1` at `$0.85/hr`.
+- L4 was kept as the cheapest viable GPU for short diagnostics.
+
+Result:
+
+- Brev created `isaac-phase2-axis-sign-debug-l4`.
+- Runtime bootstrap completed and the scripted diagnostic ran successfully.
+- Artifacts were pulled locally:
+  - `artifacts/evaluations/scripted/2026-05-14T21-21-42Z/seed_42.json`
+  - `artifacts/evaluations/scripted/2026-05-14T21-21-42Z/seed_42.log`
+- Cleanup deleted the instance.
+- Independent post-cleanup checks returned:
+  - `brev ls instances --all`: `No instances`
+  - `brev ls instances --json --all`: `null`
+
+Metrics:
+
+```json
+{
+  "action_axis_signs": [1.0, -1.0, -1.0],
+  "initial_lateral": 0.09528831392526627,
+  "final_lateral": 0.4290759265422821,
+  "best_lateral": 0.07055511325597763,
+  "best_lateral_step": 3,
+  "initial_axial": 0.27065590023994446,
+  "final_axial": 0.5879666209220886,
+  "best_axial": 0.27065590023994446,
+  "best_axial_step": 0,
+  "initial_rot": 2.3564226627349854,
+  "final_rot": 2.34665846824646,
+  "best_rot": 1.9514362812042236,
+  "best_rot_step": 11,
+  "final_success_rate": 0.0
+}
+```
+
+Key diagnostic evidence:
+
+```text
+step=0000 pos_error.z=-0.1412 action_pos_error.z=-0.1384 signed_action_pos_error.z=0.1384 raw_action.z=0.1200
+step=0001 action_pos.z=0.4181
+step=0002 action_pos.z=0.4553
+step=0003 action_pos.z=0.4927
+step=0004 action_pos.z=0.5301
+```
+
+Interpretation:
+
+- The explicit axis-sign hypothesis was invalidated.
+- The corrected command changed `raw_action.z` from negative to positive, but the action frame still moved upward and farther away from the approach pose.
+- The failure is not a simple per-axis sign mismatch. X/Y/Z responses are coupled under the relative IK action, and saturated multi-axis scripted commands are not sufficient evidence for selecting signs.
+- Re-reading the Isaac Lab relative IK implementation clarifies that the translational part of `apply_delta_pose()` is applied as `target_pos = source_pos + delta_pose[:, 0:3]`; the scripted controller should not rotate position error into the end-effector frame.
+
+Follow-up fix:
+
+- Reverted the scripted controller, live visual stepper, and pose debug script to root-frame translational deltas.
+- Reset default `--action-axis-signs` to `1,1,1`; the option remains available for controlled experiments.
+- Added `scripts/calibrate_relative_ik_action.py` to empirically probe one-hot `+/-X`, `+/-Y`, and `+/-Z` actions from the same deterministic reset.
+- Added `scripts/run_remote_action_calibration.sh`.
+- Extended `scripts/run_guarded_phase2_gate.sh` with `RCA_GATE_COMMAND=action_calibration` so calibration uses the same guarded create/pull/delete flow and post-delete checks.
+
+Next useful action:
+
+1. Do not run PPO yet.
+2. Run one minimal action calibration gate on L4:
+
+```bash
+RCA_GATE_COMMAND=action_calibration \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-action-calibration-l4 \
+RCA_GATE_INSTANCE_TYPE='g2-standard-4:nvidia-l4:1' \
+RCA_GATE_CREATE_TIMEOUT=900 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_EVAL_TIMEOUT_SECONDS=300 \
+RCA_ACTION_CALIBRATION_RETRIES=1 \
+RCA_GATE_STEPS=4 \
+scripts/run_guarded_phase2_gate.sh
+```
+
+3. Use the measured `response_matrix_world_delta_per_raw_action` to decide whether the scripted baseline can stay in relative IK mode or should switch to an absolute target-pose IK wrapper.

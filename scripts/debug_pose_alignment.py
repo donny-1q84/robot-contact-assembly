@@ -51,8 +51,8 @@ parser.add_argument("--rot-clamp", type=float, default=0.4, help="Clamp applied 
 parser.add_argument(
     "--action-axis-signs",
     type=_parse_action_axis_signs,
-    default=(1.0, -1.0, -1.0),
-    help="Comma-separated translational action-axis signs.",
+    default=(1.0, 1.0, 1.0),
+    help="Comma-separated root-frame translational action-axis signs.",
 )
 add_launcher_args(parser)
 args_cli, hydra_args = parser.parse_known_args()
@@ -79,30 +79,6 @@ def _tool_tip_pose_w(env_unwrapped, body_idx: int) -> tuple[torch.Tensor, torch.
 def _socket_pose_w(env_unwrapped) -> tuple[torch.Tensor, torch.Tensor]:
     socket = env_unwrapped.scene["socket_frame"]
     return wp.to_torch(socket.data.root_pos_w), wp.to_torch(socket.data.root_quat_w)
-
-
-def _quat_conjugate(quat: torch.Tensor) -> torch.Tensor:
-    return torch.cat((quat[..., :1], -quat[..., 1:]), dim=-1)
-
-
-def _quat_multiply(lhs: torch.Tensor, rhs: torch.Tensor) -> torch.Tensor:
-    w1, x1, y1, z1 = lhs.unbind(dim=-1)
-    w2, x2, y2, z2 = rhs.unbind(dim=-1)
-    return torch.stack(
-        (
-            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
-            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
-        ),
-        dim=-1,
-    )
-
-
-def _rotate_vector(quat: torch.Tensor, vec: torch.Tensor) -> torch.Tensor:
-    zeros = torch.zeros_like(vec[..., :1])
-    vec_quat = torch.cat((zeros, vec), dim=-1)
-    return _quat_multiply(_quat_multiply(quat, vec_quat), _quat_conjugate(quat))[..., 1:]
 
 
 def _print_pose_debug(label: str, tip_pos_w, tip_quat_w, socket_pos_w, socket_quat_w) -> None:
@@ -174,7 +150,7 @@ def main():
             pos_error, axis_angle_error = compute_pose_error(
                 tip_pos_w, tip_quat_w, target_pos_w, target_quat_w, rot_error_type="axis_angle"
             )
-            action_pos_error = _rotate_vector(tip_quat_w, pos_error)
+            action_pos_error = pos_error
             signed_action_pos_error = action_pos_error * action_axis_signs
             actions = torch.zeros(env.action_space.shape, device=env_unwrapped.device)
             actions[:, :3] = torch.clamp(
