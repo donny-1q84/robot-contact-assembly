@@ -2948,3 +2948,192 @@ Next useful local fix:
 - Modify rotate-stage command generation so rotation uses the target quaternion while position is held at the socket approach pose, not at the moving current-Z waypoint.
 - Add trace fields or summary rows that expose `command_pos_w`, `target_action_pos_w`, and `approach_pos_w` at rotate steps.
 - The next gate should pass only if lateral stays below `4 cm` while rotation improves below `1 rad`; otherwise switch from MDP abs IK to explicit joint-IK for the rotate stage.
+
+## Attempt 36: rotate-stage position hold
+
+Date: 2026-05-15
+
+Local commit:
+
+- `68371ca Lock rotate hold pose in scripted gate`
+
+Goal:
+
+- Fix the Attempt 35 regression where target-quaternion rotation improved orientation but allowed large lateral drift.
+- Lock the rotate-stage hold position at the socket approach pose when entering rotate mode.
+- Add trace fields for the held command position so lateral drift can be diagnosed directly.
+
+Remote run:
+
+- Run id: `2026-05-15T17-50-48Z`
+- Instance: `isaac-phase2-rotate-hold-l4`
+- Machine: `g2-standard-4:nvidia-l4:1`
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-15T18-07-19Z/seed_42.json`
+- Scripted eval trace: `artifacts/evaluations/scripted/2026-05-15T18-07-19Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-15T18-07-19Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-15T17-50-48Z_isaac-phase2-rotate-hold-l4/gate.log`
+
+Cleanup verification:
+
+- Artifacts were pulled locally before shutdown.
+- `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+- `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Metrics:
+
+```json
+{
+  "steps_requested": 220,
+  "rotate_before_descend": true,
+  "rotate_control_mode": "target",
+  "initial_lateral": 0.19102078676223755,
+  "final_lateral": 0.2278691530227661,
+  "best_lateral": 0.0002867463044822216,
+  "best_lateral_step": 162,
+  "initial_axial": 0.4095129370689392,
+  "final_axial": 0.3234337568283081,
+  "best_axial": 0.19548767805099487,
+  "best_axial_step": 209,
+  "initial_rot": 2.87626576423645,
+  "final_rot": 1.3620718717575073,
+  "best_rot": 0.21948815882205963,
+  "best_rot_step": 108,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Trace highlights:
+
+```text
+step  phase   lat     ax      rot     act_cmd  act_target  cmd_target  cmd_target_pos  cmd_hold_pos
+30    rotate  0.0394  0.4501  2.7621  2.8771   2.8771      0.0000      0.4486          0.0099
+75    rotate  0.3551  0.4452  0.5287  0.5406   0.5406      0.0000      0.5513          0.3207
+108   rotate  0.1983  0.4287  0.2195  0.2519   0.2519      0.0000      0.4808          0.1734
+150   rotate  0.0090  0.3771  0.2413  0.2284   0.1200      0.3483      0.3496          0.0989
+162   rotate  0.0003  0.3620  0.2411  0.2290   0.1200      0.3489      0.3344          0.1141
+209   rotate  0.2466  0.1955  2.3981  0.2516   0.2516      0.0000      0.3320          0.1165
+219   rotate  0.2279  0.3234  1.3621  1.4236   1.4236      0.0000      0.4003          0.2197
+```
+
+Interpretation:
+
+- This is not a success run; `success_rate=0.0`.
+- The rotate hold fix worked directionally:
+  - Attempt 35 best lateral: `3.94 cm`
+  - Attempt 36 best lateral: `0.29 mm`
+  - Attempt 35 best rotation: `0.834 rad`
+  - Attempt 36 best rotation: `0.219 rad`
+- The new problem is that once orientation becomes ready, the controller no longer consistently keeps commanding the target quaternion through descent.
+- At step 209, the axial metric improves, but rotation spikes back to `2.398 rad`, which prevents success.
+
+Next useful local fix:
+
+- Keep target-quaternion override active through rotate descent until insertion or polish mode, not only while orientation is not ready.
+- Do not change the environment or reward yet; this is still a scripted-control state-machine bug.
+
+## Attempt 37: hold target quaternion through rotate descent
+
+Date: 2026-05-15
+
+Local commit:
+
+- `12f503e Hold target quaternion through rotate descent`
+
+Goal:
+
+- Preserve the target quaternion after `orientation_ready=True` while the scripted controller descends toward insertion.
+- Test whether the contact gate can reach the insertion success condition after fixing the orientation drop-out seen in Attempt 36.
+
+Remote run:
+
+- Run id: `2026-05-15T18-15-12Z`
+- Instance: `isaac-phase2-quat-hold-l4`
+- Machine: `g2-standard-4:nvidia-l4:1`
+
+Price selection:
+
+- Selected `g2-standard-4:nvidia-l4:1`.
+- Live L4 price was about `$0.85/hr`.
+- Lowest visible L40S option was about `$1.86/hr`.
+- L4 remained the right choice for this short scripted gate.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-15T18-31-28Z/seed_42.json`
+- Scripted eval trace: `artifacts/evaluations/scripted/2026-05-15T18-31-28Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-15T18-31-28Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-15T18-15-12Z_isaac-phase2-quat-hold-l4/gate.log`
+
+Cleanup verification:
+
+- Artifacts were pulled locally before shutdown.
+- `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+- `brev ls instances --json --all`: `{ "workspaces": null }`
+- During cleanup, Brev briefly reported the target instance as `DELETING` and then `DEPLOYING` before the final empty-org confirmation. The guarded cleanup loop and a separate manual CLI check both confirmed the organization ended empty.
+
+Metrics:
+
+```json
+{
+  "steps_requested": 220,
+  "rotate_before_descend": true,
+  "rotate_control_mode": "target",
+  "initial_lateral": 0.19102078676223755,
+  "final_lateral": 0.2278691530227661,
+  "best_lateral": 0.0005068883765488863,
+  "best_lateral_step": 165,
+  "initial_axial": 0.4095129370689392,
+  "final_axial": 0.3234337568283081,
+  "best_axial": 0.03698286414146423,
+  "best_axial_step": 208,
+  "initial_rot": 2.87626576423645,
+  "final_rot": 1.3620718717575073,
+  "best_rot": 0.004081662744283676,
+  "best_rot_step": 119,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Trace highlights:
+
+```text
+step  phase   lat     ax      rot     act_cmd  act_target  cmd_target  cmd_target_pos  insert
+100   rotate  0.2293  0.4375  0.0991  0.1137   0.1137      0.0000      0.4572          0
+119   rotate  0.1102  0.3567  0.0041  0.0049   0.0049      0.0000      0.3418          0
+150   rotate  0.0027  0.2275  0.0186  0.0186   0.0186      0.0000      0.2016          0
+165   rotate  0.0005  0.1665  0.0207  0.0205   0.0205      0.0000      0.1406          0
+175   rotate  0.0006  0.1259  0.0215  0.0215   0.0215      0.0000      0.0999          0
+200   insert  0.0058  0.0382  0.0511  0.0398   0.0398      0.0297      0.0083          1
+208   insert  0.0050  0.0370  0.1739  0.1539   0.1200      0.2613      0.0071          1
+219   rotate  0.2279  0.3234  1.3621  1.4236   1.4236      0.0000      0.4003          0
+```
+
+Interpretation:
+
+- This is not a success run; `success_rate=0.0`.
+- The target-quaternion hold fix worked:
+  - Attempt 36 best rotation: `0.219 rad`
+  - Attempt 37 best rotation: `0.004 rad`
+  - Attempt 36 best axial: `19.5 cm`
+  - Attempt 37 best axial: `3.7 cm`
+- The scripted controller now reaches a near-solved pre-insertion state:
+  - lateral around `5-6 mm`
+  - axial around `37-38 mm`
+  - rotation around `0.05-0.17 rad`
+  - `insert_ready=1` at steps 200 and 208
+- The remaining failure is at the contact/insert transition:
+  - success is still not triggered before the controller loses the near-insertion state
+  - after step 208, the system falls back to rotate mode and the pose jumps away
+- This means the next useful work is not more rotate alignment. The rotate gate is effectively solved for this scripted baseline.
+
+Next useful local fix:
+
+- Inspect the insertion success threshold and the insert-stage transition logic.
+- Determine whether the physical socket collision is blocking before the configured success depth, or whether the success condition is too strict relative to the current asset dimensions.
+- Add trace fields for contact force magnitude and the exact success-term components around steps 190-210.
+- Keep the next GPU run short and targeted: only verify the insert transition after local instrumentation, not a full new exploration run.

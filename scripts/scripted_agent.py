@@ -194,6 +194,18 @@ parser.add_argument("--approach-xy-tol", type=float, default=0.015, help="Latera
 parser.add_argument("--approach-z-tol", type=float, default=0.02, help="World-Z tolerance for the pre-insertion hold pose.")
 parser.add_argument("--approach-rot-tol", type=float, default=0.25, help="Orientation tolerance before switching to insertion.")
 parser.add_argument(
+    "--insert-xy-tol",
+    type=float,
+    default=None,
+    help="Current socket-frame lateral tolerance required before commanding insertion. Defaults to approach-xy-tol.",
+)
+parser.add_argument(
+    "--insert-rot-tol",
+    type=float,
+    default=None,
+    help="Current orientation tolerance required before commanding insertion. Defaults to approach-rot-tol.",
+)
+parser.add_argument(
     "--staged-approach",
     action="store_true",
     default=False,
@@ -291,10 +303,22 @@ parser.add_argument(
     help="Maximum per-axis position step for --abs-control-mode waypoint.",
 )
 parser.add_argument(
+    "--insert-pos-step",
+    type=float,
+    default=None,
+    help="Optional maximum per-axis position step while insert_mask is active. Defaults to abs-pos-step.",
+)
+parser.add_argument(
     "--abs-rot-step",
     type=float,
     default=0.20,
     help="Maximum axis-angle rotation step for --abs-control-mode waypoint.",
+)
+parser.add_argument(
+    "--insert-rot-step",
+    type=float,
+    default=None,
+    help="Optional maximum axis-angle rotation step while insert_mask is active. Defaults to abs-rot-step.",
 )
 parser.add_argument(
     "--joint-ik-step",
@@ -433,6 +457,10 @@ def main():
             PEG_TIP_BODY_OFFSET_POS,
             PEG_TIP_BODY_OFFSET_ROT,
             PEG_TIP_FROM_CENTER_POS,
+            SOCKET_GUIDE_CLEARANCE_M,
+            SOCKET_SUCCESS_ROT_TOLERANCE_RAD,
+            SOCKET_SUCCESS_XY_TOLERANCE_M,
+            SOCKET_SUCCESS_Z_TOLERANCE_M,
         )
 
         BODY_OFFSET = PEG_TIP_BODY_OFFSET_POS
@@ -488,6 +516,12 @@ def main():
         body_idx = body_ids[0]
         peg_cfg = SceneEntityCfg("peg")
         socket_cfg = SceneEntityCfg("socket_frame")
+        contact_sensor_cfg = None
+        try:
+            env_unwrapped.scene["peg_contact"]
+            contact_sensor_cfg = SceneEntityCfg("peg_contact")
+        except KeyError:
+            contact_sensor_cfg = None
         action_dim = env.action_space.shape[-1]
         scripted_control_mode = args_cli.scripted_control_mode
         if scripted_control_mode == "auto":
@@ -550,6 +584,8 @@ def main():
         final_action_tip_alignment = None
         best_action_tip_alignment = float("inf")
         best_action_tip_alignment_step = None
+        max_contact_force_magnitude = 0.0
+        max_contact_force_magnitude_step = None
         trace_rows = []
         xy_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         rotate_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
@@ -605,6 +641,12 @@ def main():
                 env_unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg
             )
             orientation_ready = orientation_error < args_cli.approach_rot_tol
+            insert_xy_tolerance = args_cli.insert_xy_tol if args_cli.insert_xy_tol is not None else args_cli.approach_xy_tol
+            insert_rot_tolerance = (
+                args_cli.insert_rot_tol if args_cli.insert_rot_tol is not None else args_cli.approach_rot_tol
+            )
+            insert_xy_ready = lateral_error < insert_xy_tolerance
+            insert_orientation_ready = orientation_error < insert_rot_tolerance
 
             approach_pos_w = target_action_pos_w.clone()
             approach_pos_w[:, 2] += args_cli.approach_height
@@ -617,7 +659,7 @@ def main():
                     orientation_error < args_cli.approach_rot_tol
                 )
                 rotate_state |= position_ready
-                insert_mask = position_ready
+                insert_mask = position_ready & insert_xy_ready & insert_orientation_ready
             elif args_cli.staged_approach:
                 xy_state |= lateral_error < args_cli.approach_xy_tol
                 xy_target_pos_w = target_action_pos_w.clone()
@@ -649,8 +691,8 @@ def main():
                     target_quat_w[rotate_state] = target_action_quat_w[rotate_state]
                 insert_mask = (
                     position_ready
-                    & (lateral_error < args_cli.approach_xy_tol)
-                    & (orientation_error < args_cli.approach_rot_tol)
+                    & insert_xy_ready
+                    & insert_orientation_ready
                 )
             else:
                 # Decouple gross translation from large orientation changes. With a rigid tip offset, rotating
@@ -664,8 +706,8 @@ def main():
                 target_quat_w[rotate_state] = target_action_quat_w[rotate_state]
                 insert_mask = (
                     rotate_state
-                    & (lateral_error < args_cli.approach_xy_tol)
-                    & (orientation_error < args_cli.approach_rot_tol)
+                    & insert_xy_ready
+                    & insert_orientation_ready
                 )
 
             target_pos_w[insert_mask] = target_action_pos_w[insert_mask]
@@ -700,6 +742,17 @@ def main():
             hand_target_quat_w = None
             joint_pos_des = None
             joint_pos_des_raw = None
+            abs_pos_step_limit = torch.full_like(pos_error, args_cli.abs_pos_step)
+            if args_cli.insert_pos_step is not None and insert_mask.any():
+                abs_pos_step_limit[insert_mask] = args_cli.insert_pos_step
+            abs_rot_step_limit = torch.full(
+                (axis_angle_error.shape[0], 1),
+                args_cli.abs_rot_step,
+                dtype=axis_angle_error.dtype,
+                device=axis_angle_error.device,
+            )
+            if args_cli.insert_rot_step is not None and insert_mask.any():
+                abs_rot_step_limit[insert_mask] = args_cli.insert_rot_step
 
             if scripted_control_mode == "joint-ik":
                 if args_cli.position_control_mode != "direct":
@@ -708,10 +761,10 @@ def main():
                 assert robot_entity_cfg is not None
                 assert ee_jacobi_idx is not None
                 if args_cli.abs_control_mode == "waypoint":
-                    command_pos_w = action_pos_w + _clamp_actions(pos_error, args_cli.abs_pos_step)
+                    command_pos_w = action_pos_w + _clamp_actions(pos_error, abs_pos_step_limit)
                     axis_angle_norm = torch.linalg.norm(axis_angle_error, dim=-1, keepdim=True)
                     axis_angle_scale = torch.clamp(
-                        args_cli.abs_rot_step / torch.clamp(axis_angle_norm, min=1.0e-8),
+                        abs_rot_step_limit / torch.clamp(axis_angle_norm, min=1.0e-8),
                         max=1.0,
                     )
                     command_quat_w = _normalize_quat(
@@ -779,10 +832,10 @@ def main():
                     raise ValueError("calibrated position control is only supported for 6D relative IK actions")
                 selected_candidate_idxs = None
                 if args_cli.abs_control_mode == "waypoint":
-                    command_pos_w = action_pos_w + _clamp_actions(pos_error, args_cli.abs_pos_step)
+                    command_pos_w = action_pos_w + _clamp_actions(pos_error, abs_pos_step_limit)
                     axis_angle_norm = torch.linalg.norm(axis_angle_error, dim=-1, keepdim=True)
                     axis_angle_scale = torch.clamp(
-                        args_cli.abs_rot_step / torch.clamp(axis_angle_norm, min=1.0e-8),
+                        abs_rot_step_limit / torch.clamp(axis_angle_norm, min=1.0e-8),
                         max=1.0,
                     )
                     command_quat_w = _normalize_quat(
@@ -872,6 +925,19 @@ def main():
 
             lateral, axial, rot = mdp.insertion_metrics(env_unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg)
             success = mdp.insertion_success(env_unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg)
+            success_xy_ready = lateral < SOCKET_SUCCESS_XY_TOLERANCE_M
+            success_axial_ready = axial < SOCKET_SUCCESS_Z_TOLERANCE_M
+            success_rot_ready = rot < SOCKET_SUCCESS_ROT_TOLERANCE_RAD
+            contact_force_magnitude = None
+            contact_force_socket = None
+            if contact_sensor_cfg is not None:
+                contact_force_magnitude = mdp.peg_contact_force_magnitude(env_unwrapped, sensor_cfg=contact_sensor_cfg)
+                contact_force_socket = mdp.peg_contact_force_socket(
+                    env_unwrapped,
+                    sensor_cfg=contact_sensor_cfg,
+                    socket_cfg=socket_cfg,
+                    force_scale=1.0,
+                )
 
             if step == 0:
                 initial_lateral = lateral.mean().item()
@@ -896,11 +962,21 @@ def main():
             if final_action_tip_alignment < best_action_tip_alignment:
                 best_action_tip_alignment = final_action_tip_alignment
                 best_action_tip_alignment_step = step
+            if contact_force_magnitude is not None:
+                current_contact_force = contact_force_magnitude.mean().item()
+                if current_contact_force > max_contact_force_magnitude:
+                    max_contact_force_magnitude = current_contact_force
+                    max_contact_force_magnitude_step = step
 
             if step % 25 == 0 or step == args_cli.steps - 1:
                 print(
                     f"[SCRIPTED] step={step:04d} lateral={final_lateral:.4f} axial={final_axial:.4f} "
                     f"rot={final_rot:.4f} success_rate={final_success:.3f} "
+                    f"success_xyzr={success_xy_ready.float().mean().item():.0f}/"
+                    f"{success_axial_ready.float().mean().item():.0f}/"
+                    f"{success_rot_ready.float().mean().item():.0f} "
+                    f"contact_force="
+                    f"{contact_force_magnitude.mean().item() if contact_force_magnitude is not None else 0.0:.3f} "
                     f"action_tip_alignment={final_action_tip_alignment:.4f} "
                     f"position_ready={position_ready.float().mean().item():.3f} "
                     f"xy_ready={xy_state.float().mean().item():.3f} "
@@ -967,6 +1043,26 @@ def main():
                         "rotate_only": bool(rotate_only_mask[0].item()),
                         "rotate_quat_hold": bool(rotate_quat_hold_mask[0].item()),
                         "rotate_control_mode": args_cli.rotate_control_mode,
+                        "insert_xy_tolerance": insert_xy_tolerance,
+                        "insert_rot_tolerance": insert_rot_tolerance,
+                        "insert_xy_ready": bool(insert_xy_ready[0].item()),
+                        "insert_orientation_ready": bool(insert_orientation_ready[0].item()),
+                        "socket_guide_clearance": SOCKET_GUIDE_CLEARANCE_M,
+                        "success_xy_tolerance": SOCKET_SUCCESS_XY_TOLERANCE_M,
+                        "success_z_tolerance": SOCKET_SUCCESS_Z_TOLERANCE_M,
+                        "success_rot_tolerance": SOCKET_SUCCESS_ROT_TOLERANCE_RAD,
+                        "success_xy_ready": bool(success_xy_ready[0].item()),
+                        "success_axial_ready": bool(success_axial_ready[0].item()),
+                        "success_rot_ready": bool(success_rot_ready[0].item()),
+                        "success_xy_margin": lateral[0].item() - SOCKET_SUCCESS_XY_TOLERANCE_M,
+                        "success_axial_margin": axial[0].item() - SOCKET_SUCCESS_Z_TOLERANCE_M,
+                        "success_rot_margin": rot[0].item() - SOCKET_SUCCESS_ROT_TOLERANCE_RAD,
+                        "contact_force_magnitude": (
+                            contact_force_magnitude[0].item() if contact_force_magnitude is not None else None
+                        ),
+                        "contact_force_socket": (
+                            contact_force_socket[0].detach().cpu().tolist() if contact_force_socket is not None else None
+                        ),
                         "raw_action": actions[0].detach().cpu().tolist(),
                         "lateral": lateral[0].item(),
                         "axial": axial[0].item(),
@@ -1021,6 +1117,16 @@ def main():
             "position_control_mode": args_cli.position_control_mode,
             "abs_control_mode": args_cli.abs_control_mode,
             "rotate_control_mode": args_cli.rotate_control_mode,
+            "insert_xy_tolerance": args_cli.insert_xy_tol if args_cli.insert_xy_tol is not None else args_cli.approach_xy_tol,
+            "insert_rot_tolerance": args_cli.insert_rot_tol if args_cli.insert_rot_tol is not None else args_cli.approach_rot_tol,
+            "insert_pos_step": args_cli.insert_pos_step if args_cli.insert_pos_step is not None else args_cli.abs_pos_step,
+            "insert_rot_step": args_cli.insert_rot_step if args_cli.insert_rot_step is not None else args_cli.abs_rot_step,
+            "success_xy_tolerance": SOCKET_SUCCESS_XY_TOLERANCE_M,
+            "success_z_tolerance": SOCKET_SUCCESS_Z_TOLERANCE_M,
+            "success_rot_tolerance": SOCKET_SUCCESS_ROT_TOLERANCE_RAD,
+            "socket_guide_clearance": SOCKET_GUIDE_CLEARANCE_M,
+            "max_contact_force_magnitude": max_contact_force_magnitude,
+            "max_contact_force_magnitude_step": max_contact_force_magnitude_step,
             "position_response_json": args_cli.position_response_json,
             "joint_ik_step": args_cli.joint_ik_step,
             "joint_limit_margin": args_cli.joint_limit_margin,
@@ -1039,6 +1145,8 @@ def main():
             f"best_rot={summary['best_rot']:.4f}@{summary['best_rot_step']} "
             f"best_action_tip_alignment={summary['best_action_tip_alignment']:.4f}@"
             f"{summary['best_action_tip_alignment_step']} "
+            f"max_contact_force={summary['max_contact_force_magnitude']:.3f}@"
+            f"{summary['max_contact_force_magnitude_step']} "
             f"final_success_rate={summary['final_success_rate']:.3f} "
             f"success_step={summary['success_step']}",
             flush=True,
