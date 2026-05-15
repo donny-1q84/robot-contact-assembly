@@ -11,6 +11,7 @@ GATE_PROFILE="${RCA_GATE_PROFILE:-balanced}"
 MIN_DISK="${RCA_GATE_MIN_DISK:-500}"
 CREATE_TIMEOUT="${RCA_GATE_CREATE_TIMEOUT:-900}"
 READY_TIMEOUT_SECONDS="${RCA_GATE_READY_TIMEOUT_SECONDS:-900}"
+BUILD_STUCK_SECONDS="${RCA_GATE_BUILD_STUCK_SECONDS:-420}"
 DELETE_TIMEOUT_SECONDS="${RCA_GATE_DELETE_TIMEOUT_SECONDS:-600}"
 DELETE_RETRY_INTERVAL_SECONDS="${RCA_GATE_DELETE_RETRY_INTERVAL_SECONDS:-30}"
 BREV_QUERY_TIMEOUT="${RCA_GATE_BREV_QUERY_TIMEOUT:-45}"
@@ -117,17 +118,66 @@ org_is_empty() {
   [[ "${normalized}" == "null" || "${normalized}" == "[]" ]]
 }
 
+target_instance_ids() {
+  local json
+  set +e
+  json="$(run_brev_json_all 2>/dev/null)"
+  set -e
+  TARGET_INSTANCE_NAME="${INSTANCE_NAME}" TARGET_INSTANCES_JSON="${json}" python3 - <<'PY'
+import json
+import os
+
+name = os.environ["TARGET_INSTANCE_NAME"]
+raw = os.environ.get("TARGET_INSTANCES_JSON", "").strip()
+try:
+    instances = json.loads(raw) if raw else None
+except json.JSONDecodeError:
+    instances = None
+
+if not instances:
+    raise SystemExit(0)
+
+for instance in instances:
+    if instance.get("name") == name and instance.get("id"):
+        print(instance["id"])
+PY
+}
+
+delete_target_instance() {
+  local ids id
+  log "deleting instance ${INSTANCE_NAME}"
+  run_with_timeout "${BREV_MUTATION_TIMEOUT}" "${BREV_BIN}" delete "${INSTANCE_NAME}" || true
+  ids="$(target_instance_ids || true)"
+  while IFS= read -r id; do
+    [[ -z "${id}" ]] && continue
+    log "deleting instance id=${id}"
+    run_with_timeout "${BREV_MUTATION_TIMEOUT}" "${BREV_BIN}" delete "${id}" || true
+  done <<< "${ids}"
+}
+
 wait_for_ready() {
-  local deadline output
+  local deadline output building_since
   deadline=$((SECONDS + READY_TIMEOUT_SECONDS))
+  building_since=0
   while (( SECONDS < deadline )); do
     output="$(run_brev_ls_all || true)"
     printf '%s\n' "${output}"
     if printf '%s\n' "${output}" | awk -v name="${INSTANCE_NAME}" '$1 == name && $2 == "RUNNING" && $3 == "COMPLETED" && $4 == "READY" { found = 1 } END { exit found ? 0 : 1 }'; then
       return 0
     fi
+    if printf '%s\n' "${output}" | awk -v name="${INSTANCE_NAME}" '$1 == name && $2 == "RUNNING" && $3 == "BUILDING" { found = 1 } END { exit found ? 0 : 1 }'; then
+      if (( building_since == 0 )); then
+        building_since="${SECONDS}"
+      elif (( SECONDS - building_since >= BUILD_STUCK_SECONDS )); then
+        log "instance ${INSTANCE_NAME} stuck in RUNNING/BUILDING for $((SECONDS - building_since))s; aborting before ready timeout"
+        return 1
+      fi
+    else
+      building_since=0
+    fi
     sleep 10
   done
+  log "instance ${INSTANCE_NAME} did not become READY within ${READY_TIMEOUT_SECONDS}s"
   return 1
 }
 
@@ -145,7 +195,7 @@ wait_for_empty_org() {
     if printf '%s\n' "${output}" | awk -v name="${INSTANCE_NAME}" '$1 == name { found = 1 } END { exit found ? 0 : 1 }'; then
       if (( SECONDS - last_delete_retry >= DELETE_RETRY_INTERVAL_SECONDS )); then
         log "target instance ${INSTANCE_NAME} still visible during cleanup; re-issuing delete"
-        run_with_timeout "${BREV_MUTATION_TIMEOUT}" "${BREV_BIN}" delete "${INSTANCE_NAME}" || true
+        delete_target_instance || true
         last_delete_retry="${SECONDS}"
       fi
     fi
@@ -166,8 +216,7 @@ cleanup() {
   fi
 
   if [[ "${CREATED_INSTANCE}" == "1" && "${DELETE_ON_EXIT}" == "1" && ( "${KEEP_ON_FAILURE}" != "1" || "${status}" == "0" ) ]]; then
-    log "deleting instance ${INSTANCE_NAME}"
-    run_with_timeout "${BREV_MUTATION_TIMEOUT}" "${BREV_BIN}" delete "${INSTANCE_NAME}" || true
+    delete_target_instance || true
     if wait_for_empty_org; then
       log "confirmed no visible instances after delete"
     else
@@ -190,6 +239,7 @@ use_calibrated_scripted=${USE_CALIBRATED_SCRIPTED}
 task_name=${TASK_NAME}
 num_envs=${NUM_ENVS}
 steps=${STEPS}
+build_stuck_seconds=${BUILD_STUCK_SECONDS}
 calibration_steps=${CALIBRATION_STEPS}
 scripted_steps=${SCRIPTED_STEPS}
 seeds=${SEEDS}

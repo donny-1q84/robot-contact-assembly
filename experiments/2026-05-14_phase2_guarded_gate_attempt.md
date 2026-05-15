@@ -1454,3 +1454,10 @@ Interpretation:
 - This attempt did not validate the controller because Brev startup failed before runtime setup.
 - Do not run PPO yet.
 - Next GPU attempt should be another short L4 validation of the same joint-IK task, but only after confirming Brev startup is healthy. If Brev repeats `BUILDING/NOT READY`, stop and avoid more cloud time.
+
+Follow-up guard hardening:
+
+- `scripts/run_guarded_phase2_gate.sh` now aborts early when the instance stays in `RUNNING / BUILDING / NOT READY` for `RCA_GATE_BUILD_STUCK_SECONDS` seconds.
+- Cleanup now deletes by instance name first, then queries the JSON instance list and also deletes by exact instance id if the target is still visible.
+- `scripts/run_phase2_jointik_gate.sh` captures the next Joint-IK validation command as a one-command wrapper with a tighter `RCA_GATE_BUILD_STUCK_SECONDS=300`.
+- No GPU was started for this hardening change.

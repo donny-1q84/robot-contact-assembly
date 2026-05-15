@@ -24,6 +24,12 @@ For the next Phase 2 contact-shell validation, prefer the guarded wrapper instea
 scripts/run_guarded_phase2_gate.sh
 ```
 
+For the current Joint-IK scripted validation, use the narrower wrapper:
+
+```bash
+scripts/run_phase2_jointik_gate.sh
+```
+
 What the wrapper does:
 
 - refuses to start if the git tree is dirty, unless `RCA_ALLOW_DIRTY=1`
@@ -35,8 +41,16 @@ What the wrapper does:
 - runs the scripted Phase 2 contact gate
 - pulls artifacts back to the external SSD
 - deletes the GPU instance on exit and checks that the org is empty
+- aborts early if the instance is stuck in `RUNNING / BUILDING / NOT READY` for `RCA_GATE_BUILD_STUCK_SECONDS` seconds
+- retries deletion by both instance name and instance id when Brev keeps showing the target during cleanup
 
 The wrapper also applies short timeouts to Brev list/search/delete calls, because Brev CLI queries have previously printed a result but failed to exit cleanly. It uses `brev ls instances` explicitly instead of plain `brev ls`, because plain `brev ls --json --all` has previously hung. If the JSON query times out only after printing an exact empty-org marker (`null` or `[]`), the wrapper accepts that marker; any other failed query remains fail-closed. Do not bypass this wrapper for short paid validation runs unless there is a specific reason.
+
+Default startup protection:
+
+- `RCA_GATE_READY_TIMEOUT_SECONDS=900`: total ready wait limit.
+- `RCA_GATE_BUILD_STUCK_SECONDS=420`: generic guarded gate aborts if Brev stays in `BUILDING`.
+- `scripts/run_phase2_jointik_gate.sh` tightens `RCA_GATE_BUILD_STUCK_SECONDS=300` for the short Joint-IK validation.
 
 ## Selection Rules
 
