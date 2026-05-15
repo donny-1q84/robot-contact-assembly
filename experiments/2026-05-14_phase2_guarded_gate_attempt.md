@@ -1969,3 +1969,151 @@ Next useful action:
   - then rotate,
   - then insert.
 - Investigate replacing the kinematic `sync_peg_to_hand` event with a more robust fixed attachment/link representation, or make metrics/rewards consistently use the same physical tip frame as the controller until a fixed attachment is implemented.
+
+## Attempt 26: Staged Absolute IK Gate Does Not Improve Lateral Convergence
+
+Command:
+
+```bash
+scripts/run_phase2_absik_gate.sh
+```
+
+Code state:
+
+- Commit before run: `fb31128 Add staged Abs IK approach diagnostic`
+- Default gate args used staged absolute IK:
+  - `--deterministic-reset`
+  - `--socket-pos 0.22,0.04,0.19`
+  - `--staged-approach`
+  - `--approach-xy-tol 0.04`
+  - `--abs-control-mode waypoint`
+  - `--abs-pos-step 0.012`
+  - `--abs-rot-step 0.12`
+  - `--debug-action-steps 8`
+
+Price selection:
+
+- Live price table selected `g2-standard-4:nvidia-l4:1` at about `$0.85/hr`.
+- The lowest visible L40S option was about `$1.86/hr`.
+- L4 remained the correct choice for this short scripted diagnostic.
+
+Result:
+
+- Instance was created: `isaac-phase2-absik-l4`, id `iuiwsq0ty`.
+- The instance reached `RUNNING / COMPLETED / READY`.
+- Remote GPU probe succeeded:
+  - GPU: `NVIDIA L4`
+  - VRAM: `23034 MiB`
+  - driver: `580.126.20`
+- Isaac Lab runtime setup completed.
+- The staged absolute IK contact play task registered and ran:
+  - task: `RCA-PegInHole-Franka-IK-Abs-Contact-Play-v0`
+  - observation width: `43`
+  - action width: `7`
+- Scripted eval completed for seed `42` and 100 steps.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-15T12-27-38Z/seed_42.json`
+- Scripted eval trace: `artifacts/evaluations/scripted/2026-05-15T12-27-38Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-15T12-27-38Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-15T12-11-57Z_isaac-phase2-absik-l4/gate.log`
+
+Cleanup:
+
+- Artifacts were pulled locally before shutdown.
+- The wrapper issued guarded delete by both name and id.
+- The delete phase timed out while the instance was still visible as `DELETING / COMPLETED / NOT READY`.
+- Independent cleanup then reissued:
+  - `brev delete isaac-phase2-absik-l4`
+  - `brev delete iuiwsq0ty`
+- Both delete commands eventually returned `instance with id/name ... not found`.
+- Final independent checks returned:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `null`
+
+Metrics:
+
+```json
+{
+  "task": "RCA-PegInHole-Franka-IK-Abs-Contact-Play-v0",
+  "scripted_control_mode": "mdp",
+  "abs_control_mode": "waypoint",
+  "action_dim": 7,
+  "deterministic_reset": true,
+  "socket_pos_override": [0.22, 0.04, 0.19],
+  "staged_approach": true,
+  "initial_lateral": 0.21798858046531677,
+  "final_lateral": 0.24804161489009857,
+  "best_lateral": 0.10084731876850128,
+  "best_lateral_step": 52,
+  "initial_axial": 0.3016265332698822,
+  "final_axial": 0.09232127666473389,
+  "best_axial": 0.09232127666473389,
+  "best_axial_step": 99,
+  "initial_rot": 2.9816055297851562,
+  "final_rot": 1.9946519136428833,
+  "best_rot": 1.9946519136428833,
+  "best_rot_step": 99,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Trace highlights:
+
+```text
+best controller_lateral_error:
+  step=55
+  controller_lateral_error=0.0329844
+  physical lateral=0.1025
+  phase=descend
+  xy_ready=True
+  position_ready=False
+  rotate_ready=False
+
+best physical lateral:
+  step=52
+  physical lateral=0.1008
+  axial=0.1163
+  rot=2.4937
+  phase=descend
+
+final:
+  step=99
+  lateral=0.2480
+  axial=0.0923
+  rot=1.9947
+  controller_lateral_error=0.2249
+  action_pos=[0.1302, 0.2462, 0.3303]
+  physical_tip=[0.0694, 0.2125, 0.3085]
+  action_to_physical_tip_delta=[-0.0608, -0.0336, -0.0218]
+  physical_tip_rel_socket_pos=[0.1506, -0.1725, 0.1185]
+```
+
+Comparison with Attempt 25:
+
+- Attempt 25 non-staged absolute IK:
+  - best lateral: `0.0807 m`
+  - best axial: `0.0048 m`
+  - best rotation: `2.4041 rad`
+- Attempt 26 staged absolute IK:
+  - best lateral: `0.1008 m`
+  - best axial: `0.0923 m`
+  - best rotation: `1.9947 rad`
+
+Interpretation:
+
+- The staged approach did not improve the diagnostic; it made lateral and axial convergence worse than the previous non-staged absolute IK gate.
+- `xy_ready` became true by the descend phase, but `position_ready` and `rotate_ready` never became true.
+- The controller's internal lateral error reached about `3.3 cm`, but the physical peg-tip lateral error never got below about `10.1 cm`.
+- This reinforces the deeper diagnosis: the blocker is not mainly reward shaping, PPO, or descending too early. The likely blocker is inconsistency between the controller action frame, the kinematically synced peg, and the physical peg-tip frame used by task metrics.
+- PPO remains blocked until the frame/attachment issue is fixed.
+
+Next useful action:
+
+- Stop adding controller schedules and reward terms.
+- Fix physical peg attachment/frame consistency before the next GPU gate:
+  - Prefer replacing `sync_peg_to_hand` with a fixed-link or fixed-joint-style representation if feasible in the current Isaac Lab task structure.
+  - If a fixed attachment is too expensive for the next step, make controller target, reward, termination, and metric computation all use one explicitly documented physical tip frame.
+- After that fix, rerun a cheap L4 scripted gate before any PPO training.
