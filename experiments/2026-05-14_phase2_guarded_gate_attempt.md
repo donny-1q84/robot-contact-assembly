@@ -3296,3 +3296,52 @@ Interpretation:
 - This attempt does not validate or invalidate the latch fix.
 - It is a Brev bootstrap/ready failure, not a robotics-code failure.
 - Do not count it as an experiment result when comparing controller behavior.
+
+## Attempt 40: latch verification retry failed during Brev create
+
+Date: 2026-05-15
+
+Goal:
+
+- Retry the Attempt 39 latch verification with the same guarded create/delete flow.
+- Keep cost low by comparing live instance prices before launch.
+
+Remote run:
+
+- Run id: `2026-05-15T19-27-55Z`
+- Instance: `isaac-phase2-insert-latch-retry-l4`
+- Selected machine: `g2-standard-4:nvidia-l4:1`
+- Selected live price: `$0.85/hr`
+- Lowest observed L40S price in the same search: `$1.86/hr`
+
+Result:
+
+- No scripted eval was run.
+- Brev failed during workspace creation before an instance became ready.
+- The CLI/API returned:
+
+```text
+Post "https://brevapi.us-west-2-prod.control-plane.brev.dev/api/organizations/.../workspaces?...": unexpected EOF
+Warning: Only created 0/1 instances
+could only create 0/1 instances
+```
+
+Artifacts:
+
+- Gate log: `artifacts/gpu_gate/2026-05-15T19-27-55Z_isaac-phase2-insert-latch-retry-l4/gate.log`
+- Metadata: `artifacts/gpu_gate/2026-05-15T19-27-55Z_isaac-phase2-insert-latch-retry-l4/gate_metadata.env`
+- Price snapshots:
+  - `artifacts/gpu_gate/2026-05-15T19-27-55Z_isaac-phase2-insert-latch-retry-l4/brev_search_24gb.txt`
+  - `artifacts/gpu_gate/2026-05-15T19-27-55Z_isaac-phase2-insert-latch-retry-l4/brev_search_32gb.txt`
+  - `artifacts/gpu_gate/2026-05-15T19-27-55Z_isaac-phase2-insert-latch-retry-l4/brev_search_40gb.txt`
+
+Cleanup verification:
+
+- `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+- `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Interpretation:
+
+- This attempt does not validate or invalidate the latched insert-state fix.
+- It is a Brev workspace-create/API failure, not a robotics-code failure.
+- The guarded script still performed cleanup and the org was confirmed empty through both text and JSON listing.
