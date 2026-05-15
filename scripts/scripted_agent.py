@@ -593,6 +593,7 @@ def main():
             lateral_error, axial_error, orientation_error = mdp.insertion_metrics(
                 env_unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg
             )
+            orientation_ready = orientation_error < args_cli.approach_rot_tol
 
             approach_pos_w = target_action_pos_w.clone()
             approach_pos_w[:, 2] += args_cli.approach_height
@@ -616,7 +617,7 @@ def main():
                 target_quat_w = action_quat_w.clone()
                 if args_cli.rotate_before_descend:
                     rotate_state |= xy_state
-                    rotation_ready = rotate_state & (orientation_error < args_cli.approach_rot_tol)
+                    rotation_ready = rotate_state & orientation_ready
                     target_pos_w[rotate_state & ~rotation_ready] = xy_target_pos_w[rotate_state & ~rotation_ready]
                     target_quat_w[rotate_state] = target_action_quat_w[rotate_state]
                     position_ready = rotation_ready & (approach_z_error < args_cli.approach_z_tol)
@@ -888,9 +889,14 @@ def main():
                         "action_tip_alignment": action_tip_alignment[0].item(),
                         "controller_lateral_error": controller_lateral_error[0].item(),
                         "socket_pos_w": socket_pos_w[0].detach().cpu().tolist(),
+                        "socket_quat_w": socket_quat_w[0].detach().cpu().tolist(),
+                        "target_action_pos_w": target_action_pos_w[0].detach().cpu().tolist(),
+                        "target_action_quat_w": target_action_quat_w[0].detach().cpu().tolist(),
                         "approach_pos_w": approach_pos_w[0].detach().cpu().tolist(),
                         "target_pos_w": target_pos_w[0].detach().cpu().tolist(),
+                        "target_quat_w": target_quat_w[0].detach().cpu().tolist(),
                         "command_pos_w": command_pos_w[0].detach().cpu().tolist(),
+                        "command_quat_w": command_quat_w[0].detach().cpu().tolist(),
                         "hand_target_pos_w": (
                             hand_target_pos_w[0].detach().cpu().tolist() if hand_target_pos_w is not None else None
                         ),
@@ -903,12 +909,14 @@ def main():
                         ),
                         "pos_error": pos_error[0].detach().cpu().tolist(),
                         "axis_angle_error": axis_angle_error[0].detach().cpu().tolist(),
+                        "axis_angle_error_norm": torch.linalg.norm(axis_angle_error[0]).item(),
                         "raw_action": actions[0].detach().cpu().tolist(),
                         "lateral": lateral[0].item(),
                         "axial": axial[0].item(),
                         "rot": rot[0].item(),
                         "success": bool(success[0].item()),
                         "position_ready": bool(position_ready[0].item()),
+                        "orientation_ready": bool(orientation_ready[0].item()),
                         "xy_state": bool(xy_state[0].item()),
                         "rotate_state": bool(rotate_state[0].item()),
                         "insert_mask": bool(insert_mask[0].item()),
