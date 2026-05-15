@@ -1644,3 +1644,107 @@ Interpretation:
 - This attempt did not test project code; it was a Brev API/workspace creation failure.
 - The guarded cleanup behavior worked as intended and prevented a hidden partial instance from being ignored.
 - One more short retry is reasonable only because healthcheck is healthy and the org is independently empty. If create fails again, stop cloud attempts and wait before retrying.
+
+## Attempt 23: Joint-IK Gate Runs to Completion, But Unbounded IK Targets Diverge
+
+Command:
+
+```bash
+scripts/run_phase2_jointik_gate.sh
+```
+
+Execution note:
+
+- This attempt was run without allocating a local TTY to reduce SSH/control-character noise.
+
+Price selection:
+
+- Live price table again selected `g2-standard-4:nvidia-l4:1` at about `$0.85/hr`.
+- The lowest visible L40S remained about `$1.86/hr`.
+- L4 remained the right choice for this short validation.
+
+Result:
+
+- Instance was created: `isaac-phase2-jointik-l4`, id `uso4ax721`.
+- The instance eventually reached `RUNNING / COMPLETED / READY`.
+- Remote path sanitization worked:
+  - `remote_user=ubuntu`
+  - `remote_root=/home/ubuntu/projects/robot-contact-assembly`
+  - `remote_compose_root=/home/ubuntu/isaac-compose`
+- Repo sync completed.
+- Isaac Lab runtime setup completed.
+- The joint-position contact play task registered correctly:
+  - task: `RCA-PegInHole-Franka-JointPos-Contact-Play-v0`
+  - observation width: `43`
+  - action width: `7`
+- Scripted eval completed for seed `42` and 100 steps.
+- The previous Warp Jacobian list-indexing crash did not recur.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-15T10-53-50Z/seed_42.json`
+- Scripted eval trace: `artifacts/evaluations/scripted/2026-05-15T10-53-50Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-15T10-53-50Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-15T10-38-02Z_isaac-phase2-jointik-l4/gate.log`
+
+Cleanup:
+
+- Artifacts were pulled locally before shutdown.
+- The instance was deleted by name and id.
+- The instance lingered as `STOPPED` and then briefly showed `DEPLOYING` during cleanup, so the guarded script kept polling and reissuing delete.
+- Final guarded and independent checks returned:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `null`
+
+Metrics:
+
+```json
+{
+  "scripted_control_mode": "joint-ik",
+  "abs_control_mode": "waypoint",
+  "action_dim": 7,
+  "deterministic_reset": true,
+  "socket_pos_override": [0.22, 0.04, 0.19],
+  "initial_lateral": 0.20348849892616272,
+  "final_lateral": 0.6051559448242188,
+  "best_lateral": 0.20348849892616272,
+  "best_lateral_step": 0,
+  "initial_axial": 0.9719375967979431,
+  "final_axial": 0.547279953956604,
+  "best_axial": 0.547279953956604,
+  "best_axial_step": 99,
+  "initial_rot": 0.8071869015693665,
+  "final_rot": 2.932037353515625,
+  "best_rot": 0.6570419669151306,
+  "best_rot_step": 16,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Trace highlights:
+
+```text
+step=0:  lateral=0.2035, axial=0.9719, rot=0.8072, phase=reach
+step=16: best rot=0.6570, but raw joint target includes panda_joint1 ~= 14.7 rad
+step=99: best axial=0.5473, lateral=0.6052, rot=2.9320, phase=reach
+```
+
+Interpretation:
+
+- The Joint-IK runtime bug is fixed.
+- The new failure is control stability: the standalone IK controller is solving a far Cartesian waypoint by producing very large absolute joint targets.
+- Sending those unbounded joint-position targets directly to `JointPositionActionCfg` makes the arm move away from the socket instead of approaching it.
+- This confirms PPO should still not be run yet.
+
+Follow-up fix:
+
+- `scripts/scripted_agent.py` now clamps standalone Joint-IK output by:
+  - maximum per-step joint delta: `--joint-ik-step`, default `0.05 rad`
+  - reported joint position limits with `--joint-limit-margin`, default `0.02 rad`
+- The trace now records both `joint_pos_des_raw` and clamped `joint_pos_des`.
+- `scripts/run_phase2_jointik_gate.sh` now passes the clamp options explicitly.
+
+Next useful action:
+
+- Run one more short L4 Joint-IK gate to validate whether the bounded joint target path produces stable approach behavior.

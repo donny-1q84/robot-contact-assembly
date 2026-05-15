@@ -274,6 +274,18 @@ parser.add_argument(
     help="Maximum axis-angle rotation step for --abs-control-mode waypoint.",
 )
 parser.add_argument(
+    "--joint-ik-step",
+    type=float,
+    default=0.05,
+    help="Maximum per-step joint delta in radians for the standalone joint-IK scripted controller.",
+)
+parser.add_argument(
+    "--joint-limit-margin",
+    type=float,
+    default=0.02,
+    help="Margin in radians kept inside reported joint position limits for joint-IK commands.",
+)
+parser.add_argument(
     "--trace-json",
     type=str,
     default=None,
@@ -341,6 +353,31 @@ def _override_socket_pose(env_cfg, socket_pos: tuple[float, float, float]) -> No
     env_cfg.commands.socket_pose.ranges.pos_x = (x, x)
     env_cfg.commands.socket_pose.ranges.pos_y = (y, y)
     env_cfg.commands.socket_pose.ranges.pos_z = (z, z)
+
+
+def _clamp_joint_targets(
+    robot,
+    joint_ids: torch.Tensor,
+    joint_pos: torch.Tensor,
+    joint_pos_des: torch.Tensor,
+    max_step: float,
+    limit_margin: float,
+) -> torch.Tensor:
+    """Bound IK joint targets so a far Cartesian target cannot command unstable joint jumps."""
+
+    max_step = max(0.0, max_step)
+    joint_pos_des = joint_pos + torch.clamp(joint_pos_des - joint_pos, min=-max_step, max=max_step)
+
+    limits = getattr(robot.data, "soft_joint_pos_limits", None)
+    if limits is None:
+        limits = getattr(robot.data, "joint_pos_limits", None)
+    if limits is None:
+        return joint_pos_des
+
+    limits = _as_torch(limits).index_select(1, joint_ids)
+    lower = limits[..., 0] + limit_margin
+    upper = limits[..., 1] - limit_margin
+    return torch.minimum(torch.maximum(joint_pos_des, lower), upper)
 
 
 def main():
@@ -574,6 +611,7 @@ def main():
             hand_target_pos_w = None
             hand_target_quat_w = None
             joint_pos_des = None
+            joint_pos_des_raw = None
 
             if scripted_control_mode == "joint-ik":
                 if args_cli.position_control_mode != "direct":
@@ -624,7 +662,15 @@ def main():
                 jacobians = _as_torch(robot.root_physx_view.get_jacobians())
                 jacobian = jacobians[:, ee_jacobi_idx, :, :].index_select(-1, joint_ids)
                 joint_pos = _as_torch(robot.data.joint_pos).index_select(-1, joint_ids)
-                joint_pos_des = diff_ik_controller.compute(hand_pos_b, hand_quat_b, jacobian, joint_pos)
+                joint_pos_des_raw = diff_ik_controller.compute(hand_pos_b, hand_quat_b, jacobian, joint_pos)
+                joint_pos_des = _clamp_joint_targets(
+                    robot,
+                    joint_ids,
+                    joint_pos,
+                    joint_pos_des_raw,
+                    args_cli.joint_ik_step,
+                    args_cli.joint_limit_margin,
+                )
                 actions[:, :7] = joint_pos_des
                 selected_candidate_idxs = None
             elif action_dim == 7:
@@ -700,6 +746,7 @@ def main():
                     f"{calibrated_candidate_names[int(selected_candidate_idxs[0].item())] if selected_candidate_idxs is not None else None} "
                     f"raw_action={actions[0].tolist()} "
                     f"hand_target_pos={hand_target_pos_w[0].tolist() if hand_target_pos_w is not None else None} "
+                    f"joint_pos_des_raw={joint_pos_des_raw[0].tolist() if joint_pos_des_raw is not None else None} "
                     f"joint_pos_des={joint_pos_des[0].tolist() if joint_pos_des is not None else None}",
                     flush=True,
                 )
@@ -767,6 +814,9 @@ def main():
                             hand_target_quat_w[0].detach().cpu().tolist() if hand_target_quat_w is not None else None
                         ),
                         "joint_pos_des": joint_pos_des[0].detach().cpu().tolist() if joint_pos_des is not None else None,
+                        "joint_pos_des_raw": (
+                            joint_pos_des_raw[0].detach().cpu().tolist() if joint_pos_des_raw is not None else None
+                        ),
                         "pos_error": pos_error[0].detach().cpu().tolist(),
                         "axis_angle_error": axis_angle_error[0].detach().cpu().tolist(),
                         "raw_action": actions[0].detach().cpu().tolist(),
@@ -815,6 +865,8 @@ def main():
             "position_control_mode": args_cli.position_control_mode,
             "abs_control_mode": args_cli.abs_control_mode,
             "position_response_json": args_cli.position_response_json,
+            "joint_ik_step": args_cli.joint_ik_step,
+            "joint_limit_margin": args_cli.joint_limit_margin,
             "deterministic_reset": args_cli.deterministic_reset,
             "socket_pos_override": list(args_cli.socket_pos) if args_cli.socket_pos is not None else None,
             "trace_json": os.path.abspath(args_cli.trace_json) if args_cli.trace_json else None,
