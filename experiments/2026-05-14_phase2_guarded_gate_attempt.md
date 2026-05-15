@@ -1099,3 +1099,90 @@ Next useful action:
 2. Run one short scripted gate on `RCA-PegInHole-Franka-IK-Abs-Contact-Play-v0`.
 3. If absolute pose IK produces a stable approach trajectory, use that as the scripted baseline and stop trying to rescue relative scripted control.
 4. If absolute pose IK also fails, move the baseline to joint-space waypoints or an explicit motion-planning/IK pre-controller before PPO.
+
+## Attempt 16: Absolute-Pose IK Gate Runs but Does Not Yet Insert
+
+Command:
+
+```bash
+RCA_GATE_COMMAND=scripted_eval \
+RCA_GATE_TASK='RCA-PegInHole-Franka-IK-Abs-Contact-Play-v0' \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-abs-scripted-l4 \
+RCA_GATE_INSTANCE_TYPE='g2-standard-4:nvidia-l4:1' \
+RCA_GATE_CREATE_TIMEOUT=900 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_EVAL_TIMEOUT_SECONDS=300 \
+RCA_SCRIPTED_EVAL_RETRIES=1 \
+RCA_GATE_STEPS=80 \
+RCA_GATE_EXTRA_AGENT_ARGS='--debug-action-steps 8' \
+scripts/run_guarded_phase2_gate.sh
+```
+
+Price selection:
+
+- Explicitly used `g2-standard-4:nvidia-l4:1`.
+- The live price table showed L4 at about `$0.85/hr`; the cheapest visible L40S was about `$1.86/hr`.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-15T08-00-41Z/seed_42.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-15T08-00-41Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-15T07-45-08Z_isaac-phase2-abs-scripted-l4/gate.log`
+- Gate metadata: `artifacts/gpu_gate/2026-05-15T07-45-08Z_isaac-phase2-abs-scripted-l4/gate_metadata.env`
+
+Runtime result:
+
+- Brev created the L4 instance successfully.
+- Runtime bootstrap completed.
+- The new absolute-pose contact task registered successfully:
+  - `RCA-PegInHole-Franka-IK-Abs-Contact-v0`
+  - `RCA-PegInHole-Franka-IK-Abs-Contact-Play-v0`
+- Isaac Lab reported `Action Manager` shape `(7)`, confirming the absolute pose controller path is active.
+- The scripted agent sent 7D absolute pose commands as `(x, y, z, qw, qx, qy, qz)`.
+- Artifacts were pulled locally.
+- Cleanup deleted the instance.
+- Final guarded and independent checks returned:
+  - `brev ls instances --all`: `No instances`
+  - `brev ls instances --json --all`: `null`
+
+Metrics:
+
+```json
+{
+  "position_control_mode": "direct",
+  "action_dim": 7,
+  "task": "RCA-PegInHole-Franka-IK-Abs-Contact-Play-v0",
+  "initial_lateral": 0.46553295850753784,
+  "final_lateral": 0.13741105794906616,
+  "best_lateral": 0.11433365195989609,
+  "best_lateral_step": 74,
+  "initial_axial": 0.3015425503253937,
+  "final_axial": 0.31580662727355957,
+  "best_axial": 0.06215125322341919,
+  "best_axial_step": 21,
+  "initial_rot": 3.053060293197632,
+  "final_rot": 2.415803909301758,
+  "best_rot": 0.9065385460853577,
+  "best_rot_step": 36,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Interpretation:
+
+- Absolute-pose IK is a better controller interface than the 6D relative IK path: it launched cleanly, exposed the expected 7D action space, and reduced final lateral error from `0.4655 m` to `0.1374 m`.
+- It is still not a successful scripted baseline. Axial error briefly improved to `0.0622 m` but ended at `0.3158 m`, and rotation improved only transiently.
+- The debug trace shows the policy repeatedly commanding the fixed approach pose while the end-effector oscillates around it. This suggests the remaining issue is not task registration or action dimensionality; it is the scripted controller strategy and/or the initial EE-to-socket reach problem.
+- PPO should not be run yet. A learned policy would be learning around a controller/task setup that does not have a sane deterministic baseline.
+
+Next useful action:
+
+1. Stop spending GPU time on the current 80-step scripted rollout.
+2. Locally improve the baseline before opening another instance:
+   - add a deterministic reset/debug command that places the socket closer to the Franka reachable workspace;
+   - add a staged absolute-pose scripted controller with explicit reach, align, descend, and settle phases;
+   - reduce or disable random socket pose for the first deterministic gate;
+   - record per-step commanded pose, achieved tip pose, and socket pose in JSON for controller debugging.
+3. Reopen one short L4 gate only after the local changes compile.
+4. Pass condition for the next gate: deterministic scripted rollout should monotonically reduce lateral error below `5 cm` and axial error below `8 cm` before any PPO attempt.
