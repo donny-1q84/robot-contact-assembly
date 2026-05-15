@@ -23,6 +23,7 @@ DifferentialIKController = None
 DifferentialIKControllerCfg = None
 PEG_TIP_BODY_OFFSET_POS = None
 PEG_TIP_BODY_OFFSET_ROT = None
+PEG_TIP_FROM_CENTER_POS = None
 mdp = None
 BODY_OFFSET = None
 
@@ -337,6 +338,15 @@ def _target_action_frame_pose_w(socket_pos_w: torch.Tensor, socket_quat_w: torch
     return socket_pos_w.clone(), socket_quat_w.clone()
 
 
+def _physical_peg_tip_pose_w(env_unwrapped) -> tuple[torch.Tensor, torch.Tensor]:
+    peg = env_unwrapped.scene["peg"]
+    peg_pos_w = _as_torch(peg.data.root_pos_w)
+    peg_quat_w = _as_torch(peg.data.root_quat_w)
+    tip_offset_pos = peg_pos_w.new_tensor(PEG_TIP_FROM_CENTER_POS).unsqueeze(0).repeat(peg_pos_w.shape[0], 1)
+    tip_offset_quat = peg_pos_w.new_tensor((1.0, 0.0, 0.0, 0.0)).unsqueeze(0).repeat(peg_pos_w.shape[0], 1)
+    return combine_frame_transforms(peg_pos_w, peg_quat_w, tip_offset_pos, tip_offset_quat)
+
+
 def _override_socket_pose(env_cfg, socket_pos: tuple[float, float, float]) -> None:
     from robot_contact_assembly_tasks.tasks.manager_based.manipulation.peg_in_hole.constants import (
         SOCKET_GUIDE_INNER_HALF_WIDTH_M,
@@ -383,7 +393,7 @@ def _clamp_joint_targets(
 def main():
     global RigidObject, SceneEntityCfg, combine_frame_transforms, compute_pose_error, subtract_frame_transforms
     global DifferentialIKController, DifferentialIKControllerCfg
-    global PEG_TIP_BODY_OFFSET_POS, PEG_TIP_BODY_OFFSET_ROT, mdp, BODY_OFFSET
+    global PEG_TIP_BODY_OFFSET_POS, PEG_TIP_BODY_OFFSET_ROT, PEG_TIP_FROM_CENTER_POS, mdp, BODY_OFFSET
 
     os.makedirs("/workspace/artifacts/hydra", exist_ok=True)
     torch.manual_seed(args_cli.seed)
@@ -399,6 +409,7 @@ def main():
         from robot_contact_assembly_tasks.tasks.manager_based.manipulation.peg_in_hole.constants import (
             PEG_TIP_BODY_OFFSET_POS,
             PEG_TIP_BODY_OFFSET_ROT,
+            PEG_TIP_FROM_CENTER_POS,
         )
 
         BODY_OFFSET = PEG_TIP_BODY_OFFSET_POS
@@ -548,8 +559,16 @@ def main():
                 break
 
             action_pos_w, action_quat_w = _action_frame_pose_w(env_unwrapped, body_idx)
+            hand_pos_w, hand_quat_w = _hand_pose_w(env_unwrapped, body_idx)
+            physical_tip_pos_w, physical_tip_quat_w = _physical_peg_tip_pose_w(env_unwrapped)
             socket_pos_w, socket_quat_w = _socket_pose_w(env_unwrapped)
             target_action_pos_w, target_action_quat_w = _target_action_frame_pose_w(socket_pos_w, socket_quat_w)
+            physical_tip_rel_socket_pos, _ = subtract_frame_transforms(
+                socket_pos_w,
+                socket_quat_w,
+                physical_tip_pos_w,
+                physical_tip_quat_w,
+            )
 
             lateral_error, axial_error, orientation_error = mdp.insertion_metrics(
                 env_unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg
@@ -639,7 +658,6 @@ def main():
                     offset_quat,
                 )
                 root_pose_w = _as_torch(robot.data.root_pose_w)
-                hand_pos_w, hand_quat_w = _hand_pose_w(env_unwrapped, body_idx)
                 hand_target_pos_b, hand_target_quat_b = subtract_frame_transforms(
                     root_pose_w[:, 0:3],
                     root_pose_w[:, 3:7],
@@ -802,7 +820,16 @@ def main():
                     {
                         "step": step,
                         "phase": phase,
+                        "hand_pos_w": hand_pos_w[0].detach().cpu().tolist(),
+                        "hand_quat_w": hand_quat_w[0].detach().cpu().tolist(),
                         "action_pos_w": action_pos_w[0].detach().cpu().tolist(),
+                        "action_quat_w": action_quat_w[0].detach().cpu().tolist(),
+                        "physical_tip_pos_w": physical_tip_pos_w[0].detach().cpu().tolist(),
+                        "physical_tip_quat_w": physical_tip_quat_w[0].detach().cpu().tolist(),
+                        "physical_tip_rel_socket_pos": physical_tip_rel_socket_pos[0].detach().cpu().tolist(),
+                        "action_to_physical_tip_delta_w": (
+                            physical_tip_pos_w[0] - action_pos_w[0]
+                        ).detach().cpu().tolist(),
                         "socket_pos_w": socket_pos_w[0].detach().cpu().tolist(),
                         "approach_pos_w": approach_pos_w[0].detach().cpu().tolist(),
                         "target_pos_w": target_pos_w[0].detach().cpu().tolist(),
