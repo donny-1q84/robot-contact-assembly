@@ -3345,3 +3345,111 @@ Interpretation:
 - This attempt does not validate or invalidate the latched insert-state fix.
 - It is a Brev workspace-create/API failure, not a robotics-code failure.
 - The guarded script still performed cleanup and the org was confirmed empty through both text and JSON listing.
+
+## Attempt 41: latch verified, abort hysteresis too tight
+
+Date: 2026-05-15
+
+Local base commit:
+
+- `570be03 Record Brev create failure on latch retry`
+
+Goal:
+
+- Verify whether the latched insert-state fix from Attempt 38 removes the insert/rotate target flip-flop.
+- Keep the run cheap by using the live price table before creation.
+
+Remote run:
+
+- Run id: `2026-05-15T19-31-42Z`
+- Instance: `isaac-phase2-insert-latch-retry2-l4`
+- Instance id: `4avspx131`
+- Selected machine: `g2-standard-4:nvidia-l4:1`
+- Selected live price: `$0.85/hr`
+- Task: `RCA-PegInHole-Franka-IK-Abs-Contact-Play-v0`
+- Steps: `260`
+- Seed: `42`
+
+Result:
+
+- Scripted eval completed and artifacts were pulled locally.
+- `success_rate=0.0`; no insertion success.
+- The latch fix changed the failure mode:
+  - `insert_state` stayed true from step `200` through step `226`.
+  - The old rapid insert/rotate flip-flop from Attempt 38 is no longer the primary issue.
+  - At step `226`, lateral error reached `0.04145 m`, slightly above the configured `--insert-abort-xy-tol 0.04`.
+  - Step `227` set `insert_aborted=true`, returned to rotate mode, and the pose jumped at step `231`.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-15T19-46-45Z/seed_42.json`
+- Scripted trace: `artifacts/evaluations/scripted/2026-05-15T19-46-45Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-15T19-46-45Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-15T19-31-42Z_isaac-phase2-insert-latch-retry2-l4/gate.log`
+
+Metrics:
+
+```json
+{
+  "steps_requested": 260,
+  "insert_xy_tolerance": 0.0015,
+  "insert_rot_tolerance": 0.12,
+  "insert_abort_xy_tolerance": 0.04,
+  "insert_abort_rot_tolerance": 0.35,
+  "insert_pos_step": 0.01,
+  "insert_rot_step": 0.06,
+  "initial_lateral": 0.19102078676223755,
+  "final_lateral": 0.1590428203344345,
+  "best_lateral": 0.0005068883765488863,
+  "best_lateral_step": 165,
+  "initial_axial": 0.4095129370689392,
+  "final_axial": 0.36730825901031494,
+  "best_axial": 0.04665598273277283,
+  "best_axial_step": 210,
+  "initial_rot": 2.87626576423645,
+  "final_rot": 0.31706488132476807,
+  "best_rot": 0.004081662744283676,
+  "best_rot_step": 119,
+  "max_contact_force_magnitude": 28.8151798248291,
+  "max_contact_force_magnitude_step": 62,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Trace highlights:
+
+```text
+step  phase   lat     ax      rot     insert_state  insert_aborted  succ_xy  succ_z  succ_rot  contact
+200   insert  0.0019  0.0563  0.0322  1             0               1        0       1         4.3140
+210   insert  0.0086  0.0467  0.0818  1             0               0        0       1         3.6819
+220   insert  0.0284  0.0513  0.1413  1             0               0        0       1         3.7295
+226   insert  0.0415  0.0561  0.1864  1             0               0        0       0         3.8363
+227   rotate  0.0379  0.0570  0.1705  0             1               0        0       1         4.2520
+231   rotate  0.2466  0.1955  2.3981  0             0               0        0       0         3.1198
+```
+
+Cleanup verification:
+
+- Guarded cleanup initially timed out while the workspace was still visible as `DELETING` / `STOPPED`.
+- Additional manual cleanup loop repeatedly issued `brev delete isaac-phase2-insert-latch-retry2-l4 4avspx131`.
+- Final cleanup confirmation:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Interpretation:
+
+- The latch fix is partially validated: the previous target flip-flop is not the primary blocker anymore.
+- The new blocker is too-tight abort hysteresis under contact. The controller aborts insertion after a recoverable lateral drift just above `4 cm`.
+- The next local change should relax the insert abort thresholds before another GPU run.
+
+Local fix after this run:
+
+- Relaxed `scripts/run_phase2_absik_gate.sh` default abort thresholds:
+  - `--insert-abort-xy-tol 0.04` -> `--insert-abort-xy-tol 0.08`
+  - `--insert-abort-rot-tol 0.35` -> `--insert-abort-rot-tol 0.50`
+
+Next useful verification:
+
+- Run one more guarded eval only if Brev deletion behavior looks normal.
+- Pass condition is not necessarily success; the immediate pass condition is that `insert_state` remains true past step `227` and the controller no longer returns to rotate before the contact-induced jump.
