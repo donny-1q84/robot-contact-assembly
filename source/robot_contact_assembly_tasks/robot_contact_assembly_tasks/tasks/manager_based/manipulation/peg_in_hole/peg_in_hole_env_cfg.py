@@ -3,8 +3,6 @@ from __future__ import annotations
 import math
 from dataclasses import MISSING
 
-from isaaclab_physx.physics import PhysxCfg
-
 import isaaclab.envs.mdp as base_mdp
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
@@ -454,7 +452,6 @@ class PegInHoleEnvCfg(ManagerBasedRLEnvCfg):
         self.episode_length_s = 8.0
         self.viewer.eye = (2.5, 2.5, 1.8)
         self.sim.dt = 1.0 / 60.0
-        self.sim.physics = PhysxCfg(bounce_threshold_velocity=0.2)
         self.teleop_devices = DevicesCfg(
             devices={
                 "keyboard": Se3KeyboardCfg(gripper_term=False, sim_device=self.sim.device),
