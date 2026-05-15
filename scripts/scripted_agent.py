@@ -267,6 +267,15 @@ parser.add_argument(
     help="For 7D absolute IK actions, command the full target pose or a small absolute waypoint toward it.",
 )
 parser.add_argument(
+    "--rotate-control-mode",
+    choices=("inherit", "target", "waypoint"),
+    default="inherit",
+    help=(
+        "Override quaternion control only during the rotate-only staged phase. "
+        "'target' keeps the position waypoint but sends the full target quaternion."
+    ),
+)
+parser.add_argument(
     "--scripted-control-mode",
     choices=("auto", "mdp", "joint-ik"),
     default="auto",
@@ -658,6 +667,7 @@ def main():
             pos_error, axis_angle_error = compute_pose_error(
                 action_pos_w, action_quat_w, target_pos_w, target_quat_w, rot_error_type="axis_angle"
             )
+            rotate_only_mask = rotate_state & ~orientation_ready & ~insert_mask & ~polish_state
             # Isaac Lab's relative IK action applies translational deltas directly in the robot root frame.
             # Do not rotate the Cartesian error into the end-effector frame here.
             action_pos_error = pos_error
@@ -693,6 +703,20 @@ def main():
                     command_quat_w = _normalize_quat(
                         _quat_multiply(action_quat_w, _axis_angle_to_quat(axis_angle_error * axis_angle_scale))
                     )
+                if args_cli.rotate_control_mode == "target" and rotate_only_mask.any():
+                    command_quat_w[rotate_only_mask] = target_quat_w[rotate_only_mask]
+                elif args_cli.rotate_control_mode == "waypoint" and rotate_only_mask.any():
+                    axis_angle_norm = torch.linalg.norm(axis_angle_error, dim=-1, keepdim=True)
+                    axis_angle_scale = torch.clamp(
+                        args_cli.abs_rot_step / torch.clamp(axis_angle_norm, min=1.0e-8),
+                        max=1.0,
+                    )
+                    command_quat_w[rotate_only_mask] = _normalize_quat(
+                        _quat_multiply(
+                            action_quat_w,
+                            _axis_angle_to_quat(axis_angle_error * axis_angle_scale),
+                        )
+                    )[rotate_only_mask]
 
                 offset_pos = action_pos_w.new_tensor(BODY_OFFSET).unsqueeze(0).repeat(action_pos_w.shape[0], 1)
                 offset_quat = action_pos_w.new_tensor(PEG_TIP_BODY_OFFSET_ROT).unsqueeze(0).repeat(action_pos_w.shape[0], 1)
@@ -750,6 +774,20 @@ def main():
                     command_quat_w = _normalize_quat(
                         _quat_multiply(action_quat_w, _axis_angle_to_quat(axis_angle_error * axis_angle_scale))
                     )
+                if args_cli.rotate_control_mode == "target" and rotate_only_mask.any():
+                    command_quat_w[rotate_only_mask] = target_quat_w[rotate_only_mask]
+                elif args_cli.rotate_control_mode == "waypoint" and rotate_only_mask.any():
+                    axis_angle_norm = torch.linalg.norm(axis_angle_error, dim=-1, keepdim=True)
+                    axis_angle_scale = torch.clamp(
+                        args_cli.abs_rot_step / torch.clamp(axis_angle_norm, min=1.0e-8),
+                        max=1.0,
+                    )
+                    command_quat_w[rotate_only_mask] = _normalize_quat(
+                        _quat_multiply(
+                            action_quat_w,
+                            _axis_angle_to_quat(axis_angle_error * axis_angle_scale),
+                        )
+                    )[rotate_only_mask]
                 actions[:, :3] = command_pos_w
                 actions[:, 3:7] = command_quat_w
             elif args_cli.position_control_mode == "calibrated-onehot":
@@ -910,6 +948,8 @@ def main():
                         "pos_error": pos_error[0].detach().cpu().tolist(),
                         "axis_angle_error": axis_angle_error[0].detach().cpu().tolist(),
                         "axis_angle_error_norm": torch.linalg.norm(axis_angle_error[0]).item(),
+                        "rotate_only": bool(rotate_only_mask[0].item()),
+                        "rotate_control_mode": args_cli.rotate_control_mode,
                         "raw_action": actions[0].detach().cpu().tolist(),
                         "lateral": lateral[0].item(),
                         "axial": axial[0].item(),
