@@ -529,6 +529,10 @@ def main():
         best_axial_step = None
         best_rot = float("inf")
         best_rot_step = None
+        initial_action_tip_alignment = None
+        final_action_tip_alignment = None
+        best_action_tip_alignment = float("inf")
+        best_action_tip_alignment_step = None
         trace_rows = []
         xy_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         rotate_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
@@ -576,6 +580,7 @@ def main():
                 physical_tip_pos_w,
                 physical_tip_quat_w,
             )
+            action_tip_alignment = torch.linalg.norm(physical_tip_pos_w - action_pos_w, dim=1)
 
             lateral_error, axial_error, orientation_error = mdp.insertion_metrics(
                 env_unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg
@@ -594,7 +599,7 @@ def main():
                 rotate_state |= position_ready
                 insert_mask = position_ready
             elif args_cli.staged_approach:
-                xy_state |= controller_lateral_error < args_cli.approach_xy_tol
+                xy_state |= lateral_error < args_cli.approach_xy_tol
                 xy_target_pos_w = target_action_pos_w.clone()
                 xy_target_pos_w[:, 2] = action_pos_w[:, 2]
                 target_pos_w[~xy_state] = xy_target_pos_w[~xy_state]
@@ -606,7 +611,7 @@ def main():
                 target_quat_w[rotate_state] = target_action_quat_w[rotate_state]
                 insert_mask = (
                     rotate_state
-                    & (controller_lateral_error < args_cli.approach_xy_tol)
+                    & (lateral_error < args_cli.approach_xy_tol)
                     & (orientation_error < args_cli.approach_rot_tol)
                 )
             else:
@@ -804,11 +809,13 @@ def main():
                 initial_lateral = lateral.mean().item()
                 initial_axial = axial.mean().item()
                 initial_rot = rot.mean().item()
+                initial_action_tip_alignment = action_tip_alignment.mean().item()
 
             final_lateral = lateral.mean().item()
             final_axial = axial.mean().item()
             final_rot = rot.mean().item()
             final_success = success.float().mean().item()
+            final_action_tip_alignment = action_tip_alignment.mean().item()
             if final_lateral < best_lateral:
                 best_lateral = final_lateral
                 best_lateral_step = step
@@ -818,11 +825,15 @@ def main():
             if final_rot < best_rot:
                 best_rot = final_rot
                 best_rot_step = step
+            if final_action_tip_alignment < best_action_tip_alignment:
+                best_action_tip_alignment = final_action_tip_alignment
+                best_action_tip_alignment_step = step
 
             if step % 25 == 0 or step == args_cli.steps - 1:
                 print(
                     f"[SCRIPTED] step={step:04d} lateral={final_lateral:.4f} axial={final_axial:.4f} "
                     f"rot={final_rot:.4f} success_rate={final_success:.3f} "
+                    f"action_tip_alignment={final_action_tip_alignment:.4f} "
                     f"position_ready={position_ready.float().mean().item():.3f} "
                     f"xy_ready={xy_state.float().mean().item():.3f} "
                     f"rotate_ready={rotate_state.float().mean().item():.3f} "
@@ -859,6 +870,7 @@ def main():
                         "action_to_physical_tip_delta_w": (
                             physical_tip_pos_w[0] - action_pos_w[0]
                         ).detach().cpu().tolist(),
+                        "action_tip_alignment": action_tip_alignment[0].item(),
                         "controller_lateral_error": controller_lateral_error[0].item(),
                         "socket_pos_w": socket_pos_w[0].detach().cpu().tolist(),
                         "approach_pos_w": approach_pos_w[0].detach().cpu().tolist(),
@@ -914,6 +926,10 @@ def main():
             "best_axial_step": best_axial_step,
             "best_rot": best_rot,
             "best_rot_step": best_rot_step,
+            "initial_action_tip_alignment": initial_action_tip_alignment,
+            "final_action_tip_alignment": final_action_tip_alignment,
+            "best_action_tip_alignment": best_action_tip_alignment,
+            "best_action_tip_alignment_step": best_action_tip_alignment_step,
             "video_backend": args_cli.video_backend if args_cli.video else None,
             "video_folder": video_folder,
             "coupled_approach": args_cli.coupled_approach,
@@ -939,6 +955,8 @@ def main():
             f"best_lateral={summary['best_lateral']:.4f}@{summary['best_lateral_step']} "
             f"best_axial={summary['best_axial']:.4f}@{summary['best_axial_step']} "
             f"best_rot={summary['best_rot']:.4f}@{summary['best_rot_step']} "
+            f"best_action_tip_alignment={summary['best_action_tip_alignment']:.4f}@"
+            f"{summary['best_action_tip_alignment_step']} "
             f"final_success_rate={summary['final_success_rate']:.3f} "
             f"success_step={summary['success_step']}",
             flush=True,

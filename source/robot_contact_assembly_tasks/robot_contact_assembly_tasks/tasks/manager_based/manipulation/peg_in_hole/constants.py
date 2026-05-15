@@ -6,12 +6,16 @@ PEG_TIP_BODY_OFFSET_POS = (0.0, 0.0, 0.1034)
 PEG_TIP_YAW_OFFSET_RAD = 0.8544625639915466
 PEG_TIP_BODY_OFFSET_ROT = (0.9101164619240488, 0.0, 0.0, 0.41435253798529015)
 
-# Physical peg geometry.
+# Physical peg geometry. The runtime sync path uses the controller tip frame as the
+# source of truth, then derives the peg root from that tip pose. This avoids hand-written
+# center offsets drifting from Isaac Lab's action-frame convention.
 PEG_RADIUS_M = 0.010
 PEG_LENGTH_M = 0.080
 PEG_CENTER_BODY_OFFSET_POS = (0.0, 0.0, PEG_TIP_BODY_OFFSET_POS[2] - 0.5 * PEG_LENGTH_M)
 PEG_CENTER_BODY_OFFSET_ROT = PEG_TIP_BODY_OFFSET_ROT
 PEG_TIP_FROM_CENTER_POS = (0.0, 0.0, 0.5 * PEG_LENGTH_M)
+PEG_ROOT_FROM_TIP_POS = (0.0, 0.0, -0.5 * PEG_LENGTH_M)
+PEG_ROOT_FROM_TIP_ROT = (1.0, 0.0, 0.0, 0.0)
 
 # Fixed contact guide geometry. This is intentionally a simple square guide channel rather
 # than a CAD-accurate socket so the first contact milestone stays easy to debug.

@@ -64,10 +64,14 @@ def main() -> int:
         c.PEG_CENTER_BODY_OFFSET_POS[index] + rotated_local_tip[index] for index in range(3)
     )
     _assert_close("physical peg tip offset", physical_tip_offset, c.PEG_TIP_BODY_OFFSET_POS)
+    _assert_close("PEG_TIP_FROM_CENTER_POS", c.PEG_TIP_FROM_CENTER_POS, local_tip)
+    _assert_close("PEG_ROOT_FROM_TIP_POS", c.PEG_ROOT_FROM_TIP_POS, tuple(-value for value in local_tip))
+    _assert_close("PEG_ROOT_FROM_TIP_ROT", c.PEG_ROOT_FROM_TIP_ROT, (1.0, 0.0, 0.0, 0.0))
 
     print("[geometry-check] contact geometry constants are self-consistent")
     print(f"[geometry-check] tip_rot_wxyz={c.PEG_TIP_BODY_OFFSET_ROT}")
     print(f"[geometry-check] physical_tip_offset={physical_tip_offset}")
+    print(f"[geometry-check] peg_root_from_tip_pos={c.PEG_ROOT_FROM_TIP_POS}")
     return 0
 
 

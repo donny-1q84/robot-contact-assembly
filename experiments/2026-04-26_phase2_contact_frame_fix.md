@@ -115,3 +115,82 @@ Fail condition:
 - contact forces push the peg out of the guide
 
 If the gate fails, inspect socket-frame sign conventions and guide-wall placement before spending on PPO.
+
+## 2026-05-15 Follow-up: Runtime Tip-to-Root Sync Fix
+
+### New Symptom
+
+The May 15 guarded absolute-IK gates showed a persistent mismatch between the scripted controller action frame and the physical peg-tip metric frame.
+
+From `artifacts/evaluations/scripted/2026-05-15T12-27-38Z/seed_42_trace.json`:
+
+- `action_to_physical_tip_delta_w` had a constant norm of about `0.0728 m`.
+- The controller's internal lateral error briefly reached about `0.033 m`.
+- The physical peg-tip lateral error never went below about `0.101 m`.
+- The staged approach did not improve the result, so this was not primarily a trajectory staging problem.
+
+### Root Cause Hypothesis
+
+The previous sync event placed the physical peg root using a hand-authored center offset:
+
+```python
+PEG_CENTER_BODY_OFFSET_POS = (0.0, 0.0, PEG_TIP_BODY_OFFSET_POS[2] - 0.5 * PEG_LENGTH_M)
+```
+
+That passed the local constant check, but the remote trace proved the runtime action frame and physical peg-tip frame were still separated. The safer invariant is:
+
+1. Compute the controller tip pose with the exact same offset used by the IK action term.
+2. Derive the physical peg root from that tip pose.
+3. Compute rewards, terminations, and metrics from the same physical tip.
+
+### Changes
+
+- Added `PEG_ROOT_FROM_TIP_POS` and `PEG_ROOT_FROM_TIP_ROT`.
+- Updated `mdp.sync_peg_to_hand` so `body_offset` / `body_rot_offset` now describe the intended controller tip frame, not the peg center.
+- The sync event now computes:
+  - `tip_pose = hand_pose * controller_tip_offset`
+  - `peg_root_pose = tip_pose * peg_root_from_tip_offset`
+- Updated env event params to pass `PEG_TIP_BODY_OFFSET_*` and `PEG_ROOT_FROM_TIP_*`.
+- Updated `scripts/scripted_agent.py` to report:
+  - `initial_action_tip_alignment`
+  - `final_action_tip_alignment`
+  - `best_action_tip_alignment`
+  - per-step `action_tip_alignment`
+- Changed staged scripted gating to use physical `lateral_error` instead of controller-only lateral error for `xy_ready` and `insert_ready`.
+
+### Local Verification
+
+No GPU was started for this fix.
+
+Completed checks:
+
+```bash
+python3 scripts/check_contact_geometry_constants.py
+python3 -m py_compile \
+  scripts/scripted_agent.py \
+  scripts/check_contact_geometry_constants.py \
+  source/robot_contact_assembly_tasks/robot_contact_assembly_tasks/tasks/manager_based/manipulation/peg_in_hole/constants.py \
+  source/robot_contact_assembly_tasks/robot_contact_assembly_tasks/tasks/manager_based/manipulation/peg_in_hole/mdp/events.py \
+  source/robot_contact_assembly_tasks/robot_contact_assembly_tasks/tasks/manager_based/manipulation/peg_in_hole/peg_in_hole_env_cfg.py
+```
+
+The old remote trace is still the baseline for comparison:
+
+```text
+old_trace_action_tip_alignment_norm_first = 0.0728093148
+old_trace_action_tip_alignment_norm_last  = 0.0728092992
+```
+
+### Next Gate
+
+The next GPU session should be a short L4 scripted gate only.
+
+Primary pass condition:
+
+- `best_action_tip_alignment < 0.005 m`
+
+Secondary pass condition:
+
+- physical `best_lateral` improves relative to Attempt 26's `0.1008 m`
+- physical `best_axial` improves relative to Attempt 26's `0.0923 m`
+- no PPO training unless the alignment metric is fixed first

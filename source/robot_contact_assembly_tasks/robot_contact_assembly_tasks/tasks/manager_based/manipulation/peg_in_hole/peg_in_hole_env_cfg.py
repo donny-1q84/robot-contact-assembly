@@ -30,10 +30,12 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
 from . import mdp
 from .constants import (
-    PEG_CENTER_BODY_OFFSET_POS,
-    PEG_CENTER_BODY_OFFSET_ROT,
     PEG_LENGTH_M,
     PEG_RADIUS_M,
+    PEG_ROOT_FROM_TIP_POS,
+    PEG_ROOT_FROM_TIP_ROT,
+    PEG_TIP_BODY_OFFSET_POS,
+    PEG_TIP_BODY_OFFSET_ROT,
     SOCKET_FRAME_POS,
     SOCKET_FRAME_ROT,
     SOCKET_GUIDE_DEPTH_M,
@@ -315,8 +317,10 @@ class EventCfg:
         params={
             "robot_cfg": SceneEntityCfg("robot", body_names=MISSING),
             "peg_cfg": SceneEntityCfg("peg"),
-            "body_offset": PEG_CENTER_BODY_OFFSET_POS,
-            "body_rot_offset": PEG_CENTER_BODY_OFFSET_ROT,
+            "body_offset": PEG_TIP_BODY_OFFSET_POS,
+            "body_rot_offset": PEG_TIP_BODY_OFFSET_ROT,
+            "peg_root_from_tip_pos": PEG_ROOT_FROM_TIP_POS,
+            "peg_root_from_tip_rot": PEG_ROOT_FROM_TIP_ROT,
         },
     )
     sync_peg_each_step = EventTerm(
@@ -326,8 +330,10 @@ class EventCfg:
         params={
             "robot_cfg": SceneEntityCfg("robot", body_names=MISSING),
             "peg_cfg": SceneEntityCfg("peg"),
-            "body_offset": PEG_CENTER_BODY_OFFSET_POS,
-            "body_rot_offset": PEG_CENTER_BODY_OFFSET_ROT,
+            "body_offset": PEG_TIP_BODY_OFFSET_POS,
+            "body_rot_offset": PEG_TIP_BODY_OFFSET_ROT,
+            "peg_root_from_tip_pos": PEG_ROOT_FROM_TIP_POS,
+            "peg_root_from_tip_rot": PEG_ROOT_FROM_TIP_ROT,
         },
     )
 
