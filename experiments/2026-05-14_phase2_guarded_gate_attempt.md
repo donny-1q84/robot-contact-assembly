@@ -2661,3 +2661,135 @@ Interpretation:
 - The project-side next action is still to run the rotate-before-descend Abs IK scripted gate.
 - The infrastructure-side requirement is stricter now: do not create a new GPU unless the guarded script sees both plain and JSON empty-org checks pass.
 - PPO remains blocked until the scripted gate produces coherent XY, axial, and orientation progress in one rollout.
+
+## Attempt 33: Rotate-Before-Descend Gate Runs, Improves Axial But Stalls In Rotate Phase
+
+Command:
+
+```bash
+RCA_GATE_PROFILE=cheap \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-absik-l4b \
+RCA_GATE_READY_TIMEOUT_SECONDS=480 \
+RCA_GATE_BUILD_STUCK_SECONDS=240 \
+RCA_GATE_DELETE_TIMEOUT_SECONDS=900 \
+RCA_GATE_CREATE_TIMEOUT=600 \
+scripts/run_phase2_absik_gate.sh
+```
+
+Code state:
+
+- Commit before run: `2f84b6b Harden Brev empty-org guard`
+- Scripted gate parameters:
+  - `--deterministic-reset`
+  - `--socket-pos 0.22,0.04,0.19`
+  - `--staged-approach`
+  - `--rotate-before-descend`
+  - `--approach-xy-tol 0.04`
+  - `--abs-control-mode waypoint`
+  - `--abs-pos-step 0.030`
+  - `--abs-rot-step 0.12`
+  - `--debug-action-steps 4`
+  - `steps=220`
+
+Price selection:
+
+- Selected `g2-standard-4:nvidia-l4:1`.
+- Live L4 price was about `$0.85/hr`.
+- Lowest visible L40S option was about `$1.86/hr`.
+- This was the right choice for a short scripted gate because the workload does not need 48GB VRAM.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-15T16-47-54Z/seed_42.json`
+- Scripted eval trace: `artifacts/evaluations/scripted/2026-05-15T16-47-54Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-15T16-47-54Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-15T16-31-59Z_isaac-phase2-absik-l4b/gate.log`
+
+Cleanup:
+
+- The instance reached `RUNNING / COMPLETED / READY` after a long `BUILDING` phase.
+- Isaac Lab runtime installed and the scripted eval completed.
+- Artifacts were pulled locally before shutdown.
+- During cleanup, the Brev control plane briefly showed inconsistent states (`DELETING`, then `DEPLOYING`, while delete-by-name returned `not found`).
+- Final guarded and independent checks returned:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Metrics:
+
+```json
+{
+  "steps_requested": 220,
+  "rotate_before_descend": true,
+  "initial_action_tip_alignment": 0.0,
+  "final_action_tip_alignment": 3.003425064207477e-08,
+  "best_action_tip_alignment": 0.0,
+  "initial_lateral": 0.19102078676223755,
+  "final_lateral": 0.19516903162002563,
+  "best_lateral": 0.002564318710938096,
+  "best_lateral_step": 180,
+  "initial_axial": 0.4095129370689392,
+  "final_axial": 0.19286027550697327,
+  "best_axial": 0.19286027550697327,
+  "best_axial_step": 219,
+  "initial_rot": 2.87626576423645,
+  "final_rot": 2.5631189346313477,
+  "best_rot": 2.3980886936187744,
+  "best_rot_step": 209,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Trace highlights:
+
+```text
+step=50:
+  phase=rotate
+  lateral=0.0199
+  axial=0.4290
+  rot=3.1313
+  xy_state=True
+  rotate_state=True
+  insert_mask=False
+
+step=125:
+  phase=rotate
+  lateral=0.0052
+  axial=0.2942
+  rot=3.1360
+  xy_state=True
+  rotate_state=True
+  insert_mask=False
+
+step=180:
+  best_lateral=0.0026
+
+step=209:
+  best_rot=2.3981
+  lateral=0.2466
+  axial=0.1955
+
+step=219:
+  phase=rotate
+  lateral=0.1952
+  axial=0.1929
+  rot=2.5631
+  insert_mask=False
+```
+
+Interpretation:
+
+- This is not a success run; `success_rate=0.0`.
+- The good result is axial progress: best/final axial improved from Attempt 31's `0.2393 m` to `0.1929 m`.
+- XY alignment is still solvable: best lateral is `2.6 mm`.
+- The new blocker is the rotate phase. The rollout enters `phase=rotate`, but orientation error remains very high (`2.4-3.1 rad`), and the policy never reaches `position_ready` or `insert_mask`.
+- The final lateral jump suggests the controller becomes unstable while trying to satisfy the high-error orientation target.
+- PPO is still blocked. The scripted gate can now solve XY and improve axial, but it cannot yet produce coherent XY + axial + orientation progress in one rollout.
+
+Next useful local fix:
+
+- Do not run another GPU gate yet.
+- Inspect the rotate-stage target orientation and the measured `tip_to_socket_orientation` convention.
+- Add a local/offline trace summary that compares commanded quaternion, socket quaternion, action quaternion, and measured tip-to-socket quaternion around steps `50`, `125`, `180`, `209`, and `219`.
+- The next scripted controller change should reduce the rotate-phase orientation error without sacrificing the `2-5 mm` lateral alignment. Only then run another cheap L4 gate.
