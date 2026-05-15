@@ -1195,3 +1195,88 @@ Follow-up fix:
   - `--abs-control-mode waypoint` sends small absolute waypoints toward the phase target instead of commanding the full target pose in one step.
   - `--trace-json <path>` writes per-step action-frame pose, socket pose, command pose, raw action, phase, and insertion metrics.
 - `scripts/run_remote_scripted_eval.sh` now supports `RCA_SCRIPTED_TRACE_JSON=1` to pull per-seed trace files with the normal evaluation artifacts.
+
+## Attempt 17: Absolute Waypoint Gate Reaches Axial Depth but Loses Lateral Control
+
+Command:
+
+```bash
+RCA_SCRIPTED_TRACE_JSON=1 \
+RCA_GATE_COMMAND=scripted_eval \
+RCA_GATE_TASK='RCA-PegInHole-Franka-IK-Abs-Contact-Play-v0' \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-abs-waypoint-l4 \
+RCA_GATE_INSTANCE_TYPE='g2-standard-4:nvidia-l4:1' \
+RCA_GATE_CREATE_TIMEOUT=900 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_EVAL_TIMEOUT_SECONDS=360 \
+RCA_SCRIPTED_EVAL_RETRIES=0 \
+RCA_GATE_STEPS=160 \
+RCA_GATE_EXTRA_AGENT_ARGS='--deterministic-reset --abs-control-mode waypoint --abs-pos-step 0.015 --abs-rot-step 0.12 --debug-action-steps 8' \
+scripts/run_guarded_phase2_gate.sh
+```
+
+Price selection:
+
+- Live price table was recorded in the gate log.
+- Explicitly used `g2-standard-4:nvidia-l4:1` at about `$0.85/hr`.
+- The cheapest visible L40S was about `$1.86/hr`, so L4 remained the better fit for this short scripted gate.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-15T08-30-05Z/seed_42.json`
+- Scripted eval trace: `artifacts/evaluations/scripted/2026-05-15T08-30-05Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-15T08-30-05Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-15T08-15-21Z_isaac-phase2-abs-waypoint-l4/gate.log`
+
+Cleanup:
+
+- Artifacts were pulled locally.
+- The instance was deleted.
+- Repeated delete retries fired while the instance remained visible in `DELETING`.
+- Final guarded and independent checks returned:
+  - `brev ls instances --all`: `No instances`
+  - `brev ls instances --json --all`: `null`
+
+Metrics:
+
+```json
+{
+  "abs_control_mode": "waypoint",
+  "action_dim": 7,
+  "deterministic_reset": true,
+  "initial_lateral": 0.46638020873069763,
+  "final_lateral": 0.8070624470710754,
+  "best_lateral": 0.37033623456954956,
+  "best_lateral_step": 55,
+  "initial_axial": 0.30189695954322815,
+  "final_axial": 0.2839994430541992,
+  "best_axial": 0.00064048171043396,
+  "best_axial_step": 86,
+  "initial_rot": 2.9845430850982666,
+  "final_rot": 2.9356377124786377,
+  "best_rot": 2.187131404876709,
+  "best_rot_step": 114,
+  "final_success_rate": 0.0
+}
+```
+
+Trace highlights:
+
+```text
+best_lateral_step=55:  lateral=0.3703, axial not solved, action_pos=[0.2134, 0.0369, 0.4303]
+best_axial_step=86:   axial=0.0006, lateral still high, action_pos=[0.2088, 0.2143, 0.2316]
+final_step=159:       lateral=0.8071, action_pos=[-0.2230, -0.4969, 0.4683]
+```
+
+Interpretation:
+
+- The new trace proves the 7D absolute waypoint code path is active and producing bounded local commands.
+- The controller can reach the socket depth transiently (`best_axial=0.0006 m`) but cannot maintain lateral alignment.
+- Because `position_ready` never becomes true, the controller never leaves the reach phase; the failure is not an insertion/rotation phase issue yet.
+- The achieved end-effector pose eventually drifts into negative world x/y, which suggests the current default socket location plus fixed orientation is a poor deterministic target for this IK setup.
+
+Next useful action:
+
+1. Do one cheaper debug gate using the same waypoint controller but override the socket to a reachable target near the best lateral waypoint, for example `--socket-pos 0.22,0.04,0.19`.
+2. If the near-socket gate also fails, stop using DifferentialIK as the scripted baseline and move to joint-space waypoint control or a motion-planning pre-controller.
+3. If the near-socket gate succeeds, keep the controller and then gradually move the socket back toward the default location.
