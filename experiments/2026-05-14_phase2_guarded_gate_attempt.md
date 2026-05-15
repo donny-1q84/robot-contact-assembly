@@ -1594,3 +1594,53 @@ Interpretation:
 - This attempt did not exercise the Jacobian fix because it failed before repo sync.
 - The remaining blocker is wrapper robustness, not task code.
 - After the path sanitization fix is committed, the next short L4 gate can validate the Joint-IK controller again.
+
+## Attempt 22: Brev Create API Returned EOF and Left a Short-Lived Deploying Record
+
+Command:
+
+```bash
+scripts/run_phase2_jointik_gate.sh
+```
+
+Price selection:
+
+- Live price table again selected `g2-standard-4:nvidia-l4:1` at about `$0.85/hr`.
+- The lowest visible L40S remained about `$1.86/hr`.
+- L4 remained the correct cost/performance choice for the short validation.
+
+Result:
+
+- Brev `createWorkspace` returned `unexpected EOF` during workspace creation.
+- The CLI reported `Warning: Only created 0/1 instances`.
+- During cleanup, a short-lived partial instance was still visible:
+  - name: `isaac-phase2-jointik-l4`
+  - id: `elldimlih`
+  - status: `DEPLOYING`
+  - shell: `NOT READY`
+  - type: `g2-standard-4:nvidia-l4:1`
+- The gate never reached ready state, repo sync, runtime setup, or Isaac execution.
+
+Artifacts:
+
+- Gate log: `artifacts/gpu_gate/2026-05-15T10-32-15Z_isaac-phase2-jointik-l4/gate.log`
+- Metadata: `artifacts/gpu_gate/2026-05-15T10-32-15Z_isaac-phase2-jointik-l4/gate_metadata.env`
+
+Cleanup:
+
+- The guarded script attempted delete by name and by discovered id.
+- Brev list/query APIs were intermittently returning timeout errors during cleanup.
+- The script failed closed until it observed an exact empty-org state.
+- Independent post-cleanup checks returned:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `null`
+
+Follow-up check:
+
+- `brev healthcheck` returned `Healthy!` immediately after cleanup.
+
+Interpretation:
+
+- This attempt did not test project code; it was a Brev API/workspace creation failure.
+- The guarded cleanup behavior worked as intended and prevented a hidden partial instance from being ignored.
+- One more short retry is reasonable only because healthcheck is healthy and the org is independently empty. If create fails again, stop cloud attempts and wait before retrying.
