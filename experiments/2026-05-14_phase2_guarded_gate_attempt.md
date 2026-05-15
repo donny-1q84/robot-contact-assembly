@@ -2382,3 +2382,99 @@ Next useful action:
 - Stop spending GPU on frame debugging.
 - Locally redesign the scripted controller target sequence for the aligned frame.
 - The next remote gate should test reachability/staging, not PPO.
+
+## Attempt 30: Scripted Reachability Sweep Finds a Viable XY Gate Setting
+
+Command:
+
+```bash
+RCA_GATE_PROFILE=cheap \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-reach-sweep-l4 \
+RCA_GATE_TASK=RCA-PegInHole-Franka-IK-Abs-Contact-Play-v0 \
+RCA_GATE_COMMAND=scripted_reach_sweep \
+RCA_GATE_NUM_ENVS=1 \
+RCA_GATE_EVAL_TIMEOUT_SECONDS=300 \
+RCA_GATE_DELETE_TIMEOUT_SECONDS=1200 \
+RCA_GATE_BUILD_STUCK_SECONDS=300 \
+scripts/run_guarded_phase2_gate.sh
+```
+
+Price selection:
+
+- Selected `g2-standard-4:nvidia-l4:1`.
+- Live L4 price was about `$0.85/hr`.
+- Lowest visible L40S option was about `$1.86/hr`.
+- L4 remained the right choice for a short diagnostic sweep.
+
+Artifacts:
+
+- Sweep root: `artifacts/evaluations/scripted_reach_sweep/2026-05-15T14-54-08Z/`
+- Gate log: `artifacts/gpu_gate/2026-05-15T14-37-33Z_isaac-phase2-reach-sweep-l4/gate.log`
+- Gate metadata: `artifacts/gpu_gate/2026-05-15T14-37-33Z_isaac-phase2-reach-sweep-l4/gate_metadata.env`
+
+Cleanup:
+
+- Artifacts were pulled locally before shutdown.
+- The instance remained visible as `STOPPED / COMPLETED / NOT READY` after initial delete.
+- The guarded script and manual checks reissued delete by both name and id.
+- Final guarded and independent checks returned:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `null`
+
+Sweep metrics:
+
+```json
+{
+  "waypoint_40_step012": {
+    "steps_requested": 40,
+    "initial_lateral": 0.19297145307064056,
+    "final_lateral": 0.10373983532190323,
+    "best_lateral": 0.10373983532190323,
+    "best_lateral_step": 39,
+    "final_axial": 0.4401460886001587,
+    "best_rot": 2.858823537826538,
+    "final_success_rate": 0.0
+  },
+  "target_40": {
+    "steps_requested": 40,
+    "initial_lateral": 0.18083271384239197,
+    "final_lateral": 0.3291814625263214,
+    "best_lateral": 0.02998097613453865,
+    "best_lateral_step": 16,
+    "final_axial": 0.2104201316833496,
+    "best_rot": 1.9280742406845093,
+    "final_success_rate": 0.0
+  },
+  "waypoint_80_step030": {
+    "steps_requested": 80,
+    "initial_lateral": 0.19102078676223755,
+    "final_lateral": 0.030349547043442726,
+    "best_lateral": 0.012698001228272915,
+    "best_lateral_step": 37,
+    "final_axial": 0.3308665156364441,
+    "best_rot": 2.612150192260742,
+    "final_success_rate": 0.0
+  }
+}
+```
+
+Interpretation:
+
+- The frame alignment bug remains fixed: `action_tip_alignment=0.0` for all sweep cases.
+- The 40-step small-waypoint controller is too slow and never enters the `4 cm` approach corridor.
+- Direct target mode reaches the approach corridor transiently (`best_lateral=0.0300 m`) but overshoots badly by the end (`final_lateral=0.3292 m`).
+- The best setting from this sweep is `waypoint_80_step030`: it reaches `best_lateral=0.0127 m` and finishes inside the approach corridor at `final_lateral=0.0303 m`.
+- This means the XY reach gate is now solvable with the aligned frame. The remaining blocker is staged transition after XY alignment: axial and rotation are still not converging enough for insertion success.
+
+Non-task issue found:
+
+- The remote sweep itself completed and pulled artifacts successfully.
+- The wrapper returned status `127` because the final tabular summary used `python3` inside the Isaac container, where only `/isaac-sim/python.sh` is reliable.
+- Follow-up local fix changed the summary command to `/isaac-sim/python.sh`.
+
+Next useful action:
+
+- Promote the `waypoint_80_step030` parameters into the default deterministic scripted gate.
+- Add or tune a post-XY stage: hold XY, lower axial target, then rotate, then insert.
+- Run one more cheap L4 scripted gate only after local syntax checks pass.
+- PPO remains blocked until a scripted rollout reaches the XY gate and makes nonzero axial/rotation progress in the same rollout.

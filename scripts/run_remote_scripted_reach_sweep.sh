@@ -52,7 +52,7 @@ for index in "${!case_names[@]}"; do
 done
 
 echo "[scripted-reach-sweep] summaries:"
-rca_remote_container_exec "python3 - <<'PY'
+rca_remote_container_exec "/isaac-sim/python.sh - <<'PY'
 import json
 from pathlib import Path
 
