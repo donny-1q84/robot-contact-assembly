@@ -1280,3 +1280,92 @@ Next useful action:
 1. Do one cheaper debug gate using the same waypoint controller but override the socket to a reachable target near the best lateral waypoint, for example `--socket-pos 0.22,0.04,0.19`.
 2. If the near-socket gate also fails, stop using DifferentialIK as the scripted baseline and move to joint-space waypoint control or a motion-planning pre-controller.
 3. If the near-socket gate succeeds, keep the controller and then gradually move the socket back toward the default location.
+
+## Attempt 18: Near-Socket Absolute Waypoint Gate Still Fails
+
+Command:
+
+```bash
+RCA_SCRIPTED_TRACE_JSON=1 \
+RCA_GATE_COMMAND=scripted_eval \
+RCA_GATE_TASK='RCA-PegInHole-Franka-IK-Abs-Contact-Play-v0' \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-abs-near-socket-l4 \
+RCA_GATE_INSTANCE_TYPE='g2-standard-4:nvidia-l4:1' \
+RCA_GATE_CREATE_TIMEOUT=900 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_EVAL_TIMEOUT_SECONDS=300 \
+RCA_SCRIPTED_EVAL_RETRIES=0 \
+RCA_GATE_STEPS=120 \
+RCA_GATE_EXTRA_AGENT_ARGS='--deterministic-reset --socket-pos 0.22,0.04,0.19 --abs-control-mode waypoint --abs-pos-step 0.012 --abs-rot-step 0.12 --debug-action-steps 8' \
+scripts/run_guarded_phase2_gate.sh
+```
+
+Price selection:
+
+- Live price table again showed `g2-standard-4:nvidia-l4:1` at about `$0.85/hr`.
+- The cheapest visible L40S was about `$1.86/hr`.
+- L4 was selected because this was a short deterministic gate, not a PPO training run.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-15T08-52-59Z/seed_42.json`
+- Scripted eval trace: `artifacts/evaluations/scripted/2026-05-15T08-52-59Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-15T08-52-59Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-15T08-37-14Z_isaac-phase2-abs-near-socket-l4/gate.log`
+
+Cleanup:
+
+- Artifacts were pulled locally before shutdown.
+- The instance entered `DELETING` and required repeated delete retries plus one manual delete by instance id `vniudqpkw`.
+- Final guarded and independent checks returned:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `null`
+
+Metrics:
+
+```json
+{
+  "abs_control_mode": "waypoint",
+  "action_dim": 7,
+  "deterministic_reset": true,
+  "socket_pos_override": [0.22, 0.04, 0.19],
+  "initial_lateral": 0.21771036088466644,
+  "final_lateral": 0.39793357253074646,
+  "best_lateral": 0.08073757588863373,
+  "best_lateral_step": 58,
+  "initial_axial": 0.3017815947532654,
+  "final_axial": 0.14066651463508606,
+  "best_axial": 0.004813969135284424,
+  "best_axial_step": 95,
+  "initial_rot": 2.9826011657714844,
+  "final_rot": 2.190831184387207,
+  "best_rot": 2.0773112773895264,
+  "best_rot_step": 115,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Trace highlights:
+
+```text
+step=0:   lateral=0.2177, axial=0.3018, rot=2.9826, phase=reach
+step=58:  best lateral=0.0807, axial=0.2043, rot=2.9757, phase=reach
+step=95:  best axial=0.0048, lateral=0.2170, rot=2.4041, phase=reach
+step=115: best rot=2.0773, lateral=0.3874, axial=0.1583, phase=reach
+step=119: final lateral=0.3979, axial=0.1407, rot=2.1908, phase=reach
+```
+
+Interpretation:
+
+- Moving the socket close to the most reachable previous region reduced the initial lateral error from `0.4664 m` to `0.2177 m`, but still did not produce a deterministic success.
+- The controller can transiently optimize one metric at a time: lateral improves at step 58, axial improves at step 95, and rotation improves late. They do not converge together.
+- The rollout never leaves the `reach` phase because the lateral threshold is never reached. This means the remaining issue is not insertion reward shaping or PPO; it is the scripted control interface.
+- Continuing to tune DifferentialIK waypoints is now low-value. The project needs a more reliable baseline controller before another RL run.
+
+Next useful action:
+
+1. Stop spending GPU on the current DifferentialIK scripted baseline.
+2. Implement a joint-space waypoint or motion-planning pre-controller for deterministic approach/alignment.
+3. Keep the current contact task, contact observations, artifact pipeline, and guarded GPU workflow.
+4. Reopen one short L4 gate only after the new controller passes local syntax checks and has a fixed pass/fail criterion.

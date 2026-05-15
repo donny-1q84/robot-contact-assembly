@@ -18,16 +18,23 @@ RigidObject = None
 SceneEntityCfg = None
 combine_frame_transforms = None
 compute_pose_error = None
+subtract_frame_transforms = None
+DifferentialIKController = None
+DifferentialIKControllerCfg = None
 PEG_TIP_BODY_OFFSET_POS = None
 PEG_TIP_BODY_OFFSET_ROT = None
 mdp = None
 BODY_OFFSET = None
 
 
+def _as_torch(value) -> torch.Tensor:
+    return value if isinstance(value, torch.Tensor) else wp.to_torch(value)
+
+
 def _hand_pose_w(env_unwrapped, body_idx: int) -> tuple[torch.Tensor, torch.Tensor]:
     robot = env_unwrapped.scene["robot"]
-    hand_pos_w = wp.to_torch(robot.data.body_pos_w)[:, body_idx]
-    hand_quat_w = wp.to_torch(robot.data.body_quat_w)[:, body_idx]
+    hand_pos_w = _as_torch(robot.data.body_pos_w)[:, body_idx]
+    hand_quat_w = _as_torch(robot.data.body_quat_w)[:, body_idx]
     return hand_pos_w, hand_quat_w
 
 
@@ -83,6 +90,34 @@ def _quat_multiply(lhs: torch.Tensor, rhs: torch.Tensor) -> torch.Tensor:
 
 def _normalize_quat(quat: torch.Tensor) -> torch.Tensor:
     return quat / torch.clamp(torch.linalg.norm(quat, dim=-1, keepdim=True), min=1.0e-8)
+
+
+def _quat_conjugate(quat: torch.Tensor) -> torch.Tensor:
+    result = quat.clone()
+    result[..., 1:] = -result[..., 1:]
+    return result
+
+
+def _quat_rotate(quat: torch.Tensor, vec: torch.Tensor) -> torch.Tensor:
+    zeros = torch.zeros(vec.shape[:-1] + (1,), device=vec.device, dtype=vec.dtype)
+    vec_quat = torch.cat((zeros, vec), dim=-1)
+    rotated = _quat_multiply(_quat_multiply(quat, vec_quat), _quat_conjugate(quat))
+    return rotated[..., 1:]
+
+
+def _child_pose_to_parent_pose(
+    child_pos_w: torch.Tensor,
+    child_quat_w: torch.Tensor,
+    offset_pos: torch.Tensor,
+    offset_quat: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Invert `child = parent * offset` and return the parent pose."""
+
+    inv_offset_quat = _quat_conjugate(offset_quat)
+    inv_offset_pos = _quat_rotate(inv_offset_quat, -offset_pos)
+    parent_pos_w = child_pos_w + _quat_rotate(child_quat_w, inv_offset_pos)
+    parent_quat_w = _normalize_quat(_quat_multiply(child_quat_w, inv_offset_quat))
+    return parent_pos_w, parent_quat_w
 
 
 def _axis_angle_to_quat(axis_angle: torch.Tensor) -> torch.Tensor:
@@ -218,6 +253,15 @@ parser.add_argument(
     help="For 7D absolute IK actions, command the full target pose or a small absolute waypoint toward it.",
 )
 parser.add_argument(
+    "--scripted-control-mode",
+    choices=("auto", "mdp", "joint-ik"),
+    default="auto",
+    help=(
+        "Controller used by the scripted agent. 'mdp' sends actions to the task action term; "
+        "'joint-ik' computes joint-position targets with a standalone Jacobian IK pre-controller."
+    ),
+)
+parser.add_argument(
     "--abs-pos-step",
     type=float,
     default=0.025,
@@ -274,7 +318,7 @@ def _tool_tip_pose_w(env_unwrapped, body_idx: int) -> tuple[torch.Tensor, torch.
 
 def _socket_pose_w(env_unwrapped) -> tuple[torch.Tensor, torch.Tensor]:
     socket = env_unwrapped.scene["socket_frame"]
-    return wp.to_torch(socket.data.root_pos_w), wp.to_torch(socket.data.root_quat_w)
+    return _as_torch(socket.data.root_pos_w), _as_torch(socket.data.root_quat_w)
 
 
 def _target_action_frame_pose_w(socket_pos_w: torch.Tensor, socket_quat_w: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -300,7 +344,8 @@ def _override_socket_pose(env_cfg, socket_pos: tuple[float, float, float]) -> No
 
 
 def main():
-    global RigidObject, SceneEntityCfg, combine_frame_transforms, compute_pose_error
+    global RigidObject, SceneEntityCfg, combine_frame_transforms, compute_pose_error, subtract_frame_transforms
+    global DifferentialIKController, DifferentialIKControllerCfg
     global PEG_TIP_BODY_OFFSET_POS, PEG_TIP_BODY_OFFSET_ROT, mdp, BODY_OFFSET
 
     os.makedirs("/workspace/artifacts/hydra", exist_ok=True)
@@ -310,8 +355,9 @@ def main():
 
     with launch_simulation(env_cfg, args_cli):
         from isaaclab.assets import RigidObject
+        from isaaclab.controllers import DifferentialIKController, DifferentialIKControllerCfg
         from isaaclab.managers import SceneEntityCfg
-        from isaaclab.utils.math import combine_frame_transforms, compute_pose_error
+        from isaaclab.utils.math import combine_frame_transforms, compute_pose_error, subtract_frame_transforms
         from robot_contact_assembly_tasks.tasks.manager_based.manipulation.peg_in_hole import mdp
         from robot_contact_assembly_tasks.tasks.manager_based.manipulation.peg_in_hole.constants import (
             PEG_TIP_BODY_OFFSET_POS,
@@ -372,8 +418,48 @@ def main():
         peg_cfg = SceneEntityCfg("peg")
         socket_cfg = SceneEntityCfg("socket_frame")
         action_dim = env.action_space.shape[-1]
+        scripted_control_mode = args_cli.scripted_control_mode
+        if scripted_control_mode == "auto":
+            scripted_control_mode = "joint-ik" if "JointPos" in args_cli.task else "mdp"
         if action_dim not in (6, 7):
             raise ValueError(f"unsupported scripted action dimension: {action_dim}")
+        if scripted_control_mode == "joint-ik" and action_dim != 7:
+            raise ValueError(f"joint-ik scripted control requires a 7D joint-position action, got {action_dim}")
+
+        diff_ik_controller = None
+        robot_entity_cfg = None
+        ee_jacobi_idx = None
+        if scripted_control_mode == "joint-ik":
+            assert DifferentialIKController is not None
+            assert DifferentialIKControllerCfg is not None
+            robot_entity_cfg = SceneEntityCfg(
+                "robot",
+                joint_names=[
+                    "panda_joint1",
+                    "panda_joint2",
+                    "panda_joint3",
+                    "panda_joint4",
+                    "panda_joint5",
+                    "panda_joint6",
+                    "panda_joint7",
+                ],
+                body_names=["panda_hand"],
+            )
+            robot_entity_cfg.resolve(env_unwrapped.scene)
+            ee_jacobi_idx = robot_entity_cfg.body_ids[0] - 1 if robot.is_fixed_base else robot_entity_cfg.body_ids[0]
+            diff_ik_cfg = DifferentialIKControllerCfg(command_type="pose", use_relative_mode=False, ik_method="dls")
+            diff_ik_controller = DifferentialIKController(
+                diff_ik_cfg,
+                num_envs=env_unwrapped.num_envs,
+                device=env_unwrapped.device,
+            )
+            diff_ik_controller.reset()
+            print(
+                "[SCRIPTED] using standalone joint-IK pre-controller "
+                f"body_id={robot_entity_cfg.body_ids[0]} ee_jacobi_idx={ee_jacobi_idx} "
+                f"joint_ids={robot_entity_cfg.joint_ids}",
+                flush=True,
+            )
 
         initial_lateral = None
         initial_axial = None
@@ -485,8 +571,59 @@ def main():
             rot_clamp = torch.full_like(axis_angle_error, args_cli.rot_clamp)
             rot_clamp[polish_state] = args_cli.polish_rot_clamp
             rot_clamp[settle_state] = args_cli.settle_rot_clamp
+            hand_target_pos_w = None
+            hand_target_quat_w = None
+            joint_pos_des = None
 
-            if action_dim == 7:
+            if scripted_control_mode == "joint-ik":
+                if args_cli.position_control_mode != "direct":
+                    raise ValueError("calibrated position control is not supported for joint-ik scripted control")
+                assert diff_ik_controller is not None
+                assert robot_entity_cfg is not None
+                assert ee_jacobi_idx is not None
+                if args_cli.abs_control_mode == "waypoint":
+                    command_pos_w = action_pos_w + _clamp_actions(pos_error, args_cli.abs_pos_step)
+                    axis_angle_norm = torch.linalg.norm(axis_angle_error, dim=-1, keepdim=True)
+                    axis_angle_scale = torch.clamp(
+                        args_cli.abs_rot_step / torch.clamp(axis_angle_norm, min=1.0e-8),
+                        max=1.0,
+                    )
+                    command_quat_w = _normalize_quat(
+                        _quat_multiply(action_quat_w, _axis_angle_to_quat(axis_angle_error * axis_angle_scale))
+                    )
+
+                offset_pos = action_pos_w.new_tensor(BODY_OFFSET).unsqueeze(0).repeat(action_pos_w.shape[0], 1)
+                offset_quat = action_pos_w.new_tensor(PEG_TIP_BODY_OFFSET_ROT).unsqueeze(0).repeat(action_pos_w.shape[0], 1)
+                hand_target_pos_w, hand_target_quat_w = _child_pose_to_parent_pose(
+                    command_pos_w,
+                    command_quat_w,
+                    offset_pos,
+                    offset_quat,
+                )
+                root_pose_w = _as_torch(robot.data.root_pose_w)
+                hand_pos_w, hand_quat_w = _hand_pose_w(env_unwrapped, body_idx)
+                hand_target_pos_b, hand_target_quat_b = subtract_frame_transforms(
+                    root_pose_w[:, 0:3],
+                    root_pose_w[:, 3:7],
+                    hand_target_pos_w,
+                    hand_target_quat_w,
+                )
+                hand_pos_b, hand_quat_b = subtract_frame_transforms(
+                    root_pose_w[:, 0:3],
+                    root_pose_w[:, 3:7],
+                    hand_pos_w,
+                    hand_quat_w,
+                )
+                ik_commands = torch.cat((hand_target_pos_b, hand_target_quat_b), dim=-1)
+                diff_ik_controller.set_command(ik_commands)
+                jacobian = robot.root_physx_view.get_jacobians()[
+                    :, ee_jacobi_idx, :, robot_entity_cfg.joint_ids
+                ]
+                joint_pos = _as_torch(robot.data.joint_pos)[:, robot_entity_cfg.joint_ids]
+                joint_pos_des = diff_ik_controller.compute(hand_pos_b, hand_quat_b, jacobian, joint_pos)
+                actions[:, :7] = joint_pos_des
+                selected_candidate_idxs = None
+            elif action_dim == 7:
                 if args_cli.position_control_mode != "direct":
                     raise ValueError("calibrated position control is only supported for 6D relative IK actions")
                 selected_candidate_idxs = None
@@ -552,11 +689,14 @@ def main():
                     f"signed_action_pos_error={signed_action_pos_error[0].tolist()} "
                     f"axis_angle_error={axis_angle_error[0].tolist()} "
                     f"action_dim={action_dim} "
+                    f"scripted_control_mode={scripted_control_mode} "
                     f"position_control_mode={args_cli.position_control_mode} "
                     f"abs_control_mode={args_cli.abs_control_mode} "
                     f"selected_calibrated_action="
                     f"{calibrated_candidate_names[int(selected_candidate_idxs[0].item())] if selected_candidate_idxs is not None else None} "
-                    f"raw_action={actions[0].tolist()}",
+                    f"raw_action={actions[0].tolist()} "
+                    f"hand_target_pos={hand_target_pos_w[0].tolist() if hand_target_pos_w is not None else None} "
+                    f"joint_pos_des={joint_pos_des[0].tolist() if joint_pos_des is not None else None}",
                     flush=True,
                 )
 
@@ -616,6 +756,13 @@ def main():
                         "approach_pos_w": approach_pos_w[0].detach().cpu().tolist(),
                         "target_pos_w": target_pos_w[0].detach().cpu().tolist(),
                         "command_pos_w": command_pos_w[0].detach().cpu().tolist(),
+                        "hand_target_pos_w": (
+                            hand_target_pos_w[0].detach().cpu().tolist() if hand_target_pos_w is not None else None
+                        ),
+                        "hand_target_quat_w": (
+                            hand_target_quat_w[0].detach().cpu().tolist() if hand_target_quat_w is not None else None
+                        ),
+                        "joint_pos_des": joint_pos_des[0].detach().cpu().tolist() if joint_pos_des is not None else None,
                         "pos_error": pos_error[0].detach().cpu().tolist(),
                         "axis_angle_error": axis_angle_error[0].detach().cpu().tolist(),
                         "raw_action": actions[0].detach().cpu().tolist(),
@@ -660,6 +807,7 @@ def main():
             "coupled_approach": args_cli.coupled_approach,
             "action_axis_signs": list(args_cli.action_axis_signs),
             "action_dim": action_dim,
+            "scripted_control_mode": scripted_control_mode,
             "position_control_mode": args_cli.position_control_mode,
             "abs_control_mode": args_cli.abs_control_mode,
             "position_response_json": args_cli.position_response_json,

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from isaaclab.controllers.differential_ik_cfg import DifferentialIKControllerCfg
-from isaaclab.envs.mdp.actions.actions_cfg import DifferentialInverseKinematicsActionCfg
+from isaaclab.envs.mdp.actions.actions_cfg import DifferentialInverseKinematicsActionCfg, JointPositionActionCfg
 from isaaclab.utils import configclass
 
 from ...constants import PEG_TIP_BODY_OFFSET_POS, PEG_TIP_BODY_OFFSET_ROT
@@ -129,6 +129,42 @@ class FrankaPegInHoleContactAbsEnvCfg(FrankaPegInHoleContactEnvCfg):
 @configclass
 class FrankaPegInHoleContactAbsEnvCfg_PLAY(FrankaPegInHoleContactAbsEnvCfg):
     """Smaller absolute-pose IK contact task for scripted validation."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 32
+        self.scene.env_spacing = 2.5
+        self.observations.policy.enable_corruption = False
+
+
+@configclass
+class FrankaPegInHoleContactJointPosEnvCfg(FrankaPegInHoleContactEnvCfg):
+    """Force-aware contact task using direct Franka arm joint-position targets."""
+
+    def __post_init__(self):
+        super().__post_init__()
+
+        self.actions.arm_action = JointPositionActionCfg(
+            asset_name="robot",
+            joint_names=[
+                "panda_joint1",
+                "panda_joint2",
+                "panda_joint3",
+                "panda_joint4",
+                "panda_joint5",
+                "panda_joint6",
+                "panda_joint7",
+            ],
+            scale=1.0,
+            offset=0.0,
+            preserve_order=True,
+            use_default_offset=False,
+        )
+
+
+@configclass
+class FrankaPegInHoleContactJointPosEnvCfg_PLAY(FrankaPegInHoleContactJointPosEnvCfg):
+    """Smaller joint-position contact task for deterministic scripted validation."""
 
     def __post_init__(self):
         super().__post_init__()
