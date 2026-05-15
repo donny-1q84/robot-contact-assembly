@@ -271,6 +271,9 @@ def main():
         body_idx = body_ids[0]
         peg_cfg = SceneEntityCfg("peg")
         socket_cfg = SceneEntityCfg("socket_frame")
+        action_dim = env.action_space.shape[-1]
+        if action_dim not in (6, 7):
+            raise ValueError(f"unsupported scripted action dimension: {action_dim}")
 
         initial_lateral = None
         initial_axial = None
@@ -380,18 +383,25 @@ def main():
             rot_clamp[polish_state] = args_cli.polish_rot_clamp
             rot_clamp[settle_state] = args_cli.settle_rot_clamp
 
-            if args_cli.position_control_mode == "calibrated-onehot":
+            if action_dim == 7:
+                if args_cli.position_control_mode != "direct":
+                    raise ValueError("calibrated position control is only supported for 6D relative IK actions")
+                selected_candidate_idxs = None
+                actions[:, :3] = target_pos_w
+                actions[:, 3:7] = target_quat_w
+            elif args_cli.position_control_mode == "calibrated-onehot":
                 assert calibrated_candidate_actions is not None
                 assert calibrated_candidate_deltas is not None
                 predicted_next_errors = signed_action_pos_error[:, None, :] - calibrated_candidate_deltas[None, :, :]
                 selected_candidate_idxs = torch.argmin(torch.linalg.norm(predicted_next_errors, dim=-1), dim=1)
                 actions[:, :3] = calibrated_candidate_actions[selected_candidate_idxs]
+                actions[:, 3:6] = _clamp_actions(rot_gain * axis_angle_error, rot_clamp)
             else:
                 selected_candidate_idxs = None
                 actions[:, :3] = _clamp_actions(args_cli.pos_gain * signed_action_pos_error, args_cli.pos_clamp)
-            actions[:, 3:6] = _clamp_actions(rot_gain * axis_angle_error, rot_clamp)
+                actions[:, 3:6] = _clamp_actions(rot_gain * axis_angle_error, rot_clamp)
 
-            if polish_only.any():
+            if action_dim == 6 and polish_only.any():
                 actions[polish_only, :2] = _clamp_actions(
                     args_cli.polish_pos_gain * signed_action_pos_error[polish_only, :2],
                     args_cli.polish_pos_clamp,
@@ -402,7 +412,7 @@ def main():
                     args_cli.polish_rot_clamp,
                 )
 
-            if settle_state.any():
+            if action_dim == 6 and settle_state.any():
                 actions[settle_state, :2] = _clamp_actions(
                     args_cli.settle_pos_gain * signed_action_pos_error[settle_state, :2],
                     args_cli.settle_pos_clamp,
@@ -426,6 +436,7 @@ def main():
                     f"action_pos_error={action_pos_error[0].tolist()} "
                     f"signed_action_pos_error={signed_action_pos_error[0].tolist()} "
                     f"axis_angle_error={axis_angle_error[0].tolist()} "
+                    f"action_dim={action_dim} "
                     f"position_control_mode={args_cli.position_control_mode} "
                     f"selected_calibrated_action="
                     f"{calibrated_candidate_names[int(selected_candidate_idxs[0].item())] if selected_candidate_idxs is not None else None} "
@@ -497,6 +508,7 @@ def main():
             "video_folder": video_folder,
             "coupled_approach": args_cli.coupled_approach,
             "action_axis_signs": list(args_cli.action_axis_signs),
+            "action_dim": action_dim,
             "position_control_mode": args_cli.position_control_mode,
             "position_response_json": args_cli.position_response_json,
         }

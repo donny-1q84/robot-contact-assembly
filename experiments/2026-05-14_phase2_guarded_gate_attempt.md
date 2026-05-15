@@ -1000,3 +1000,102 @@ Next useful action:
 1. Do not open another GPU immediately after this partial-create failure.
 2. Commit the repeated-delete cleanup fix.
 3. Later, rerun the calibrated one-hot gate only after Brev instance listing is stable and the org is confirmed empty.
+
+## Attempt 15: Calibrated One-Hot Gate Runs but Diverges
+
+Command:
+
+```bash
+RCA_GATE_COMMAND=calibration_then_scripted_eval \
+RCA_GATE_USE_CALIBRATED_SCRIPTED=1 \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-calibrated-onehot-l4 \
+RCA_GATE_INSTANCE_TYPE='g2-standard-4:nvidia-l4:1' \
+RCA_GATE_CREATE_TIMEOUT=900 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_EVAL_TIMEOUT_SECONDS=300 \
+RCA_ACTION_CALIBRATION_RETRIES=1 \
+RCA_SCRIPTED_EVAL_RETRIES=1 \
+RCA_GATE_CALIBRATION_STEPS=4 \
+RCA_GATE_SCRIPTED_STEPS=80 \
+RCA_GATE_SCRIPTED_EXTRA_AGENT_ARGS='--debug-action-steps 8' \
+scripts/run_guarded_phase2_gate.sh
+```
+
+Price selection:
+
+- Explicitly used `g2-standard-4:nvidia-l4:1`.
+- The live price table showed L4 at about `$0.85/hr`; the cheapest visible L40S was about `$1.86/hr`.
+
+Artifacts:
+
+- Calibration JSON: `artifacts/calibration/relative_ik_action/2026-05-15T07-32-28Z/seed_42.json`
+- Latest calibration copy: `artifacts/calibration/relative_ik_action/latest_seed_42.json`
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-15T07-33-27Z/seed_42.json`
+- Gate log: `artifacts/gpu_gate/2026-05-15T07-18-37Z_isaac-phase2-calibrated-onehot-l4/gate.log`
+
+Result:
+
+- Brev created the L4 instance successfully.
+- Runtime bootstrap completed.
+- Calibration and calibrated scripted eval both ran successfully.
+- Artifacts were pulled locally.
+- Cleanup deleted the instance.
+- Repeated delete retries fired while the instance remained visible in `DELETING`.
+- Final guarded and independent checks returned:
+  - `brev ls instances --all`: `No instances`
+  - `brev ls instances --json --all`: `null`
+
+Metrics:
+
+```json
+{
+  "position_control_mode": "calibrated-onehot",
+  "action_dim": 6,
+  "initial_lateral": 0.5341109037399292,
+  "final_lateral": 0.9221593737602234,
+  "best_lateral": 0.25000542402267456,
+  "best_lateral_step": 15,
+  "initial_axial": 0.26906704902648926,
+  "final_axial": 0.3946937918663025,
+  "best_axial": 0.17156338691711426,
+  "best_axial_step": 6,
+  "initial_rot": 3.1208298206329346,
+  "final_rot": 1.2936623096466064,
+  "best_rot": 0.5582655072212219,
+  "best_rot_step": 36,
+  "final_success_rate": 0.0
+}
+```
+
+Key debug evidence:
+
+```text
+step=0000 selected_calibrated_action=z_pos raw_action=[0.0, 0.0, 0.12, ...]
+step=0001 selected_calibrated_action=z_pos raw_action=[0.0, 0.0, 0.12, ...]
+...
+step=0007 selected_calibrated_action=z_pos raw_action=[0.0, 0.0, 0.12, ...]
+```
+
+Interpretation:
+
+- The calibrated one-hot controller reduced axial error early, but it behaved like a repeated `z_pos` macro-action and did not switch phases soon enough.
+- It is worse than the direct controller in final metrics.
+- This invalidates further reward/controller polishing on the 6D relative IK scripted path.
+- The next controller-level baseline should use absolute pose IK instead of relative deltas.
+
+Follow-up fix:
+
+- Added absolute-pose contact task configs:
+  - `FrankaPegInHoleContactAbsEnvCfg`
+  - `FrankaPegInHoleContactAbsEnvCfg_PLAY`
+- Registered new task IDs:
+  - `RCA-PegInHole-Franka-IK-Abs-Contact-v0`
+  - `RCA-PegInHole-Franka-IK-Abs-Contact-Play-v0`
+- Updated `scripts/scripted_agent.py` to detect 7D action spaces and send absolute pose commands as `(x, y, z, qw, qx, qy, qz)`.
+
+Next useful action:
+
+1. Commit the absolute-pose fallback locally.
+2. Run one short scripted gate on `RCA-PegInHole-Franka-IK-Abs-Contact-Play-v0`.
+3. If absolute pose IK produces a stable approach trajectory, use that as the scripted baseline and stop trying to rescue relative scripted control.
+4. If absolute pose IK also fails, move the baseline to joint-space waypoints or an explicit motion-planning/IK pre-controller before PPO.

@@ -104,3 +104,34 @@ class FrankaPegInHoleContactEnvCfg_PLAY(FrankaPegInHoleContactEnvCfg):
         self.scene.num_envs = 32
         self.scene.env_spacing = 2.5
         self.observations.policy.enable_corruption = False
+
+
+@configclass
+class FrankaPegInHoleContactAbsEnvCfg(FrankaPegInHoleContactEnvCfg):
+    """Force-aware contact task using absolute pose IK targets."""
+
+    def __post_init__(self):
+        super().__post_init__()
+
+        self.actions.arm_action = DifferentialInverseKinematicsActionCfg(
+            asset_name="robot",
+            joint_names=["panda_joint.*"],
+            body_name="panda_hand",
+            controller=DifferentialIKControllerCfg(command_type="pose", use_relative_mode=False, ik_method="dls"),
+            scale=1.0,
+            body_offset=DifferentialInverseKinematicsActionCfg.OffsetCfg(
+                pos=PEG_TIP_BODY_OFFSET_POS,
+                rot=PEG_TIP_BODY_OFFSET_ROT,
+            ),
+        )
+
+
+@configclass
+class FrankaPegInHoleContactAbsEnvCfg_PLAY(FrankaPegInHoleContactAbsEnvCfg):
+    """Smaller absolute-pose IK contact task for scripted validation."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 32
+        self.scene.env_spacing = 2.5
+        self.observations.policy.enable_corruption = False
