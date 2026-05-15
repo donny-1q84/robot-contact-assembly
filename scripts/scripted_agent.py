@@ -200,6 +200,12 @@ parser.add_argument(
     help="Align XY at the current height before descending to the pre-insertion approach height.",
 )
 parser.add_argument(
+    "--rotate-before-descend",
+    action="store_true",
+    default=False,
+    help="In staged approach mode, rotate to the socket orientation after XY alignment before descending.",
+)
+parser.add_argument(
     "--coupled-approach",
     action="store_true",
     default=False,
@@ -607,12 +613,19 @@ def main():
                 target_pos_w[~xy_state] = xy_target_pos_w[~xy_state]
 
                 approach_z_error = torch.abs(action_pos_w[:, 2] - approach_pos_w[:, 2])
-                position_ready = xy_state & (approach_z_error < args_cli.approach_z_tol)
-                rotate_state |= position_ready
                 target_quat_w = action_quat_w.clone()
-                target_quat_w[rotate_state] = target_action_quat_w[rotate_state]
+                if args_cli.rotate_before_descend:
+                    rotate_state |= xy_state
+                    rotation_ready = rotate_state & (orientation_error < args_cli.approach_rot_tol)
+                    target_pos_w[rotate_state & ~rotation_ready] = xy_target_pos_w[rotate_state & ~rotation_ready]
+                    target_quat_w[rotate_state] = target_action_quat_w[rotate_state]
+                    position_ready = rotation_ready & (approach_z_error < args_cli.approach_z_tol)
+                else:
+                    position_ready = xy_state & (approach_z_error < args_cli.approach_z_tol)
+                    rotate_state |= position_ready
+                    target_quat_w[rotate_state] = target_action_quat_w[rotate_state]
                 insert_mask = (
-                    rotate_state
+                    position_ready
                     & (lateral_error < args_cli.approach_xy_tol)
                     & (orientation_error < args_cli.approach_rot_tol)
                 )
@@ -936,6 +949,7 @@ def main():
             "video_folder": video_folder,
             "coupled_approach": args_cli.coupled_approach,
             "staged_approach": args_cli.staged_approach,
+            "rotate_before_descend": args_cli.rotate_before_descend,
             "action_axis_signs": list(args_cli.action_axis_signs),
             "action_dim": action_dim,
             "scripted_control_mode": scripted_control_mode,
