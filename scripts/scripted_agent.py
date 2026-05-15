@@ -681,6 +681,7 @@ def main():
                 action_pos_w, action_quat_w, target_pos_w, target_quat_w, rot_error_type="axis_angle"
             )
             rotate_only_mask = rotate_state & ~orientation_ready & ~insert_mask & ~polish_state
+            rotate_quat_hold_mask = rotate_state & ~insert_mask & ~polish_state
             # Isaac Lab's relative IK action applies translational deltas directly in the robot root frame.
             # Do not rotate the Cartesian error into the end-effector frame here.
             action_pos_error = pos_error
@@ -716,8 +717,8 @@ def main():
                     command_quat_w = _normalize_quat(
                         _quat_multiply(action_quat_w, _axis_angle_to_quat(axis_angle_error * axis_angle_scale))
                     )
-                if args_cli.rotate_control_mode == "target" and rotate_only_mask.any():
-                    command_quat_w[rotate_only_mask] = target_quat_w[rotate_only_mask]
+                if args_cli.rotate_control_mode == "target" and rotate_quat_hold_mask.any():
+                    command_quat_w[rotate_quat_hold_mask] = target_quat_w[rotate_quat_hold_mask]
                 elif args_cli.rotate_control_mode == "waypoint" and rotate_only_mask.any():
                     axis_angle_norm = torch.linalg.norm(axis_angle_error, dim=-1, keepdim=True)
                     axis_angle_scale = torch.clamp(
@@ -787,8 +788,8 @@ def main():
                     command_quat_w = _normalize_quat(
                         _quat_multiply(action_quat_w, _axis_angle_to_quat(axis_angle_error * axis_angle_scale))
                     )
-                if args_cli.rotate_control_mode == "target" and rotate_only_mask.any():
-                    command_quat_w[rotate_only_mask] = target_quat_w[rotate_only_mask]
+                if args_cli.rotate_control_mode == "target" and rotate_quat_hold_mask.any():
+                    command_quat_w[rotate_quat_hold_mask] = target_quat_w[rotate_quat_hold_mask]
                 elif args_cli.rotate_control_mode == "waypoint" and rotate_only_mask.any():
                     axis_angle_norm = torch.linalg.norm(axis_angle_error, dim=-1, keepdim=True)
                     axis_angle_scale = torch.clamp(
@@ -964,6 +965,7 @@ def main():
                         "axis_angle_error": axis_angle_error[0].detach().cpu().tolist(),
                         "axis_angle_error_norm": torch.linalg.norm(axis_angle_error[0]).item(),
                         "rotate_only": bool(rotate_only_mask[0].item()),
+                        "rotate_quat_hold": bool(rotate_quat_hold_mask[0].item()),
                         "rotate_control_mode": args_cli.rotate_control_mode,
                         "raw_action": actions[0].detach().cpu().tolist(),
                         "lateral": lateral[0].item(),
