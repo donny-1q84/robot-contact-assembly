@@ -2793,3 +2793,158 @@ Next useful local fix:
 - Inspect the rotate-stage target orientation and the measured `tip_to_socket_orientation` convention.
 - Add a local/offline trace summary that compares commanded quaternion, socket quaternion, action quaternion, and measured tip-to-socket quaternion around steps `50`, `125`, `180`, `209`, and `219`.
 - The next scripted controller change should reduce the rotate-phase orientation error without sacrificing the `2-5 mm` lateral alignment. Only then run another cheap L4 gate.
+
+## Attempt 34: Target-Quaternion Gate Fails During Runtime Registration
+
+Command:
+
+```bash
+RCA_GATE_PROFILE=cheap \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-rot-target-l4 \
+RCA_GATE_READY_TIMEOUT_SECONDS=480 \
+RCA_GATE_BUILD_STUCK_SECONDS=240 \
+RCA_GATE_DELETE_TIMEOUT_SECONDS=900 \
+RCA_GATE_CREATE_TIMEOUT=600 \
+scripts/run_phase2_absik_gate.sh
+```
+
+Code state:
+
+- Commit before run: `9a8ab37 Use target quaternion during rotate gate`
+- Scripted gate added `--rotate-control-mode target`.
+- Selected instance type: `g2-standard-4:nvidia-l4:1` at about `$0.85/hr`.
+
+Result:
+
+- The instance reached `RUNNING / COMPLETED / READY`.
+- Runtime install completed, but the environment registration check failed before scripted eval.
+- Error:
+
+```text
+TypeError: 'module' object is not callable
+```
+
+- Failure path:
+
+```text
+peg_in_hole_env_cfg.py
+  from isaaclab_physx.physics import PhysxCfg
+isaaclab_physx/physics/physx_manager_cfg.py
+  @configclass
+```
+
+Interpretation:
+
+- This was an Isaac Lab 5.2.1 runtime compatibility issue, not a robotics result.
+- The task configuration imported `PhysxCfg` only to set `bounce_threshold_velocity=0.2`; that setting was non-essential for the scripted gate.
+- Fix: remove the direct `PhysxCfg` import and the optional `self.sim.physics = PhysxCfg(...)` override.
+
+Cleanup verification:
+
+- Artifacts were pulled before shutdown, but no eval JSON was produced.
+- `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+- `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Follow-up commit:
+
+- `8025ceb Avoid IsaacLab PhysxCfg import in peg env`
+
+## Attempt 35: Target Quaternion Reduces Rotation Error But Breaks Lateral Hold
+
+Command:
+
+```bash
+RCA_GATE_PROFILE=cheap \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-rot-target-l4c \
+RCA_GATE_READY_TIMEOUT_SECONDS=480 \
+RCA_GATE_BUILD_STUCK_SECONDS=240 \
+RCA_GATE_DELETE_TIMEOUT_SECONDS=900 \
+RCA_GATE_CREATE_TIMEOUT=600 \
+scripts/run_phase2_absik_gate.sh
+```
+
+Code state:
+
+- Commit before run: `8025ceb Avoid IsaacLab PhysxCfg import in peg env`
+- Scripted gate parameters included:
+  - `--rotate-before-descend`
+  - `--rotate-control-mode target`
+  - `--abs-control-mode waypoint`
+  - `--abs-pos-step 0.030`
+  - `--abs-rot-step 0.12`
+
+Price selection:
+
+- Selected `g2-standard-4:nvidia-l4:1`.
+- Live L4 price was about `$0.85/hr`.
+- Lowest visible L40S option was about `$1.86/hr`.
+- L4 remained the right choice for this short scripted gate.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-15T17-39-03Z/seed_42.json`
+- Scripted eval trace: `artifacts/evaluations/scripted/2026-05-15T17-39-03Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-15T17-39-03Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-15T17-24-15Z_isaac-phase2-rot-target-l4c/gate.log`
+
+Cleanup verification:
+
+- Artifacts were pulled locally before shutdown.
+- `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+- `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Metrics:
+
+```json
+{
+  "steps_requested": 220,
+  "rotate_before_descend": true,
+  "initial_action_tip_alignment": 0.0,
+  "final_action_tip_alignment": 3.003425064207477e-08,
+  "best_action_tip_alignment": 0.0,
+  "initial_lateral": 0.19102078676223755,
+  "final_lateral": 0.2338368445634842,
+  "best_lateral": 0.039388321340084076,
+  "best_lateral_step": 30,
+  "initial_axial": 0.4095129370689392,
+  "final_axial": 0.2880937159061432,
+  "best_axial": 0.19548767805099487,
+  "best_axial_step": 209,
+  "initial_rot": 2.87626576423645,
+  "final_rot": 1.3000329732894897,
+  "best_rot": 0.834111213684082,
+  "best_rot_step": 66,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Trace highlights:
+
+```text
+step  phase   lat     ax      rot     act_cmd  act_target  cmd_target
+30    rotate  0.0394  0.4501  2.7621  2.8771   2.8771      0.0000
+50    rotate  0.1340  0.5767  1.5501  1.5815   1.5815      0.0000
+66    rotate  0.3708  0.5812  0.8341  0.8356   0.8356      0.0000
+125   rotate  0.3922  0.6290  1.1396  1.1408   1.1408      0.0000
+209   rotate  0.2466  0.1955  2.3981  1.0582   1.0582      0.0000
+219   rotate  0.2338  0.2881  1.3000  1.3745   1.3745      0.0000
+```
+
+Interpretation:
+
+- This is not a success run; `success_rate=0.0`.
+- The target-quaternion change fixed the previous orientation bottleneck directionally:
+  - Attempt 33 best rotation error: `2.3981 rad`
+  - Attempt 35 best rotation error: `0.8341 rad`
+- The new failure mode is position drift during rotation:
+  - best lateral only reached `3.94 cm`, versus Attempt 33's `2.6 mm`
+  - lateral drifted to `37-41 cm` around the best-rotation region
+- `cmd_target=0.0000` confirms the commanded quaternion is now the target quaternion during rotate, but the end effector cannot hold the approach position while rotating.
+
+Next useful local fix:
+
+- Do not run another GPU gate yet.
+- Modify rotate-stage command generation so rotation uses the target quaternion while position is held at the socket approach pose, not at the moving current-Z waypoint.
+- Add trace fields or summary rows that expose `command_pos_w`, `target_action_pos_w`, and `approach_pos_w` at rotate steps.
+- The next gate should pass only if lateral stays below `4 cm` while rotation improves below `1 rad`; otherwise switch from MDP abs IK to explicit joint-IK for the rotate stage.

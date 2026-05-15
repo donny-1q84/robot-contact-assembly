@@ -29,6 +29,12 @@ def _quat_angle(a: list[float] | None, b: list[float] | None) -> float | None:
     return 2.0 * math.acos(dot)
 
 
+def _vec_dist(a: list[float] | None, b: list[float] | None) -> float | None:
+    if a is None or b is None:
+        return None
+    return math.sqrt(sum((x - y) * (x - y) for x, y in zip(a, b, strict=True)))
+
+
 def _fmt(value: Any, precision: int = 4) -> str:
     if value is None:
         return "n/a"
@@ -65,6 +71,10 @@ def main() -> int:
         raw_action = step.get("raw_action") or []
         if command_quat is None and len(raw_action) >= 7:
             command_quat = raw_action[3:7]
+        action_pos = step.get("action_pos_w")
+        command_pos = step.get("command_pos_w")
+        target_action_pos = step.get("target_action_pos_w")
+        rotate_hold_pos = step.get("rotate_hold_pos_w")
 
         rows.append(
             {
@@ -78,6 +88,9 @@ def main() -> int:
                 "act_target": _quat_angle(action_quat, target_quat),
                 "cmd_target": _quat_angle(command_quat, target_quat),
                 "tip_socket": _quat_angle(physical_quat, socket_quat),
+                "action_target_pos": _vec_dist(action_pos, target_action_pos),
+                "cmd_target_pos": _vec_dist(command_pos, target_action_pos),
+                "cmd_hold_pos": _vec_dist(command_pos, rotate_hold_pos),
                 "xy": step.get("xy_state"),
                 "ori": step.get("orientation_ready"),
                 "pos": step.get("position_ready"),
@@ -96,6 +109,9 @@ def main() -> int:
         "act_target",
         "cmd_target",
         "tip_socket",
+        "action_target_pos",
+        "cmd_target_pos",
+        "cmd_hold_pos",
         "xy",
         "ori",
         "pos",

@@ -553,6 +553,8 @@ def main():
         trace_rows = []
         xy_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         rotate_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
+        rotate_hold_pos_w = torch.zeros((env_unwrapped.num_envs, 3), dtype=torch.float32, device=env_unwrapped.device)
+        rotate_hold_valid = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         polish_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         settle_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         action_axis_signs = torch.tensor(args_cli.action_axis_signs, device=env_unwrapped.device).unsqueeze(0)
@@ -625,9 +627,20 @@ def main():
                 approach_z_error = torch.abs(action_pos_w[:, 2] - approach_pos_w[:, 2])
                 target_quat_w = action_quat_w.clone()
                 if args_cli.rotate_before_descend:
+                    prev_rotate_state = rotate_state.clone()
                     rotate_state |= xy_state
+                    new_rotate_mask = rotate_state & ~prev_rotate_state
+                    if new_rotate_mask.any():
+                        rotate_hold_pos_w[new_rotate_mask] = xy_target_pos_w[new_rotate_mask]
+                        rotate_hold_valid[new_rotate_mask] = True
                     rotation_ready = rotate_state & orientation_ready
-                    target_pos_w[rotate_state & ~rotation_ready] = xy_target_pos_w[rotate_state & ~rotation_ready]
+                    rotate_hold_mask = rotate_state & ~rotation_ready
+                    if rotate_hold_mask.any():
+                        target_pos_w[rotate_hold_mask] = torch.where(
+                            rotate_hold_valid[rotate_hold_mask, None],
+                            rotate_hold_pos_w[rotate_hold_mask],
+                            xy_target_pos_w[rotate_hold_mask],
+                        )
                     target_quat_w[rotate_state] = target_action_quat_w[rotate_state]
                     position_ready = rotation_ready & (approach_z_error < args_cli.approach_z_tol)
                 else:
@@ -931,6 +944,8 @@ def main():
                         "target_action_pos_w": target_action_pos_w[0].detach().cpu().tolist(),
                         "target_action_quat_w": target_action_quat_w[0].detach().cpu().tolist(),
                         "approach_pos_w": approach_pos_w[0].detach().cpu().tolist(),
+                        "rotate_hold_pos_w": rotate_hold_pos_w[0].detach().cpu().tolist(),
+                        "rotate_hold_valid": bool(rotate_hold_valid[0].item()),
                         "target_pos_w": target_pos_w[0].detach().cpu().tolist(),
                         "target_quat_w": target_quat_w[0].detach().cpu().tolist(),
                         "command_pos_w": command_pos_w[0].detach().cpu().tolist(),
@@ -1003,6 +1018,7 @@ def main():
             "scripted_control_mode": scripted_control_mode,
             "position_control_mode": args_cli.position_control_mode,
             "abs_control_mode": args_cli.abs_control_mode,
+            "rotate_control_mode": args_cli.rotate_control_mode,
             "position_response_json": args_cli.position_response_json,
             "joint_ik_step": args_cli.joint_ik_step,
             "joint_limit_margin": args_cli.joint_limit_margin,
