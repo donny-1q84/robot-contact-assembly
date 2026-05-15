@@ -1461,3 +1461,72 @@ Follow-up guard hardening:
 - Cleanup now deletes by instance name first, then queries the JSON instance list and also deletes by exact instance id if the target is still visible.
 - `scripts/run_phase2_jointik_gate.sh` captures the next Joint-IK validation command as a one-command wrapper with a tighter `RCA_GATE_BUILD_STUCK_SECONDS=300`.
 - No GPU was started for this hardening change.
+
+## Attempt 20: Joint-IK Runtime Reached Isaac, Failed on Warp Jacobian Indexing
+
+Command:
+
+```bash
+scripts/run_phase2_jointik_gate.sh
+```
+
+Price selection:
+
+- Live price table again selected `g2-standard-4:nvidia-l4:1` at about `$0.85/hr`.
+- The lowest visible L40S remained about `$1.86/hr`.
+- L4 was the correct cost/performance choice for this short controller validation.
+
+Result:
+
+- Instance was created: `isaac-phase2-jointik-l4`, id `as04ieyo0`.
+- The instance initially reported `RUNNING / BUILDING / NOT READY`, then became `RUNNING / COMPLETED / READY` before the build-stuck guard fired.
+- Remote probe succeeded:
+  - GPU: `NVIDIA L4`, 23034 MiB
+  - driver: `580.126.20`
+  - root disk: 125 GB, about 119 GB free
+- Isaac Lab runtime setup completed.
+- The joint-position contact play task registered correctly:
+  - task: `RCA-PegInHole-Franka-JointPos-Contact-Play-v0`
+  - observation width: `43`
+  - action width: `7`
+- The scripted eval failed immediately after warmup when the Joint-IK controller tried to index the robot Jacobian.
+
+Failure:
+
+```text
+TypeError: '<' not supported between instances of 'list' and 'int'
+```
+
+Root cause:
+
+- `robot.root_physx_view.get_jacobians()` returned a Warp array.
+- The code indexed that Warp array with a Python list of joint ids:
+  `[:, ee_jacobi_idx, :, robot_entity_cfg.joint_ids]`.
+- Warp array indexing does not support that Python-list advanced indexing path.
+
+Artifacts:
+
+- Eval log: `artifacts/evaluations/scripted/2026-05-15T10-05-00Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-15T09-50-43Z_isaac-phase2-jointik-l4/gate.log`
+
+Cleanup:
+
+- Artifacts were pulled locally before shutdown.
+- The instance stayed visible in `DELETING` for several polling cycles.
+- The guarded script repeatedly deleted by name and id until the org was empty.
+- Independent post-cleanup checks returned:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `null`
+
+Follow-up fix:
+
+- `scripts/scripted_agent.py` now converts the Warp Jacobian to a Torch tensor before selecting arm joints.
+- Joint selection now uses Torch `index_select` for both the Jacobian and joint-position tensors.
+- Local check passed:
+  - `python3 -m py_compile scripts/scripted_agent.py`
+
+Interpretation:
+
+- This attempt validates the runtime path up to Isaac task creation and controller initialization.
+- The failure is a narrow controller implementation bug, not a task registration, runtime bootstrap, or Brev readiness failure.
+- The next step is one more short L4 Joint-IK gate using the same wrapper to verify the fixed Jacobian path.

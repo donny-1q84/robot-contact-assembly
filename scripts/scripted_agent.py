@@ -616,10 +616,14 @@ def main():
                 )
                 ik_commands = torch.cat((hand_target_pos_b, hand_target_quat_b), dim=-1)
                 diff_ik_controller.set_command(ik_commands)
-                jacobian = robot.root_physx_view.get_jacobians()[
-                    :, ee_jacobi_idx, :, robot_entity_cfg.joint_ids
-                ]
-                joint_pos = _as_torch(robot.data.joint_pos)[:, robot_entity_cfg.joint_ids]
+                joint_ids = torch.as_tensor(
+                    robot_entity_cfg.joint_ids,
+                    device=env_unwrapped.device,
+                    dtype=torch.long,
+                )
+                jacobians = _as_torch(robot.root_physx_view.get_jacobians())
+                jacobian = jacobians[:, ee_jacobi_idx, :, :].index_select(-1, joint_ids)
+                joint_pos = _as_torch(robot.data.joint_pos).index_select(-1, joint_ids)
                 joint_pos_des = diff_ik_controller.compute(hand_pos_b, hand_quat_b, jacobian, joint_pos)
                 actions[:, :7] = joint_pos_des
                 selected_candidate_idxs = None
