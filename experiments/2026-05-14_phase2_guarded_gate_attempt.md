@@ -2600,3 +2600,64 @@ Next useful action:
 - Run one more cheap L4 Abs IK gate with `--rotate-before-descend`.
 - Pass condition: rotation should drop before descent, and the rollout should either reduce axial below the previous `0.239 m` floor or enter `position_ready/insert_ready`.
 - PPO remains blocked.
+
+## Attempt 32: Rotate-Before-Descend Gate Blocked By Brev Startup/Delete State
+
+Command:
+
+```bash
+RCA_GATE_PROFILE=cheap scripts/run_phase2_absik_gate.sh
+```
+
+Intended test:
+
+- Validate the new `--rotate-before-descend` staged scripted controller.
+- Keep the cheap profile and explicitly use `g2-standard-4:nvidia-l4:1`.
+- Run only the scripted Abs IK gate, not PPO.
+
+Price selection:
+
+- Selected `g2-standard-4:nvidia-l4:1`.
+- Live L4 price was about `$0.85/hr`.
+- Lowest visible L40S option was about `$1.86/hr`.
+
+Brev instance:
+
+- Name: `isaac-phase2-absik-l4`
+- ID: `9x25awk9s`
+- Type: `g2-standard-4:nvidia-l4:1`
+- GPU: `L4`
+
+Outcome:
+
+- The instance was created but remained stuck in `STARTING / PENDING / NOT READY`.
+- The gate was aborted before any Isaac Lab runtime install, scripted evaluation, or PPO work.
+- No Phase 2 task metrics were produced by this attempt.
+
+Cleanup issue:
+
+- `brev delete isaac-phase2-absik-l4` and `brev delete 9x25awk9s` both returned success.
+- The instance then remained visible as `STOPPED / NOT READY / UNHEALTHY`.
+- `brev stop isaac-phase2-absik-l4` returned `rpc error: code = Internal desc = context deadline exceeded`.
+- Evidence and support draft were saved locally under `artifacts/brev_incidents/2026-05-15_absik_l4_delete_stuck/`.
+
+Brev CLI mitigation:
+
+- Local Brev CLI was upgraded from `v0.6.322` to `v0.6.324` without sudo by replacing `/Users/Shenghan/bin/brev`.
+- The old binary was backed up under `/Users/Shenghan/bin/.brev-backups/`.
+- The new CLI changed JSON output from list/null to a dict shape such as `{ "workspaces": null }`.
+- `scripts/run_guarded_phase2_gate.sh` was updated to treat the org as empty only when both conditions hold:
+  - plain `brev ls instances --all` contains `No instances in org`
+  - JSON output is empty by either old or new CLI format
+
+Final cleanup verification:
+
+- `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+- `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Interpretation:
+
+- This attempt does not change the robotics result. The latest valid task result remains Attempt 31.
+- The project-side next action is still to run the rotate-before-descend Abs IK scripted gate.
+- The infrastructure-side requirement is stricter now: do not create a new GPU unless the guarded script sees both plain and JSON empty-org checks pass.
+- PPO remains blocked until the scripted gate produces coherent XY, axial, and orientation progress in one rollout.

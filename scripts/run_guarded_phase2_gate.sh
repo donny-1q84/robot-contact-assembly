@@ -105,21 +105,51 @@ run_brev_search() {
 }
 
 org_is_empty() {
-  local json status normalized
+  local json json_status all all_status
   set +e
   json="$(run_brev_json_all 2>/dev/null)"
-  status=$?
+  json_status=$?
+  all="$(run_brev_ls_all 2>/dev/null)"
+  all_status=$?
   set -e
-  normalized="$(printf '%s' "${json}" | tr -d '[:space:]')"
-  if [[ "${status}" -ne 0 ]]; then
-    if [[ "${normalized}" == "null" || "${normalized}" == "[]" ]]; then
-      log "Brev JSON instance query timed out after returning ${normalized}; accepting exact empty-org marker"
-      return 0
-    fi
-    log "Brev JSON instance query failed without an exact empty-org marker; treating org as not empty"
+
+  if [[ "${json_status}" -ne 0 ]]; then
+    log "Brev JSON instance query failed; treating org as not empty"
     return 1
   fi
-  [[ "${normalized}" == "null" || "${normalized}" == "[]" ]]
+
+  if ! BREV_INSTANCES_JSON="${json}" python3 - <<'PY'
+import json
+import os
+import sys
+
+raw = os.environ.get("BREV_INSTANCES_JSON", "").strip()
+try:
+    data = json.loads(raw) if raw else None
+except json.JSONDecodeError:
+    sys.exit(1)
+
+if data in (None, []):
+    sys.exit(0)
+if isinstance(data, dict) and not data.get("workspaces"):
+    sys.exit(0)
+sys.exit(1)
+PY
+  then
+    log "Brev JSON instance query is not empty; treating org as not empty"
+    return 1
+  fi
+
+  if [[ "${all_status}" -ne 0 ]]; then
+    log "Brev plain instance query failed; treating org as not empty"
+    return 1
+  fi
+  if [[ "${all}" != *"No instances in org"* ]]; then
+    log "Brev plain instance query is not empty; treating org as not empty"
+    return 1
+  fi
+
+  return 0
 }
 
 target_instance_ids() {
@@ -134,9 +164,14 @@ import os
 name = os.environ["TARGET_INSTANCE_NAME"]
 raw = os.environ.get("TARGET_INSTANCES_JSON", "").strip()
 try:
-    instances = json.loads(raw) if raw else None
+    data = json.loads(raw) if raw else None
 except json.JSONDecodeError:
-    instances = None
+    data = None
+
+if isinstance(data, dict):
+    instances = data.get("workspaces") or []
+else:
+    instances = data
 
 if not instances:
     raise SystemExit(0)
