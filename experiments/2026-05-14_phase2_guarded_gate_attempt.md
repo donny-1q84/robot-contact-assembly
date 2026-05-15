@@ -1530,3 +1530,67 @@ Interpretation:
 - This attempt validates the runtime path up to Isaac task creation and controller initialization.
 - The failure is a narrow controller implementation bug, not a task registration, runtime bootstrap, or Brev readiness failure.
 - The next step is one more short L4 Joint-IK gate using the same wrapper to verify the fixed Jacobian path.
+
+## Attempt 21: Joint-IK Relaunch Failed Before Sync Due to SSH Carriage Return in Remote Path
+
+Command:
+
+```bash
+scripts/run_phase2_jointik_gate.sh
+```
+
+Price selection:
+
+- Live price table again selected `g2-standard-4:nvidia-l4:1` at about `$0.85/hr`.
+- The lowest visible L40S remained about `$1.86/hr`.
+- L4 remained the correct choice for this short wrapper/controller validation.
+
+Result:
+
+- Instance was created: `isaac-phase2-jointik-l4`, id `7oklg0s2m`.
+- The instance spent several minutes in `RUNNING / BUILDING / NOT READY`, then became `RUNNING / COMPLETED / READY`.
+- Remote probe succeeded:
+  - user: `ubuntu`
+  - host: `brev-7oklg0s2m`
+  - GPU: `NVIDIA L4`, 23034 MiB
+  - driver: `580.126.20`
+  - root disk: 125 GB, about 119 GB free
+- The gate failed during remote workspace bootstrap before repo sync and before Isaac runtime setup.
+
+Failure:
+
+```text
+mkdir: cannot create directory '/home/ubuntu\r': Permission denied
+```
+
+Root cause:
+
+- The wrapper captured `REMOTE_USER` from SSH output without stripping carriage-return characters.
+- The derived paths became:
+  - `/home/ubuntu\r/projects/robot-contact-assembly`
+  - `/home/ubuntu\r/isaac-compose`
+- This corrupted the path passed to `bootstrap_brev_workspace.sh`.
+
+Artifacts:
+
+- Gate log: `artifacts/gpu_gate/2026-05-15T10-13-02Z_isaac-phase2-jointik-l4/gate.log`
+- Metadata: `artifacts/gpu_gate/2026-05-15T10-13-02Z_isaac-phase2-jointik-l4/gate_metadata.env`
+
+Cleanup:
+
+- Artifact pull was attempted but failed because the remote path was also corrupted.
+- The guarded script deleted by name and id.
+- The instance remained visible in `DELETING` for several minutes, then disappeared.
+- Independent post-cleanup checks returned:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `null`
+
+Follow-up fix:
+
+- `scripts/run_guarded_phase2_gate.sh` now strips `\r` from `REMOTE_USER`, `REMOTE_ROOT`, and `REMOTE_COMPOSE_ROOT`.
+
+Interpretation:
+
+- This attempt did not exercise the Jacobian fix because it failed before repo sync.
+- The remaining blocker is wrapper robustness, not task code.
+- After the path sanitization fix is committed, the next short L4 gate can validate the Joint-IK controller again.

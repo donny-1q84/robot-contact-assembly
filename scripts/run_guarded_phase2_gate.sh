@@ -48,6 +48,10 @@ log() {
   echo "[guarded-gate] $*"
 }
 
+strip_cr() {
+  printf '%s' "$1" | tr -d '\r'
+}
+
 run_with_timeout() {
   local timeout_seconds="$1"
   shift
@@ -328,9 +332,9 @@ main() {
 
   log "probing remote host"
   ssh "${INSTANCE_NAME}" 'whoami && hostname && nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader && df -h /'
-  REMOTE_USER="$(ssh "${INSTANCE_NAME}" 'whoami')"
-  REMOTE_ROOT="${RCA_REMOTE_ROOT:-/home/${REMOTE_USER}/projects/robot-contact-assembly}"
-  REMOTE_COMPOSE_ROOT="${RCA_REMOTE_COMPOSE_ROOT:-/home/${REMOTE_USER}/isaac-compose}"
+  REMOTE_USER="$(ssh "${INSTANCE_NAME}" 'whoami' | tr -d '\r')"
+  REMOTE_ROOT="$(strip_cr "${RCA_REMOTE_ROOT:-/home/${REMOTE_USER}/projects/robot-contact-assembly}")"
+  REMOTE_COMPOSE_ROOT="$(strip_cr "${RCA_REMOTE_COMPOSE_ROOT:-/home/${REMOTE_USER}/isaac-compose}")"
   log "remote_user=${REMOTE_USER}"
   log "remote_root=${REMOTE_ROOT}"
   log "remote_compose_root=${REMOTE_COMPOSE_ROOT}"
