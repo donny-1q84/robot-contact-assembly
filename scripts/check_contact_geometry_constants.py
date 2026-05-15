@@ -58,13 +58,13 @@ def main() -> int:
     if abs(quat_norm - 1.0) > 1.0e-9:
         raise AssertionError(f"PEG_TIP_BODY_OFFSET_ROT is not unit length: norm={quat_norm:.12f}")
 
-    local_tip = (0.0, 0.0, 0.5 * c.PEG_LENGTH_M)
+    local_tip = c.PEG_TIP_FROM_CENTER_POS
     rotated_local_tip = _quat_rotate_wxyz(c.PEG_CENTER_BODY_OFFSET_ROT, local_tip)
     physical_tip_offset = tuple(
         c.PEG_CENTER_BODY_OFFSET_POS[index] + rotated_local_tip[index] for index in range(3)
     )
     _assert_close("physical peg tip offset", physical_tip_offset, c.PEG_TIP_BODY_OFFSET_POS)
-    _assert_close("PEG_TIP_FROM_CENTER_POS", c.PEG_TIP_FROM_CENTER_POS, local_tip)
+    _assert_close("PEG_TIP_FROM_CENTER_POS", c.PEG_TIP_FROM_CENTER_POS, (0.0, 0.0, -0.5 * c.PEG_LENGTH_M))
     _assert_close("PEG_ROOT_FROM_TIP_POS", c.PEG_ROOT_FROM_TIP_POS, tuple(-value for value in local_tip))
     _assert_close("PEG_ROOT_FROM_TIP_ROT", c.PEG_ROOT_FROM_TIP_ROT, (1.0, 0.0, 0.0, 0.0))
 

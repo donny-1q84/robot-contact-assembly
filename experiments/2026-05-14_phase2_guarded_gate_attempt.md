@@ -2117,3 +2117,109 @@ Next useful action:
   - Prefer replacing `sync_peg_to_hand` with a fixed-link or fixed-joint-style representation if feasible in the current Isaac Lab task structure.
   - If a fixed attachment is too expensive for the next step, make controller target, reward, termination, and metric computation all use one explicitly documented physical tip frame.
 - After that fix, rerun a cheap L4 scripted gate before any PPO training.
+
+## Attempt 27: Tip-to-Root Sync Patch Exposes Wrong Peg-End Sign
+
+Command:
+
+```bash
+RCA_GATE_PROFILE=cheap \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-sync-l4 \
+RCA_GATE_TASK=RCA-PegInHole-Franka-IK-Abs-Contact-Play-v0 \
+RCA_GATE_COMMAND=scripted_eval \
+RCA_SCRIPTED_TRACE_JSON=1 \
+RCA_GATE_STEPS=80 \
+RCA_GATE_EVAL_TIMEOUT_SECONDS=240 \
+RCA_GATE_DELETE_TIMEOUT_SECONDS=1200 \
+RCA_GATE_BUILD_STUCK_SECONDS=300 \
+RCA_SCRIPTED_EVAL_RETRIES=0 \
+RCA_GATE_EXTRA_AGENT_ARGS='--deterministic-reset --socket-pos 0.22,0.04,0.19 --staged-approach --approach-xy-tol 0.04 --abs-control-mode waypoint --abs-pos-step 0.012 --abs-rot-step 0.12 --debug-action-steps 4' \
+scripts/run_guarded_phase2_gate.sh
+```
+
+Code state:
+
+- Commit before run: `6987229 Align physical peg sync with controller tip frame`
+- The sync event computed a controller tip pose first, then derived the peg root with `PEG_ROOT_FROM_TIP_POS=(0, 0, -0.04)`.
+- `scripts/scripted_agent.py` logged `action_tip_alignment` to directly measure controller action-frame to physical metric-tip consistency.
+
+Price selection:
+
+- Live price table selected `g2-standard-4:nvidia-l4:1` at about `$0.85/hr`.
+- Lowest visible L40S option was about `$1.86/hr`.
+- L4 remained the correct choice for this short diagnostic.
+
+Result:
+
+- Instance was created: `isaac-phase2-sync-l4`, id `7ht4yfbru`.
+- The instance reached `RUNNING / COMPLETED / READY`.
+- Remote GPU probe succeeded:
+  - GPU: `NVIDIA L4`
+  - VRAM: `23034 MiB`
+  - driver: `580.126.20`
+- Isaac Lab runtime setup completed.
+- Scripted eval completed for seed `42` and 80 steps.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-15T13-11-00Z/seed_42.json`
+- Scripted eval trace: `artifacts/evaluations/scripted/2026-05-15T13-11-00Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-15T13-11-00Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-15T12-54-40Z_isaac-phase2-sync-l4/gate.log`
+
+Cleanup:
+
+- Artifacts were pulled locally before shutdown.
+- Delete by name and id initially left the instance visible as `DELETING / COMPLETED / NOT READY`.
+- The wrapper and independent CLI checks kept reissuing delete by both name and id.
+- Final guarded and independent checks returned:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `null`
+
+Metrics:
+
+```json
+{
+  "task": "RCA-PegInHole-Franka-IK-Abs-Contact-Play-v0",
+  "scripted_control_mode": "mdp",
+  "abs_control_mode": "waypoint",
+  "deterministic_reset": true,
+  "socket_pos_override": [0.22, 0.04, 0.19],
+  "staged_approach": true,
+  "steps_requested": 80,
+  "initial_action_tip_alignment": 0.07999999076128006,
+  "final_action_tip_alignment": 0.08000000566244125,
+  "best_action_tip_alignment": 0.07999996095895767,
+  "best_action_tip_alignment_step": 14,
+  "initial_lateral": 0.18753014504909515,
+  "final_lateral": 0.09579933434724808,
+  "best_lateral": 0.09579933434724808,
+  "best_lateral_step": 79,
+  "initial_axial": 0.3541536331176758,
+  "final_axial": 0.41987764835357666,
+  "best_axial": 0.3541536331176758,
+  "best_axial_step": 0,
+  "initial_rot": 2.817500114440918,
+  "final_rot": 2.8085837364196777,
+  "best_rot": 2.8085837364196777,
+  "best_rot_step": 79,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Interpretation:
+
+- The run failed the primary pass condition: `best_action_tip_alignment` needed to be `<0.005 m`, but stayed at exactly one peg length, about `0.080 m`.
+- This is still useful: a full-length constant offset strongly indicates the metric/controller are using opposite ends of the cylinder.
+- Lateral improved from `0.1875 m` to `0.0958 m`, but this is not enough to unblock PPO because the frame alignment invariant is still false.
+- The local follow-up fix flips the selected physical tip end:
+  - `PEG_TIP_FROM_CENTER_POS` becomes `(0.0, 0.0, -0.5 * PEG_LENGTH_M)`.
+  - `PEG_ROOT_FROM_TIP_POS` becomes `(0.0, 0.0, +0.5 * PEG_LENGTH_M)`.
+  - `PEG_CENTER_BODY_OFFSET_POS` is updated accordingly for consistency checks.
+
+Next useful action:
+
+- Rerun one more cheap L4 scripted gate after the sign flip.
+- Pass/fail is again dominated by `best_action_tip_alignment < 0.005 m`.
+- Do not run PPO until this metric passes.

@@ -181,9 +181,26 @@ old_trace_action_tip_alignment_norm_first = 0.0728093148
 old_trace_action_tip_alignment_norm_last  = 0.0728092992
 ```
 
+### 2026-05-15 Remote Result
+
+The first root-from-tip sync gate failed the alignment pass condition, but gave a more precise sign diagnosis:
+
+```text
+best_action_tip_alignment = 0.0799999609 m
+final_action_tip_alignment = 0.0800000057 m
+```
+
+The constant error is one full peg length. That means the controller action frame and metric frame are using opposite ends of the cylinder, not just slightly different offsets.
+
+Follow-up local fix:
+
+- `PEG_TIP_FROM_CENTER_POS` now selects the lower local-Z end: `(0.0, 0.0, -0.5 * PEG_LENGTH_M)`.
+- `PEG_ROOT_FROM_TIP_POS` is the inverse: `(0.0, 0.0, +0.5 * PEG_LENGTH_M)`.
+- `PEG_CENTER_BODY_OFFSET_POS` is updated so the geometry check still reconstructs `PEG_TIP_BODY_OFFSET_POS`.
+
 ### Next Gate
 
-The next GPU session should be a short L4 scripted gate only.
+The next GPU session should be one more short L4 scripted gate only.
 
 Primary pass condition:
 

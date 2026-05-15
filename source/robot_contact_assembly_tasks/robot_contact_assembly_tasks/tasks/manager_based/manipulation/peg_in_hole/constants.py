@@ -11,10 +11,13 @@ PEG_TIP_BODY_OFFSET_ROT = (0.9101164619240488, 0.0, 0.0, 0.41435253798529015)
 # center offsets drifting from Isaac Lab's action-frame convention.
 PEG_RADIUS_M = 0.010
 PEG_LENGTH_M = 0.080
-PEG_CENTER_BODY_OFFSET_POS = (0.0, 0.0, PEG_TIP_BODY_OFFSET_POS[2] - 0.5 * PEG_LENGTH_M)
+# The controller/insertion tip is the lower local-Z end of the spawned cylinder under
+# Isaac Sim's runtime cylinder frame. A remote gate with root-from-tip sync measured a
+# persistent full-length (`0.08 m`) action-to-metric offset when this sign was positive.
+PEG_CENTER_BODY_OFFSET_POS = (0.0, 0.0, PEG_TIP_BODY_OFFSET_POS[2] + 0.5 * PEG_LENGTH_M)
 PEG_CENTER_BODY_OFFSET_ROT = PEG_TIP_BODY_OFFSET_ROT
-PEG_TIP_FROM_CENTER_POS = (0.0, 0.0, 0.5 * PEG_LENGTH_M)
-PEG_ROOT_FROM_TIP_POS = (0.0, 0.0, -0.5 * PEG_LENGTH_M)
+PEG_TIP_FROM_CENTER_POS = (0.0, 0.0, -0.5 * PEG_LENGTH_M)
+PEG_ROOT_FROM_TIP_POS = (0.0, 0.0, 0.5 * PEG_LENGTH_M)
 PEG_ROOT_FROM_TIP_ROT = (1.0, 0.0, 0.0, 0.0)
 
 # Fixed contact guide geometry. This is intentionally a simple square guide channel rather
