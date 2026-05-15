@@ -30,6 +30,7 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
 from . import mdp
 from .constants import (
+    IDENTITY_QUAT,
     PEG_LENGTH_M,
     PEG_RADIUS_M,
     PEG_ROOT_FROM_TIP_POS,
@@ -65,7 +66,7 @@ class PegInHoleSceneCfg(InteractiveSceneCfg):
 
     peg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Peg",
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.45, 0.0, 0.35), rot=(1.0, 0.0, 0.0, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.45, 0.0, 0.35), rot=IDENTITY_QUAT),
         spawn=sim_utils.CylinderCfg(
             radius=PEG_RADIUS_M,
             height=PEG_LENGTH_M,
@@ -98,7 +99,7 @@ class PegInHoleSceneCfg(InteractiveSceneCfg):
                 SOCKET_FRAME_POS[1],
                 SOCKET_FRAME_POS[2],
             ),
-            rot=(1.0, 0.0, 0.0, 0.0),
+            rot=IDENTITY_QUAT,
         ),
         spawn=sim_utils.CuboidCfg(
             size=(
@@ -121,7 +122,7 @@ class PegInHoleSceneCfg(InteractiveSceneCfg):
                 SOCKET_FRAME_POS[1],
                 SOCKET_FRAME_POS[2],
             ),
-            rot=(1.0, 0.0, 0.0, 0.0),
+            rot=IDENTITY_QUAT,
         ),
         spawn=sim_utils.CuboidCfg(
             size=(
@@ -144,7 +145,7 @@ class PegInHoleSceneCfg(InteractiveSceneCfg):
                 SOCKET_FRAME_POS[1] - SOCKET_GUIDE_INNER_HALF_WIDTH_M - 0.5 * SOCKET_GUIDE_WALL_THICKNESS_M,
                 SOCKET_FRAME_POS[2],
             ),
-            rot=(1.0, 0.0, 0.0, 0.0),
+            rot=IDENTITY_QUAT,
         ),
         spawn=sim_utils.CuboidCfg(
             size=(
@@ -167,7 +168,7 @@ class PegInHoleSceneCfg(InteractiveSceneCfg):
                 SOCKET_FRAME_POS[1] + SOCKET_GUIDE_INNER_HALF_WIDTH_M + 0.5 * SOCKET_GUIDE_WALL_THICKNESS_M,
                 SOCKET_FRAME_POS[2],
             ),
-            rot=(1.0, 0.0, 0.0, 0.0),
+            rot=IDENTITY_QUAT,
         ),
         spawn=sim_utils.CuboidCfg(
             size=(

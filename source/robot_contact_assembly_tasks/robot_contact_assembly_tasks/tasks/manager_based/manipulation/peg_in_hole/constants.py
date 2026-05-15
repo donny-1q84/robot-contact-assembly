@@ -1,10 +1,20 @@
 """Shared geometry constants for the contact-guided peg-in-hole shell."""
 
-# Controller-side tip frame used by the relative IK action. Isaac Lab quaternions use
-# `(w, x, y, z)`, so this is the yaw-only tip offset derived from PEG_TIP_YAW_OFFSET_RAD.
+import math
+
+# The remote runtime tracks Isaac Lab develop / Isaac Sim 6, where quaternions use XYZW
+# ordering. Keep hard-coded rotations in this file in `(x, y, z, w)` order.
+IDENTITY_QUAT = (0.0, 0.0, 0.0, 1.0)
+
+# Controller-side tip frame used by the relative IK action.
 PEG_TIP_BODY_OFFSET_POS = (0.0, 0.0, 0.1034)
 PEG_TIP_YAW_OFFSET_RAD = 0.8544625639915466
-PEG_TIP_BODY_OFFSET_ROT = (0.9101164619240488, 0.0, 0.0, 0.41435253798529015)
+PEG_TIP_BODY_OFFSET_ROT = (
+    0.0,
+    0.0,
+    math.sin(0.5 * PEG_TIP_YAW_OFFSET_RAD),
+    math.cos(0.5 * PEG_TIP_YAW_OFFSET_RAD),
+)
 
 # Physical peg geometry. The runtime sync path uses the controller tip frame as the
 # source of truth, then derives the peg root from that tip pose. This avoids hand-written
@@ -18,12 +28,13 @@ PEG_CENTER_BODY_OFFSET_POS = (0.0, 0.0, PEG_TIP_BODY_OFFSET_POS[2] + 0.5 * PEG_L
 PEG_CENTER_BODY_OFFSET_ROT = PEG_TIP_BODY_OFFSET_ROT
 PEG_TIP_FROM_CENTER_POS = (0.0, 0.0, -0.5 * PEG_LENGTH_M)
 PEG_ROOT_FROM_TIP_POS = (0.0, 0.0, 0.5 * PEG_LENGTH_M)
-PEG_ROOT_FROM_TIP_ROT = (1.0, 0.0, 0.0, 0.0)
+PEG_ROOT_FROM_TIP_ROT = IDENTITY_QUAT
 
 # Fixed contact guide geometry. This is intentionally a simple square guide channel rather
 # than a CAD-accurate socket so the first contact milestone stays easy to debug.
 SOCKET_FRAME_POS = (0.520, 0.000, 0.190)
-SOCKET_FRAME_ROT = (0.0, 0.0, 1.0, 0.0)
+# Match UniformPoseCommandCfg ranges roll=0, pitch=pi, yaw=0 under XYZW ordering.
+SOCKET_FRAME_ROT = (0.0, 1.0, 0.0, 0.0)
 SOCKET_GUIDE_CLEARANCE_M = 0.0015
 SOCKET_GUIDE_WALL_THICKNESS_M = 0.0060
 SOCKET_GUIDE_DEPTH_M = 0.060

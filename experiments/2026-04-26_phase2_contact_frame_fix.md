@@ -211,3 +211,43 @@ Secondary pass condition:
 - physical `best_lateral` improves relative to Attempt 26's `0.1008 m`
 - physical `best_axial` improves relative to Attempt 26's `0.0923 m`
 - no PPO training unless the alignment metric is fixed first
+
+### 2026-05-15 Follow-up Remote Result
+
+The sign-flip gate also failed the alignment invariant:
+
+```text
+best_action_tip_alignment = 0.0799999759 m
+final_action_tip_alignment = 0.0799999908 m
+```
+
+The fixed `0.08 m` offset survived both peg-end sign choices. That rules out a simple cylinder-end selection bug.
+
+The stronger diagnosis is a runtime quaternion convention mismatch:
+
+- the remote runtime installs Isaac Lab develop / Isaac Sim 6
+- Isaac Lab develop documents hard-coded quaternions as `XYZW`
+- the project still had legacy `WXYZ` constants and local helper math
+- most importantly, identity quaternions were still written as `(1, 0, 0, 0)`, which is not identity under `XYZW`
+
+Local follow-up fix:
+
+- migrated hard-coded task quaternions to `XYZW`
+- changed `IDENTITY_QUAT` to `(0, 0, 0, 1)`
+- changed `PEG_TIP_BODY_OFFSET_ROT` to `XYZW` yaw order
+- changed scripted quaternion multiply/conjugate/rotate/axis-angle helpers to `XYZW`
+- changed force-frame inverse rotation helper to `XYZW`
+
+Local checks:
+
+```bash
+python3 scripts/check_contact_geometry_constants.py
+python3 -m py_compile \
+  scripts/scripted_agent.py \
+  scripts/check_contact_geometry_constants.py \
+  source/robot_contact_assembly_tasks/robot_contact_assembly_tasks/tasks/manager_based/manipulation/peg_in_hole/constants.py \
+  source/robot_contact_assembly_tasks/robot_contact_assembly_tasks/tasks/manager_based/manipulation/peg_in_hole/peg_in_hole_env_cfg.py \
+  source/robot_contact_assembly_tasks/robot_contact_assembly_tasks/tasks/manager_based/manipulation/peg_in_hole/mdp/observations.py
+```
+
+Next gate remains the same: one short cheap L4 scripted eval, with `best_action_tip_alignment < 0.005 m` as the only primary pass condition.

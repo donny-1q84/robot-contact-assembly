@@ -21,6 +21,7 @@ compute_pose_error = None
 subtract_frame_transforms = None
 DifferentialIKController = None
 DifferentialIKControllerCfg = None
+IDENTITY_QUAT = None
 PEG_TIP_BODY_OFFSET_POS = None
 PEG_TIP_BODY_OFFSET_ROT = None
 PEG_TIP_FROM_CENTER_POS = None
@@ -74,16 +75,16 @@ def _parse_vec3(value: str) -> tuple[float, float, float]:
 
 
 def _quat_multiply(lhs: torch.Tensor, rhs: torch.Tensor) -> torch.Tensor:
-    """Hamilton product for `(w, x, y, z)` quaternions."""
+    """Hamilton product for `(x, y, z, w)` quaternions."""
 
-    w1, x1, y1, z1 = lhs.unbind(dim=-1)
-    w2, x2, y2, z2 = rhs.unbind(dim=-1)
+    x1, y1, z1, w1 = lhs.unbind(dim=-1)
+    x2, y2, z2, w2 = rhs.unbind(dim=-1)
     return torch.stack(
         (
-            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
             w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
             w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
             w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
         ),
         dim=-1,
     )
@@ -95,15 +96,15 @@ def _normalize_quat(quat: torch.Tensor) -> torch.Tensor:
 
 def _quat_conjugate(quat: torch.Tensor) -> torch.Tensor:
     result = quat.clone()
-    result[..., 1:] = -result[..., 1:]
+    result[..., :3] = -result[..., :3]
     return result
 
 
 def _quat_rotate(quat: torch.Tensor, vec: torch.Tensor) -> torch.Tensor:
     zeros = torch.zeros(vec.shape[:-1] + (1,), device=vec.device, dtype=vec.dtype)
-    vec_quat = torch.cat((zeros, vec), dim=-1)
+    vec_quat = torch.cat((vec, zeros), dim=-1)
     rotated = _quat_multiply(_quat_multiply(quat, vec_quat), _quat_conjugate(quat))
-    return rotated[..., 1:]
+    return rotated[..., :3]
 
 
 def _child_pose_to_parent_pose(
@@ -125,10 +126,10 @@ def _axis_angle_to_quat(axis_angle: torch.Tensor) -> torch.Tensor:
     angle = torch.linalg.norm(axis_angle, dim=-1, keepdim=True)
     axis = axis_angle / torch.clamp(angle, min=1.0e-8)
     half_angle = 0.5 * angle
-    quat = torch.cat((torch.cos(half_angle), axis * torch.sin(half_angle)), dim=-1)
+    quat = torch.cat((axis * torch.sin(half_angle), torch.cos(half_angle)), dim=-1)
     small_angle = angle.squeeze(-1) < 1.0e-8
     if small_angle.any():
-        quat[small_angle] = axis_angle.new_tensor((1.0, 0.0, 0.0, 0.0))
+        quat[small_angle] = axis_angle.new_tensor((0.0, 0.0, 0.0, 1.0))
     return _normalize_quat(quat)
 
 
@@ -349,7 +350,7 @@ def _physical_peg_tip_pose_w(env_unwrapped) -> tuple[torch.Tensor, torch.Tensor]
     peg_pos_w = _as_torch(peg.data.root_pos_w)
     peg_quat_w = _as_torch(peg.data.root_quat_w)
     tip_offset_pos = peg_pos_w.new_tensor(PEG_TIP_FROM_CENTER_POS).unsqueeze(0).repeat(peg_pos_w.shape[0], 1)
-    tip_offset_quat = peg_pos_w.new_tensor((1.0, 0.0, 0.0, 0.0)).unsqueeze(0).repeat(peg_pos_w.shape[0], 1)
+    tip_offset_quat = peg_pos_w.new_tensor(IDENTITY_QUAT).unsqueeze(0).repeat(peg_pos_w.shape[0], 1)
     return combine_frame_transforms(peg_pos_w, peg_quat_w, tip_offset_pos, tip_offset_quat)
 
 
@@ -399,7 +400,7 @@ def _clamp_joint_targets(
 def main():
     global RigidObject, SceneEntityCfg, combine_frame_transforms, compute_pose_error, subtract_frame_transforms
     global DifferentialIKController, DifferentialIKControllerCfg
-    global PEG_TIP_BODY_OFFSET_POS, PEG_TIP_BODY_OFFSET_ROT, PEG_TIP_FROM_CENTER_POS, mdp, BODY_OFFSET
+    global IDENTITY_QUAT, PEG_TIP_BODY_OFFSET_POS, PEG_TIP_BODY_OFFSET_ROT, PEG_TIP_FROM_CENTER_POS, mdp, BODY_OFFSET
 
     os.makedirs("/workspace/artifacts/hydra", exist_ok=True)
     torch.manual_seed(args_cli.seed)
@@ -413,6 +414,7 @@ def main():
         from isaaclab.utils.math import combine_frame_transforms, compute_pose_error, subtract_frame_transforms
         from robot_contact_assembly_tasks.tasks.manager_based.manipulation.peg_in_hole import mdp
         from robot_contact_assembly_tasks.tasks.manager_based.manipulation.peg_in_hole.constants import (
+            IDENTITY_QUAT,
             PEG_TIP_BODY_OFFSET_POS,
             PEG_TIP_BODY_OFFSET_ROT,
             PEG_TIP_FROM_CENTER_POS,

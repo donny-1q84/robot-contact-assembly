@@ -8,7 +8,7 @@ import warp as wp
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.math import combine_frame_transforms, subtract_frame_transforms
 
-from ..constants import PEG_TIP_FROM_CENTER_POS
+from ..constants import IDENTITY_QUAT, PEG_TIP_FROM_CENTER_POS
 
 if TYPE_CHECKING:
     from isaaclab.assets import RigidObject
@@ -23,22 +23,22 @@ def _to_torch(data: torch.Tensor) -> torch.Tensor:
 
 
 def _quat_conjugate(quat: torch.Tensor) -> torch.Tensor:
-    """Quaternion conjugate for `(w, x, y, z)` tensors."""
+    """Quaternion conjugate for `(x, y, z, w)` tensors."""
 
-    return torch.cat((quat[..., :1], -quat[..., 1:]), dim=-1)
+    return torch.cat((-quat[..., :3], quat[..., 3:]), dim=-1)
 
 
 def _quat_multiply(lhs: torch.Tensor, rhs: torch.Tensor) -> torch.Tensor:
-    """Hamilton product for `(w, x, y, z)` quaternions."""
+    """Hamilton product for `(x, y, z, w)` quaternions."""
 
-    w1, x1, y1, z1 = lhs.unbind(dim=-1)
-    w2, x2, y2, z2 = rhs.unbind(dim=-1)
+    x1, y1, z1, w1 = lhs.unbind(dim=-1)
+    x2, y2, z2, w2 = rhs.unbind(dim=-1)
     return torch.stack(
         (
-            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
             w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
             w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
             w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
         ),
         dim=-1,
     )
@@ -48,8 +48,8 @@ def _rotate_vector_inverse(quat: torch.Tensor, vec: torch.Tensor) -> torch.Tenso
     """Rotate world-frame vectors into the local frame of `quat`."""
 
     zeros = torch.zeros_like(vec[..., :1])
-    vec_quat = torch.cat((zeros, vec), dim=-1)
-    return _quat_multiply(_quat_multiply(_quat_conjugate(quat), vec_quat), quat)[..., 1:]
+    vec_quat = torch.cat((vec, zeros), dim=-1)
+    return _quat_multiply(_quat_multiply(_quat_conjugate(quat), vec_quat), quat)[..., :3]
 
 
 def _peg_root_pose_w(env: ManagerBasedRLEnv, peg_cfg: SceneEntityCfg) -> tuple[torch.Tensor, torch.Tensor]:
@@ -71,7 +71,7 @@ def _peg_tip_pose_w(env: ManagerBasedRLEnv, peg_cfg: SceneEntityCfg) -> tuple[to
 
     peg_pos_w, peg_quat_w = _peg_root_pose_w(env, peg_cfg)
     tip_offset_pos = peg_pos_w.new_tensor(PEG_TIP_FROM_CENTER_POS).unsqueeze(0).repeat(peg_pos_w.shape[0], 1)
-    tip_offset_quat = peg_pos_w.new_tensor((1.0, 0.0, 0.0, 0.0)).unsqueeze(0).repeat(peg_pos_w.shape[0], 1)
+    tip_offset_quat = peg_pos_w.new_tensor(IDENTITY_QUAT).unsqueeze(0).repeat(peg_pos_w.shape[0], 1)
     return combine_frame_transforms(peg_pos_w, peg_quat_w, tip_offset_pos, tip_offset_quat)
 
 

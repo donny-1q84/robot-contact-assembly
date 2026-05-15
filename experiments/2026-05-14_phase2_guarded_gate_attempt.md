@@ -2223,3 +2223,84 @@ Next useful action:
 - Rerun one more cheap L4 scripted gate after the sign flip.
 - Pass/fail is again dominated by `best_action_tip_alignment < 0.005 m`.
 - Do not run PPO until this metric passes.
+
+## Attempt 28: Sign Flip Still Fails, Quaternion Convention Mismatch Identified
+
+Command:
+
+```bash
+RCA_GATE_PROFILE=cheap \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-sign-l4 \
+RCA_GATE_TASK=RCA-PegInHole-Franka-IK-Abs-Contact-Play-v0 \
+RCA_GATE_COMMAND=scripted_eval \
+RCA_SCRIPTED_TRACE_JSON=1 \
+RCA_GATE_STEPS=40 \
+RCA_GATE_EVAL_TIMEOUT_SECONDS=180 \
+RCA_GATE_DELETE_TIMEOUT_SECONDS=1200 \
+RCA_GATE_BUILD_STUCK_SECONDS=300 \
+RCA_SCRIPTED_EVAL_RETRIES=0 \
+RCA_GATE_EXTRA_AGENT_ARGS='--deterministic-reset --socket-pos 0.22,0.04,0.19 --staged-approach --approach-xy-tol 0.04 --abs-control-mode waypoint --abs-pos-step 0.012 --abs-rot-step 0.12 --debug-action-steps 4' \
+scripts/run_guarded_phase2_gate.sh
+```
+
+Price selection:
+
+- Selected `g2-standard-4:nvidia-l4:1`.
+- Live L4 price was about `$0.85/hr`.
+- L40S was not used because this was a short diagnostic gate.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-15T13-40-38Z/seed_42.json`
+- Scripted eval trace: `artifacts/evaluations/scripted/2026-05-15T13-40-38Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-15T13-40-38Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-15T13-25-07Z_isaac-phase2-sign-l4/gate.log`
+
+Cleanup:
+
+- Artifacts were pulled locally before shutdown.
+- The instance initially remained visible as `DELETING`, so the wrapper reissued delete by name and id.
+- Final wrapper check returned `No instances in org NCA-57cf-29515`.
+- Two independent post-run checks also returned:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `null`
+
+Metrics:
+
+```json
+{
+  "steps_requested": 40,
+  "initial_action_tip_alignment": 0.08000001311302185,
+  "final_action_tip_alignment": 0.07999999076128006,
+  "best_action_tip_alignment": 0.07999997586011887,
+  "best_action_tip_alignment_step": 9,
+  "initial_lateral": 0.402599573135376,
+  "final_lateral": 0.24435606598854065,
+  "best_lateral": 0.24435606598854065,
+  "best_lateral_step": 39,
+  "initial_rot": 2.8071746826171875,
+  "final_rot": 1.2628461122512817,
+  "best_rot": 1.187615156173706,
+  "final_success_rate": 0.0
+}
+```
+
+Interpretation:
+
+- The sign flip did not change the fixed one-peg-length alignment error.
+- This rules out simple upper-end/lower-end selection as the root cause.
+- The stronger diagnosis is that the remote Isaac Lab develop / Isaac Sim 6 runtime uses `XYZW` hard-coded quaternions, while this repo still had legacy `WXYZ` constants and helper functions.
+- The identity quaternion bug is especially severe: `(1, 0, 0, 0)` is identity in `WXYZ`, but not identity in `XYZW`.
+
+Local follow-up fix:
+
+- Migrated task constants to `XYZW`.
+- Added `IDENTITY_QUAT = (0, 0, 0, 1)`.
+- Migrated scripted-agent quaternion math to `XYZW`.
+- Migrated force-frame inverse rotation helper to `XYZW`.
+
+Next useful action:
+
+- Run exactly one more cheap L4 scripted gate after committing this migration.
+- Primary pass condition remains `best_action_tip_alignment < 0.005 m`.
+- No PPO until this invariant passes.

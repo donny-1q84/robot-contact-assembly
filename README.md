@@ -225,11 +225,11 @@ See [experiments/2026-04-26_phase2_direct_contact_baseline.md](experiments/2026-
 
 After the first direct-contact baseline, the main local diagnosis found a frame-consistency bug rather than a pure PPO/reward problem:
 
-- `PEG_TIP_BODY_OFFSET_ROT` was written in `xyzw` order, while Isaac Lab action offsets use `(w, x, y, z)`
+- the remote Isaac Lab develop / Isaac Sim 6 runtime uses `XYZW` quaternion ordering, while parts of the project still used legacy `WXYZ` constants and helper math
 - the relative-IK action offset used only position, so the controller frame and physical peg-tip frame were not guaranteed to match
 - scripted/live controllers were compensating for the old hand-frame target instead of commanding the socket frame directly
 
-The code now aligns the physical peg, IK action offset, and scripted controller around the same peg-tip frame. This has passed local geometry and syntax checks, but it still needs one cheap remote scripted gate before any new PPO training.
+The code now aligns the physical peg, IK action offset, and scripted controller around the same peg-tip frame under the runtime `XYZW` convention. This has passed local geometry and syntax checks, but it still needs one cheap remote scripted gate before any new PPO training.
 
 See [experiments/2026-04-26_phase2_contact_frame_fix.md](experiments/2026-04-26_phase2_contact_frame_fix.md) for the diagnosis, local checks, and next GPU gate.
 
