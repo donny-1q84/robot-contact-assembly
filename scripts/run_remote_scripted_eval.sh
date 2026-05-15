@@ -13,6 +13,7 @@ SEED_CSV="${7:-42,43,44,45,46}"
 TIMEOUT_SECONDS="${8:-900}"
 EXTRA_AGENT_ARGS="${9:-}"
 SCRIPTED_AGENT_ARGS="${RCA_SCRIPTED_AGENT_ARGS:-}"
+TRACE_JSON_ENABLED="${RCA_SCRIPTED_TRACE_JSON:-0}"
 RETRY_COUNT="${RCA_SCRIPTED_EVAL_RETRIES:-1}"
 
 TIMESTAMP_UTC="$(date -u +"%Y-%m-%dT%H-%M-%SZ")"
@@ -28,6 +29,9 @@ fi
 if [[ -n "${SCRIPTED_AGENT_ARGS}" ]]; then
   echo "[scripted-eval] scripted_agent_args=${SCRIPTED_AGENT_ARGS}"
 fi
+if [[ "${TRACE_JSON_ENABLED}" == "1" ]]; then
+  echo "[scripted-eval] per-step trace JSON enabled"
+fi
 rca_remote_container_exec "mkdir -p '${REMOTE_EVAL_DIR}'"
 
 for seed in ${SEED_CSV//,/ }; do
@@ -42,11 +46,21 @@ for seed in ${SEED_CSV//,/ }; do
     else
       LOG_PATH="${REMOTE_EVAL_DIR}/seed_${seed}_attempt_${attempt}.log"
     fi
+    TRACE_ARG=""
+    TRACE_PATH=""
+    if [[ "${TRACE_JSON_ENABLED}" == "1" ]]; then
+      TRACE_PATH="${REMOTE_EVAL_DIR}/seed_${seed}_trace.json"
+      TRACE_ARG="--trace-json ${TRACE_PATH}"
+    fi
     echo "[scripted-eval] running seed=${seed} attempt=${attempt}/${max_attempts} log=${LOG_PATH}"
-    rca_remote_container_exec "rm -f '${SUMMARY_PATH}'"
+    if [[ -n "${TRACE_PATH}" ]]; then
+      rca_remote_container_exec "rm -f '${SUMMARY_PATH}' '${TRACE_PATH}'"
+    else
+      rca_remote_container_exec "rm -f '${SUMMARY_PATH}'"
+    fi
 
     set +e
-    rca_remote_repo_exec "set -o pipefail && timeout ${TIMEOUT_SECONDS} /isaac-sim/python.sh scripts/scripted_agent.py --task ${TASK_NAME} --headless --num_envs ${NUM_ENVS} --steps ${STEPS} --seed ${seed} --summary-json ${SUMMARY_PATH} ${SCRIPTED_AGENT_ARGS} ${EXTRA_AGENT_ARGS} 2>&1 | tee ${LOG_PATH}"
+    rca_remote_repo_exec "set -o pipefail && timeout ${TIMEOUT_SECONDS} /isaac-sim/python.sh scripts/scripted_agent.py --task ${TASK_NAME} --headless --num_envs ${NUM_ENVS} --steps ${STEPS} --seed ${seed} --summary-json ${SUMMARY_PATH} ${TRACE_ARG} ${SCRIPTED_AGENT_ARGS} ${EXTRA_AGENT_ARGS} 2>&1 | tee ${LOG_PATH}"
     status=$?
     if [[ ${status} -eq 0 ]]; then
       rca_remote_container_exec "test -s '${SUMMARY_PATH}'"

@@ -55,6 +55,47 @@ def _parse_action_axis_signs(value: str) -> tuple[float, float, float]:
     return signs
 
 
+def _parse_vec3(value: str) -> tuple[float, float, float]:
+    parts = [part.strip() for part in value.split(",")]
+    if len(parts) != 3:
+        raise argparse.ArgumentTypeError("expected three comma-separated values, e.g. 0.45,0.0,0.19")
+    try:
+        return tuple(float(part) for part in parts)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("vector values must be numeric") from exc
+
+
+def _quat_multiply(lhs: torch.Tensor, rhs: torch.Tensor) -> torch.Tensor:
+    """Hamilton product for `(w, x, y, z)` quaternions."""
+
+    w1, x1, y1, z1 = lhs.unbind(dim=-1)
+    w2, x2, y2, z2 = rhs.unbind(dim=-1)
+    return torch.stack(
+        (
+            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+        ),
+        dim=-1,
+    )
+
+
+def _normalize_quat(quat: torch.Tensor) -> torch.Tensor:
+    return quat / torch.clamp(torch.linalg.norm(quat, dim=-1, keepdim=True), min=1.0e-8)
+
+
+def _axis_angle_to_quat(axis_angle: torch.Tensor) -> torch.Tensor:
+    angle = torch.linalg.norm(axis_angle, dim=-1, keepdim=True)
+    axis = axis_angle / torch.clamp(angle, min=1.0e-8)
+    half_angle = 0.5 * angle
+    quat = torch.cat((torch.cos(half_angle), axis * torch.sin(half_angle)), dim=-1)
+    small_angle = angle.squeeze(-1) < 1.0e-8
+    if small_angle.any():
+        quat[small_angle] = axis_angle.new_tensor((1.0, 0.0, 0.0, 0.0))
+    return _normalize_quat(quat)
+
+
 def _load_calibrated_position_response(path: str) -> tuple[list[dict[str, list[float]]], int]:
     with open(path, "r", encoding="utf-8") as f:
         summary = json.load(f)
@@ -158,6 +199,42 @@ parser.add_argument(
     default=30,
     help="Zero-action settling steps after reset before measuring and applying the scripted controller.",
 )
+parser.add_argument(
+    "--deterministic-reset",
+    action="store_true",
+    default=False,
+    help="Disable reset joint randomization for deterministic controller gates.",
+)
+parser.add_argument(
+    "--socket-pos",
+    type=_parse_vec3,
+    default=None,
+    help="Override the fixed socket-frame world position as x,y,z for deterministic debugging gates.",
+)
+parser.add_argument(
+    "--abs-control-mode",
+    choices=("target", "waypoint"),
+    default="target",
+    help="For 7D absolute IK actions, command the full target pose or a small absolute waypoint toward it.",
+)
+parser.add_argument(
+    "--abs-pos-step",
+    type=float,
+    default=0.025,
+    help="Maximum per-axis position step for --abs-control-mode waypoint.",
+)
+parser.add_argument(
+    "--abs-rot-step",
+    type=float,
+    default=0.20,
+    help="Maximum axis-angle rotation step for --abs-control-mode waypoint.",
+)
+parser.add_argument(
+    "--trace-json",
+    type=str,
+    default=None,
+    help="Optional path to write per-step controller trace JSON for the first environment.",
+)
 parser.add_argument("--polish-xy-tol", type=float, default=0.008, help="Lateral tolerance to enter the near-contact polish phase.")
 parser.add_argument("--polish-z-tol", type=float, default=0.012, help="Axial tolerance to enter the near-contact polish phase.")
 parser.add_argument("--polish-pos-gain", type=float, default=1.2, help="Lateral position gain during the near-contact polish phase.")
@@ -204,6 +281,24 @@ def _target_action_frame_pose_w(socket_pos_w: torch.Tensor, socket_quat_w: torch
     return socket_pos_w.clone(), socket_quat_w.clone()
 
 
+def _override_socket_pose(env_cfg, socket_pos: tuple[float, float, float]) -> None:
+    from robot_contact_assembly_tasks.tasks.manager_based.manipulation.peg_in_hole.constants import (
+        SOCKET_GUIDE_INNER_HALF_WIDTH_M,
+        SOCKET_GUIDE_WALL_THICKNESS_M,
+    )
+
+    x, y, z = socket_pos
+    wall_offset = SOCKET_GUIDE_INNER_HALF_WIDTH_M + 0.5 * SOCKET_GUIDE_WALL_THICKNESS_M
+    env_cfg.scene.socket_frame.init_state.pos = (x, y, z)
+    env_cfg.scene.socket_wall_left.init_state.pos = (x - wall_offset, y, z)
+    env_cfg.scene.socket_wall_right.init_state.pos = (x + wall_offset, y, z)
+    env_cfg.scene.socket_wall_front.init_state.pos = (x, y - wall_offset, z)
+    env_cfg.scene.socket_wall_back.init_state.pos = (x, y + wall_offset, z)
+    env_cfg.commands.socket_pose.ranges.pos_x = (x, x)
+    env_cfg.commands.socket_pose.ranges.pos_y = (y, y)
+    env_cfg.commands.socket_pose.ranges.pos_z = (z, z)
+
+
 def main():
     global RigidObject, SceneEntityCfg, combine_frame_transforms, compute_pose_error
     global PEG_TIP_BODY_OFFSET_POS, PEG_TIP_BODY_OFFSET_ROT, mdp, BODY_OFFSET
@@ -232,6 +327,11 @@ def main():
         env_cfg.episode_length_s = max(env_cfg.episode_length_s, (args_cli.steps + 2) * step_dt)
         # Keep a fixed target for the scripted baseline so convergence is measured against one command.
         env_cfg.commands.socket_pose.resampling_time_range = (1.0e6, 1.0e6)
+        if args_cli.deterministic_reset:
+            env_cfg.events.reset_robot_joints.params["position_range"] = (1.0, 1.0)
+        if args_cli.socket_pos is not None:
+            _override_socket_pose(env_cfg, args_cli.socket_pos)
+            print(f"[SCRIPTED] overriding socket world position to {args_cli.socket_pos}", flush=True)
 
         render_mode = "rgb_array" if args_cli.video and args_cli.video_backend == "viewport" else None
         env = gym.make(args_cli.task, cfg=env_cfg, render_mode=render_mode)
@@ -289,6 +389,7 @@ def main():
         best_axial_step = None
         best_rot = float("inf")
         best_rot_step = None
+        trace_rows = []
         rotate_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         polish_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         settle_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
@@ -376,6 +477,8 @@ def main():
             signed_action_pos_error = action_pos_error * action_axis_signs
 
             actions = torch.zeros(env.action_space.shape, device=env_unwrapped.device)
+            command_pos_w = target_pos_w
+            command_quat_w = target_quat_w
             rot_gain = torch.full_like(axis_angle_error, args_cli.rot_gain)
             rot_gain[polish_state] = args_cli.polish_rot_gain
             rot_gain[settle_state] = args_cli.settle_rot_gain
@@ -387,8 +490,18 @@ def main():
                 if args_cli.position_control_mode != "direct":
                     raise ValueError("calibrated position control is only supported for 6D relative IK actions")
                 selected_candidate_idxs = None
-                actions[:, :3] = target_pos_w
-                actions[:, 3:7] = target_quat_w
+                if args_cli.abs_control_mode == "waypoint":
+                    command_pos_w = action_pos_w + _clamp_actions(pos_error, args_cli.abs_pos_step)
+                    axis_angle_norm = torch.linalg.norm(axis_angle_error, dim=-1, keepdim=True)
+                    axis_angle_scale = torch.clamp(
+                        args_cli.abs_rot_step / torch.clamp(axis_angle_norm, min=1.0e-8),
+                        max=1.0,
+                    )
+                    command_quat_w = _normalize_quat(
+                        _quat_multiply(action_quat_w, _axis_angle_to_quat(axis_angle_error * axis_angle_scale))
+                    )
+                actions[:, :3] = command_pos_w
+                actions[:, 3:7] = command_quat_w
             elif args_cli.position_control_mode == "calibrated-onehot":
                 assert calibrated_candidate_actions is not None
                 assert calibrated_candidate_deltas is not None
@@ -432,12 +545,15 @@ def main():
                     f"action_pos={action_pos_w[0].tolist()} "
                     f"socket_pos={socket_pos_w[0].tolist()} "
                     f"approach_pos={approach_pos_w[0].tolist()} "
+                    f"target_pos={target_pos_w[0].tolist()} "
+                    f"command_pos={command_pos_w[0].tolist()} "
                     f"pos_error={pos_error[0].tolist()} "
                     f"action_pos_error={action_pos_error[0].tolist()} "
                     f"signed_action_pos_error={signed_action_pos_error[0].tolist()} "
                     f"axis_angle_error={axis_angle_error[0].tolist()} "
                     f"action_dim={action_dim} "
                     f"position_control_mode={args_cli.position_control_mode} "
+                    f"abs_control_mode={args_cli.abs_control_mode} "
                     f"selected_calibrated_action="
                     f"{calibrated_candidate_names[int(selected_candidate_idxs[0].item())] if selected_candidate_idxs is not None else None} "
                     f"raw_action={actions[0].tolist()}",
@@ -480,6 +596,41 @@ def main():
                     flush=True,
                 )
 
+            if args_cli.trace_json:
+                if settle_state[0].item():
+                    phase = "settle"
+                elif polish_only[0].item():
+                    phase = "polish"
+                elif insert_mask[0].item():
+                    phase = "insert"
+                elif rotate_state[0].item():
+                    phase = "rotate"
+                else:
+                    phase = "reach"
+                trace_rows.append(
+                    {
+                        "step": step,
+                        "phase": phase,
+                        "action_pos_w": action_pos_w[0].detach().cpu().tolist(),
+                        "socket_pos_w": socket_pos_w[0].detach().cpu().tolist(),
+                        "approach_pos_w": approach_pos_w[0].detach().cpu().tolist(),
+                        "target_pos_w": target_pos_w[0].detach().cpu().tolist(),
+                        "command_pos_w": command_pos_w[0].detach().cpu().tolist(),
+                        "pos_error": pos_error[0].detach().cpu().tolist(),
+                        "axis_angle_error": axis_angle_error[0].detach().cpu().tolist(),
+                        "raw_action": actions[0].detach().cpu().tolist(),
+                        "lateral": lateral[0].item(),
+                        "axial": axial[0].item(),
+                        "rot": rot[0].item(),
+                        "success": bool(success[0].item()),
+                        "position_ready": bool(position_ready[0].item()),
+                        "rotate_state": bool(rotate_state[0].item()),
+                        "insert_mask": bool(insert_mask[0].item()),
+                        "polish_state": bool(polish_state[0].item()),
+                        "settle_state": bool(settle_state[0].item()),
+                    }
+                )
+
             if success.any():
                 success_step = step
                 print(f"[SCRIPTED] success reached at step={step:04d}", flush=True)
@@ -510,7 +661,11 @@ def main():
             "action_axis_signs": list(args_cli.action_axis_signs),
             "action_dim": action_dim,
             "position_control_mode": args_cli.position_control_mode,
+            "abs_control_mode": args_cli.abs_control_mode,
             "position_response_json": args_cli.position_response_json,
+            "deterministic_reset": args_cli.deterministic_reset,
+            "socket_pos_override": list(args_cli.socket_pos) if args_cli.socket_pos is not None else None,
+            "trace_json": os.path.abspath(args_cli.trace_json) if args_cli.trace_json else None,
         }
         print(
             "[SCRIPTED] summary "
@@ -531,6 +686,12 @@ def main():
             with open(summary_path, "w", encoding="utf-8") as f:
                 json.dump(summary, f, indent=2, sort_keys=True)
             print(f"[SCRIPTED] wrote summary to {summary_path}", flush=True)
+        if args_cli.trace_json:
+            trace_path = os.path.abspath(args_cli.trace_json)
+            os.makedirs(os.path.dirname(trace_path), exist_ok=True)
+            with open(trace_path, "w", encoding="utf-8") as f:
+                json.dump({"summary": summary, "steps": trace_rows}, f, indent=2, sort_keys=True)
+            print(f"[SCRIPTED] wrote trace to {trace_path}", flush=True)
 
 
 if __name__ == "__main__":

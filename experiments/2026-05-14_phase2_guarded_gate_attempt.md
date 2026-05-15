@@ -1186,3 +1186,12 @@ Next useful action:
    - record per-step commanded pose, achieved tip pose, and socket pose in JSON for controller debugging.
 3. Reopen one short L4 gate only after the local changes compile.
 4. Pass condition for the next gate: deterministic scripted rollout should monotonically reduce lateral error below `5 cm` and axial error below `8 cm` before any PPO attempt.
+
+Follow-up fix:
+
+- `scripts/scripted_agent.py` now supports deterministic controller gates:
+  - `--deterministic-reset` disables reset joint randomization.
+  - `--socket-pos x,y,z` overrides the fixed socket and guide-wall positions for reachability debugging.
+  - `--abs-control-mode waypoint` sends small absolute waypoints toward the phase target instead of commanding the full target pose in one step.
+  - `--trace-json <path>` writes per-step action-frame pose, socket pose, command pose, raw action, phase, and insertion metrics.
+- `scripts/run_remote_scripted_eval.sh` now supports `RCA_SCRIPTED_TRACE_JSON=1` to pull per-seed trace files with the normal evaluation artifacts.
