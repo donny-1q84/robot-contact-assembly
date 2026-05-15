@@ -3256,3 +3256,43 @@ Next useful verification:
   - `insert_state` should remain true across the 220-230 descent region.
   - `cmd_target_pos` should decrease monotonically instead of toggling between `0.0500` and `0.035-0.037`.
   - If the pose still jumps, the remaining blocker is physical/contact instability or absolute IK behavior, not the high-level state machine.
+
+## Attempt 39: latch verification aborted before eval
+
+Date: 2026-05-15
+
+Local commit:
+
+- `47487cc Latch scripted insert state`
+
+Goal:
+
+- Verify the new latched `insert_state` behavior from Attempt 38.
+
+Remote run:
+
+- Run id: `2026-05-15T19-11-03Z`
+- Instance: `isaac-phase2-insert-latch-l4`
+- Machine: `g2-standard-4:nvidia-l4:1`
+
+Result:
+
+- No scripted eval was run.
+- The Brev instance stayed in `RUNNING / BUILDING / NOT READY` for more than the guarded `BUILD_STUCK=240s` threshold.
+- The guarded script aborted before remote runtime setup, then deleted the instance.
+
+Artifacts:
+
+- Gate log: `artifacts/gpu_gate/2026-05-15T19-11-03Z_isaac-phase2-insert-latch-l4/gate.log`
+- No new `artifacts/evaluations/scripted/.../seed_42.json` was produced.
+
+Cleanup verification:
+
+- `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+- `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Interpretation:
+
+- This attempt does not validate or invalidate the latch fix.
+- It is a Brev bootstrap/ready failure, not a robotics-code failure.
+- Do not count it as an experiment result when comparing controller behavior.
