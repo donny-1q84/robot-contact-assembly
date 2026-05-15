@@ -1748,3 +1748,104 @@ Follow-up fix:
 Next useful action:
 
 - Run one more short L4 Joint-IK gate to validate whether the bounded joint target path produces stable approach behavior.
+
+## Attempt 24: Bounded Joint-IK Gate Runs, But Still Does Not Approach the Socket
+
+Command:
+
+```bash
+scripts/run_phase2_jointik_gate.sh
+```
+
+Price selection:
+
+- Live price table selected `g2-standard-4:nvidia-l4:1` at about `$0.85/hr`.
+- The lowest visible L40S option was about `$1.86/hr`.
+- L4 remained the correct choice because this was a short scripted-controller validation, not a PPO training run.
+
+Result:
+
+- Instance was created: `isaac-phase2-jointik-l4`, id `fezvc0vjt`.
+- The instance reached `RUNNING / COMPLETED / READY`.
+- Remote GPU probe succeeded:
+  - GPU: `NVIDIA L4`
+  - VRAM: `23034 MiB`
+  - driver: `580.126.20`
+- Isaac Lab runtime setup completed.
+- Scripted eval completed for seed `42` and 100 steps.
+- The bounded Joint-IK path ran end-to-end with no Jacobian indexing error and no unbounded joint-command crash.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-15T11-24-47Z/seed_42.json`
+- Scripted eval trace: `artifacts/evaluations/scripted/2026-05-15T11-24-47Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-15T11-24-47Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-15T11-07-39Z_isaac-phase2-jointik-l4/gate.log`
+
+Cleanup:
+
+- Artifacts were pulled locally before shutdown.
+- The guarded script deleted the instance by name and id.
+- The instance lingered in `DELETING`, so the guarded script kept polling and reissuing delete.
+- One late delete-by-id returned `instance with id/name fezvc0vjt not found`, while list output still briefly showed the name in `DELETING`.
+- Final guarded and independent checks returned:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `null`
+
+Metrics:
+
+```json
+{
+  "scripted_control_mode": "joint-ik",
+  "abs_control_mode": "waypoint",
+  "action_dim": 7,
+  "deterministic_reset": true,
+  "socket_pos_override": [0.22, 0.04, 0.19],
+  "joint_ik_step": 0.05,
+  "joint_limit_margin": 0.02,
+  "initial_lateral": 0.2067292034626007,
+  "final_lateral": 0.3312975764274597,
+  "best_lateral": 0.2067292034626007,
+  "best_lateral_step": 0,
+  "initial_axial": 0.9732748866081238,
+  "final_axial": 0.9187385439872742,
+  "best_axial": 0.9152539372444153,
+  "best_axial_step": 98,
+  "initial_rot": 0.8291767835617065,
+  "final_rot": 0.6629066467285156,
+  "best_rot": 0.654979407787323,
+  "best_rot_step": 91,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Trace highlights:
+
+```text
+step=0:
+  phase=reach
+  lateral=0.2067, axial=0.9733, rot=0.8292
+  raw joint target=[-0.333, 2.414, -2.474, 4.533, -3.300, 0.840, 6.516]
+  clamped joint target=[0.088, -0.024, -0.005, -0.471, -0.183, 3.637, 0.592]
+
+step=91:
+  best rot=0.6550, but lateral remains poor and the controller is still in reach phase
+
+step=99:
+  phase=reach
+  lateral=0.3313, axial=0.9187, rot=0.6629
+```
+
+Interpretation:
+
+- The bounded target fix worked mechanically: raw IK targets are still very large, but the commands sent to `JointPositionActionCfg` are clamped and stable.
+- The remaining failure is not the previous blow-up; the controller is still not driving the tool tip toward the socket.
+- Lateral error worsened from `0.2067` to `0.3313`, axial improved only slightly, and success stayed at `0.0`.
+- PPO remains blocked because the scripted gate does not yet demonstrate a usable approach behavior.
+
+Next useful action:
+
+- Do not run another GPU attempt until the controller is changed locally.
+- Diagnose the deterministic reset, socket override, tool-tip body offset, and hand-target mapping from the trace.
+- Prefer either a reachable socket/waypoint target near the deterministic initial pose or a simpler deterministic joint-space waypoint baseline before returning to cloud validation.
