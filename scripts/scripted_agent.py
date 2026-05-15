@@ -206,6 +206,18 @@ parser.add_argument(
     help="Current orientation tolerance required before commanding insertion. Defaults to approach-rot-tol.",
 )
 parser.add_argument(
+    "--insert-abort-xy-tol",
+    type=float,
+    default=None,
+    help="Exit latched insert mode if current lateral error exceeds this value. Defaults to approach-xy-tol.",
+)
+parser.add_argument(
+    "--insert-abort-rot-tol",
+    type=float,
+    default=None,
+    help="Exit latched insert mode if current orientation error exceeds this value. Defaults to approach-rot-tol.",
+)
+parser.add_argument(
     "--staged-approach",
     action="store_true",
     default=False,
@@ -589,6 +601,7 @@ def main():
         trace_rows = []
         xy_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         rotate_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
+        insert_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         rotate_hold_pos_w = torch.zeros((env_unwrapped.num_envs, 3), dtype=torch.float32, device=env_unwrapped.device)
         rotate_hold_valid = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         polish_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
@@ -647,6 +660,16 @@ def main():
             )
             insert_xy_ready = lateral_error < insert_xy_tolerance
             insert_orientation_ready = orientation_error < insert_rot_tolerance
+            insert_abort_xy_tolerance = (
+                args_cli.insert_abort_xy_tol
+                if args_cli.insert_abort_xy_tol is not None
+                else args_cli.approach_xy_tol
+            )
+            insert_abort_rot_tolerance = (
+                args_cli.insert_abort_rot_tol
+                if args_cli.insert_abort_rot_tol is not None
+                else args_cli.approach_rot_tol
+            )
 
             approach_pos_w = target_action_pos_w.clone()
             approach_pos_w[:, 2] += args_cli.approach_height
@@ -709,6 +732,14 @@ def main():
                     & insert_xy_ready
                     & insert_orientation_ready
                 )
+
+            insert_entry_mask = insert_mask
+            insert_state |= insert_entry_mask
+            insert_abort_mask = insert_state & (
+                (lateral_error > insert_abort_xy_tolerance) | (orientation_error > insert_abort_rot_tolerance)
+            )
+            insert_state[insert_abort_mask] = False
+            insert_mask = insert_state
 
             target_pos_w[insert_mask] = target_action_pos_w[insert_mask]
             polish_mask = (lateral_error < args_cli.polish_xy_tol) & (axial_error < args_cli.polish_z_tol)
@@ -1045,8 +1076,13 @@ def main():
                         "rotate_control_mode": args_cli.rotate_control_mode,
                         "insert_xy_tolerance": insert_xy_tolerance,
                         "insert_rot_tolerance": insert_rot_tolerance,
+                        "insert_abort_xy_tolerance": insert_abort_xy_tolerance,
+                        "insert_abort_rot_tolerance": insert_abort_rot_tolerance,
                         "insert_xy_ready": bool(insert_xy_ready[0].item()),
                         "insert_orientation_ready": bool(insert_orientation_ready[0].item()),
+                        "insert_entry": bool(insert_entry_mask[0].item()),
+                        "insert_aborted": bool(insert_abort_mask[0].item()),
+                        "insert_state": bool(insert_state[0].item()),
                         "socket_guide_clearance": SOCKET_GUIDE_CLEARANCE_M,
                         "success_xy_tolerance": SOCKET_SUCCESS_XY_TOLERANCE_M,
                         "success_z_tolerance": SOCKET_SUCCESS_Z_TOLERANCE_M,
@@ -1119,6 +1155,12 @@ def main():
             "rotate_control_mode": args_cli.rotate_control_mode,
             "insert_xy_tolerance": args_cli.insert_xy_tol if args_cli.insert_xy_tol is not None else args_cli.approach_xy_tol,
             "insert_rot_tolerance": args_cli.insert_rot_tol if args_cli.insert_rot_tol is not None else args_cli.approach_rot_tol,
+            "insert_abort_xy_tolerance": (
+                args_cli.insert_abort_xy_tol if args_cli.insert_abort_xy_tol is not None else args_cli.approach_xy_tol
+            ),
+            "insert_abort_rot_tolerance": (
+                args_cli.insert_abort_rot_tol if args_cli.insert_abort_rot_tol is not None else args_cli.approach_rot_tol
+            ),
             "insert_pos_step": args_cli.insert_pos_step if args_cli.insert_pos_step is not None else args_cli.abs_pos_step,
             "insert_rot_step": args_cli.insert_rot_step if args_cli.insert_rot_step is not None else args_cli.abs_rot_step,
             "success_xy_tolerance": SOCKET_SUCCESS_XY_TOLERANCE_M,

@@ -3137,3 +3137,122 @@ Next useful local fix:
 - Determine whether the physical socket collision is blocking before the configured success depth, or whether the success condition is too strict relative to the current asset dimensions.
 - Add trace fields for contact force magnitude and the exact success-term components around steps 190-210.
 - Keep the next GPU run short and targeted: only verify the insert transition after local instrumentation, not a full new exploration run.
+
+## Attempt 38: strict insert gate and contact diagnostics
+
+Date: 2026-05-15
+
+Local commit:
+
+- `a2ab901 Tighten insert gate diagnostics`
+
+Goal:
+
+- Separate "approach gate" from "insert gate" so the controller does not start insertion with a lateral error that exceeds the physical guide clearance.
+- Add success-component and contact-force trace fields to determine whether the remaining failure is thresholding, contact blocking, or state-machine oscillation.
+
+Remote run:
+
+- Run id: `2026-05-15T18-44-59Z`
+- Instance: `isaac-phase2-insert-gate-l4`
+- Machine: `g2-standard-4:nvidia-l4:1`
+
+Price selection:
+
+- Selected `g2-standard-4:nvidia-l4:1`.
+- Live L4 price was `$0.85/hr`.
+- Lowest visible L40S option was `$1.86/hr`.
+- L4 remained the right choice for this short scripted gate.
+
+Command changes:
+
+- `--insert-xy-tol 0.0015`
+- `--insert-rot-tol 0.12`
+- `--insert-pos-step 0.010`
+- `--insert-rot-step 0.06`
+- `--steps 260`
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-15T19-01-27Z/seed_42.json`
+- Scripted eval trace: `artifacts/evaluations/scripted/2026-05-15T19-01-27Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-15T19-01-27Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-15T18-44-59Z_isaac-phase2-insert-gate-l4/gate.log`
+
+Cleanup verification:
+
+- Artifacts were pulled locally before shutdown.
+- `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+- `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Metrics:
+
+```json
+{
+  "steps_requested": 260,
+  "insert_xy_tolerance": 0.0015,
+  "insert_rot_tolerance": 0.12,
+  "insert_pos_step": 0.01,
+  "insert_rot_step": 0.06,
+  "socket_guide_clearance": 0.0015,
+  "initial_lateral": 0.19102078676223755,
+  "final_lateral": 0.1590428203344345,
+  "best_lateral": 0.0005068883765488863,
+  "best_lateral_step": 165,
+  "initial_axial": 0.4095129370689392,
+  "final_axial": 0.36730825901031494,
+  "best_axial": 0.04435622692108154,
+  "best_axial_step": 229,
+  "initial_rot": 2.87626576423645,
+  "final_rot": 0.31706488132476807,
+  "best_rot": 0.004081662744283676,
+  "best_rot_step": 119,
+  "max_contact_force_magnitude": 28.8151798248291,
+  "max_contact_force_magnitude_step": 62,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Trace highlights:
+
+```text
+step  phase   lat     ax      rot     cmd_target_pos  insert_xy  succ_xy  succ_z  succ_rot  contact
+165   rotate  0.0005  0.1665  0.0207  0.1406          1          1        0       1         4.7125
+175   rotate  0.0006  0.1259  0.0215  0.0999          1          1        0       1         4.7161
+200   rotate  0.0015  0.0567  0.0288  0.0500          0          1        0       1         4.2086
+220   insert  0.0018  0.0465  0.0412  0.0374          1          1        0       1         4.1512
+225   rotate  0.0012  0.0465  0.0391  0.0500          0          1        0       1         3.1774
+229   insert  0.0020  0.0444  0.0507  0.0353          1          1        0       1         4.0715
+231   insert  0.2466  0.1955  2.3981  0.0353          1          0        0       0         4.0304
+240   rotate  0.2331  0.3190  1.4236  0.3972          0          0        0       0         3.9135
+```
+
+Interpretation:
+
+- This is not a success run; `success_rate=0.0`.
+- The stricter insert gate did its job: insertion no longer starts at `5-6 mm` lateral error.
+- The new trace exposes a state-machine bug:
+  - `insert_mask` toggles on and off between steps `220-230`.
+  - When `insert_mask=0`, the command target returns to the approach pose (`cmd_target_pos ~= 0.0500`).
+  - When `insert_mask=1`, the command target moves downward toward insertion (`cmd_target_pos ~= 0.035-0.037`).
+  - This produces a target flip-flop just above the socket instead of a stable final descent.
+- The contact force is already nonzero around the guide, so the flip-flop happens under contact, which explains the large jump at step `231`.
+
+Local fix applied after this run:
+
+- Added a latched `insert_state` to `scripts/scripted_agent.py`.
+- Once the current pose satisfies the insert gate, the controller stays in insertion mode instead of returning to rotate/approach every other step.
+- Added abort hysteresis:
+  - `--insert-abort-xy-tol`
+  - `--insert-abort-rot-tol`
+- Updated `scripts/summarize_scripted_trace.py` to show `insert_state`, `insert_entry`, and `insert_aborted`.
+- Updated `scripts/run_phase2_absik_gate.sh` default args to include `--insert-abort-xy-tol 0.04 --insert-abort-rot-tol 0.35`.
+
+Next useful verification:
+
+- Run one more short L4 gate only after committing the latch fix.
+- Pass condition:
+  - `insert_state` should remain true across the 220-230 descent region.
+  - `cmd_target_pos` should decrease monotonically instead of toggling between `0.0500` and `0.035-0.037`.
+  - If the pose still jumps, the remaining blocker is physical/contact instability or absolute IK behavior, not the high-level state machine.
