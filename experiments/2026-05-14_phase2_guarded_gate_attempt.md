@@ -2478,3 +2478,125 @@ Next useful action:
 - Add or tune a post-XY stage: hold XY, lower axial target, then rotate, then insert.
 - Run one more cheap L4 scripted gate only after local syntax checks pass.
 - PPO remains blocked until a scripted rollout reaches the XY gate and makes nonzero axial/rotation progress in the same rollout.
+
+## Attempt 31: Tuned Staged Abs IK Solves XY But Stalls Before Descent/Rotation
+
+Command:
+
+```bash
+RCA_GATE_PROFILE=cheap scripts/run_phase2_absik_gate.sh
+```
+
+Code state:
+
+- Commit before run: `2fb5dba Tune Abs IK gate after reach sweep`
+- Default Abs IK gate parameters:
+  - `--deterministic-reset`
+  - `--socket-pos 0.22,0.04,0.19`
+  - `--staged-approach`
+  - `--approach-xy-tol 0.04`
+  - `--abs-control-mode waypoint`
+  - `--abs-pos-step 0.030`
+  - `--abs-rot-step 0.12`
+  - `--debug-action-steps 4`
+  - `steps=180`
+
+Price selection:
+
+- Selected `g2-standard-4:nvidia-l4:1`.
+- Live L4 price was about `$0.85/hr`.
+- Lowest visible L40S option was about `$1.86/hr`.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-15T15-25-13Z/seed_42.json`
+- Scripted eval trace: `artifacts/evaluations/scripted/2026-05-15T15-25-13Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-15T15-25-13Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-15T15-08-42Z_isaac-phase2-absik-l4/gate.log`
+
+Cleanup:
+
+- Artifacts were pulled locally before shutdown.
+- The instance stayed visible as `DELETING / COMPLETED / NOT READY` for several polling cycles.
+- The guarded script reissued delete by both name and id.
+- Delete-by-id eventually returned `instance with id/name fy11rd5jk not found`, and the list then converged to empty.
+- Final guarded and independent checks returned:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `null`
+
+Metrics:
+
+```json
+{
+  "steps_requested": 180,
+  "initial_action_tip_alignment": 0.0,
+  "final_action_tip_alignment": 1.5359765015432458e-08,
+  "best_action_tip_alignment": 0.0,
+  "initial_lateral": 0.19102078676223755,
+  "final_lateral": 0.0018624793738126755,
+  "best_lateral": 0.0018624793738126755,
+  "best_lateral_step": 179,
+  "initial_axial": 0.4095129370689392,
+  "final_axial": 0.23933672904968262,
+  "best_axial": 0.23933672904968262,
+  "best_axial_step": 179,
+  "initial_rot": 2.87626576423645,
+  "final_rot": 2.492908000946045,
+  "best_rot": 2.4786386489868164,
+  "best_rot_step": 135,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Trace highlights:
+
+```text
+step=50:
+  phase=descend
+  lateral=0.0224
+  axial=0.4190
+  rot=2.7913
+  action_pos.z=0.6107
+  approach_pos.z=0.2400
+
+step=125:
+  phase=descend
+  lateral=0.0069
+  axial=0.2446
+  rot=2.4802
+  action_pos.z=0.4350
+  approach_pos.z=0.2400
+
+step=179:
+  phase=descend
+  lateral=0.0019
+  axial=0.2393
+  rot=2.4929
+  action_pos.z=0.4293
+  command_pos.z=0.3993
+```
+
+Interpretation:
+
+- This is the best deterministic XY result so far: lateral reaches `1.9 mm`, and action-to-physical-tip alignment remains effectively zero.
+- The blocker moved from frame alignment / XY reach to post-XY progress.
+- The current staged order is `XY -> descend -> rotate -> insert`. It gets excellent XY alignment but stalls around `action_pos.z=0.429 m`, far above the approach pose `z=0.240 m`.
+- Because `position_ready` never becomes true, rotation and insertion never start.
+- The likely issue is that keeping the original high-error orientation during descent makes the absolute IK controller unable to continue lowering the tool.
+
+Follow-up fix:
+
+- Added `--rotate-before-descend` to `scripts/scripted_agent.py`.
+- In staged mode, this changes the sequence to `XY -> rotate at current height -> descend -> insert`.
+- Updated `scripts/run_phase2_absik_gate.sh` defaults to:
+  - `--rotate-before-descend`
+  - `steps=220`
+  - eval timeout `360s`
+- Commit: `ba0b883 Add rotate-before-descend scripted stage`
+
+Next useful action:
+
+- Run one more cheap L4 Abs IK gate with `--rotate-before-descend`.
+- Pass condition: rotation should drop before descent, and the rollout should either reduce axial below the previous `0.239 m` floor or enter `position_ready/insert_ready`.
+- PPO remains blocked.
