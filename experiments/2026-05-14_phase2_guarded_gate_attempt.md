@@ -1369,3 +1369,88 @@ Next useful action:
 2. Implement a joint-space waypoint or motion-planning pre-controller for deterministic approach/alignment.
 3. Keep the current contact task, contact observations, artifact pipeline, and guarded GPU workflow.
 4. Reopen one short L4 gate only after the new controller passes local syntax checks and has a fixed pass/fail criterion.
+
+## Attempt 19: Joint-IK Gate Added Locally, Brev Startup Did Not Reach Ready
+
+Local implementation:
+
+- Added `RCA-PegInHole-Franka-JointPos-Contact-v0`.
+- Added `RCA-PegInHole-Franka-JointPos-Contact-Play-v0`.
+- Added `--scripted-control-mode joint-ik` to `scripts/scripted_agent.py`.
+- The new scripted path uses Isaac Lab's standalone `DifferentialIKController` with the robot Jacobian and sends direct 7-DoF Franka joint-position targets to the task action term.
+- Local checks passed:
+  - `python3 -m py_compile scripts/scripted_agent.py`
+  - `python3 -m py_compile source/.../config/franka/ik_rel_env_cfg.py source/.../config/franka/__init__.py`
+  - `git diff --check`
+
+First launch attempt:
+
+```bash
+RCA_GATE_TASK='RCA-PegInHole-Franka-JointPos-Contact-Play-v0' \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-jointik-l4 \
+RCA_GATE_INSTANCE_TYPE='g2-standard-4:nvidia-l4:1' \
+RCA_GATE_EXTRA_AGENT_ARGS='--deterministic-reset --socket-pos 0.22,0.04,0.19 --scripted-control-mode joint-ik --abs-control-mode waypoint --abs-pos-step 0.012 --abs-rot-step 0.12 --debug-action-steps 8' \
+scripts/run_guarded_phase2_gate.sh
+```
+
+Result:
+
+- No instance was created.
+- Brev API failed during workspace creation with `unexpected EOF`.
+- Guard cleanup still issued a delete by name.
+- Independent checks returned:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `null`
+
+Second launch attempt:
+
+```bash
+RCA_SCRIPTED_TRACE_JSON=1 \
+RCA_GATE_COMMAND=scripted_eval \
+RCA_GATE_TASK='RCA-PegInHole-Franka-JointPos-Contact-Play-v0' \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-jointik-l4-retry \
+RCA_GATE_INSTANCE_TYPE='g2-standard-4:nvidia-l4:1' \
+RCA_GATE_CREATE_TIMEOUT=900 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_EVAL_TIMEOUT_SECONDS=240 \
+RCA_SCRIPTED_EVAL_RETRIES=0 \
+RCA_GATE_STEPS=100 \
+RCA_GATE_EXTRA_AGENT_ARGS='--deterministic-reset --socket-pos 0.22,0.04,0.19 --scripted-control-mode joint-ik --abs-control-mode waypoint --abs-pos-step 0.012 --abs-rot-step 0.12 --debug-action-steps 8' \
+scripts/run_guarded_phase2_gate.sh
+```
+
+Price selection:
+
+- Live price table again selected `g2-standard-4:nvidia-l4:1` at about `$0.85/hr`.
+- Lowest visible L40S remained about `$1.86/hr`.
+- L4 was the correct cost/performance choice for a short registration/controller gate.
+
+Result:
+
+- Instance was created: `isaac-phase2-jointik-l4-retry`, id `g1z7kfpp3`.
+- The instance stayed in `RUNNING / BUILDING / NOT READY` too long to justify continued waiting.
+- It never reached runtime setup and no scripted eval was executed.
+- Manual delete was issued by id and by name.
+- The instance moved through `DELETING` and `STOPPING`, then disappeared from the org.
+
+Artifacts:
+
+- Gate log: `artifacts/gpu_gate/2026-05-15T09-11-59Z_isaac-phase2-jointik-l4-retry/gate.log`
+- Price tables:
+  - `artifacts/gpu_gate/2026-05-15T09-11-59Z_isaac-phase2-jointik-l4-retry/brev_search_24gb.txt`
+  - `artifacts/gpu_gate/2026-05-15T09-11-59Z_isaac-phase2-jointik-l4-retry/brev_search_32gb.txt`
+  - `artifacts/gpu_gate/2026-05-15T09-11-59Z_isaac-phase2-jointik-l4-retry/brev_search_40gb.txt`
+
+Cleanup:
+
+- Final guarded check returned no visible instances.
+- Final independent checks returned:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `null`
+
+Interpretation:
+
+- The project now has the right next controller path in code: a joint-position task plus standalone Jacobian IK scripted controller.
+- This attempt did not validate the controller because Brev startup failed before runtime setup.
+- Do not run PPO yet.
+- Next GPU attempt should be another short L4 validation of the same joint-IK task, but only after confirming Brev startup is healthy. If Brev repeats `BUILDING/NOT READY`, stop and avoid more cloud time.
