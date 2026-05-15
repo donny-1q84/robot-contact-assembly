@@ -2304,3 +2304,81 @@ Next useful action:
 - Run exactly one more cheap L4 scripted gate after committing this migration.
 - Primary pass condition remains `best_action_tip_alignment < 0.005 m`.
 - No PPO until this invariant passes.
+
+## Attempt 29: XYZW Migration Validates Frame Alignment
+
+Command:
+
+```bash
+RCA_GATE_PROFILE=cheap \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-xyzw-l4 \
+RCA_GATE_TASK=RCA-PegInHole-Franka-IK-Abs-Contact-Play-v0 \
+RCA_GATE_COMMAND=scripted_eval \
+RCA_SCRIPTED_TRACE_JSON=1 \
+RCA_GATE_STEPS=40 \
+RCA_GATE_EVAL_TIMEOUT_SECONDS=180 \
+RCA_GATE_DELETE_TIMEOUT_SECONDS=1200 \
+RCA_GATE_BUILD_STUCK_SECONDS=300 \
+RCA_SCRIPTED_EVAL_RETRIES=0 \
+RCA_GATE_EXTRA_AGENT_ARGS='--deterministic-reset --socket-pos 0.22,0.04,0.19 --staged-approach --approach-xy-tol 0.04 --abs-control-mode waypoint --abs-pos-step 0.012 --abs-rot-step 0.12 --debug-action-steps 4' \
+scripts/run_guarded_phase2_gate.sh
+```
+
+Price selection:
+
+- Selected `g2-standard-4:nvidia-l4:1`.
+- Live L4 price was about `$0.85/hr`.
+- Lowest visible L40S option was about `$1.86/hr`.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-15T14-13-20Z/seed_42.json`
+- Scripted eval trace: `artifacts/evaluations/scripted/2026-05-15T14-13-20Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-15T14-13-20Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-15T13-58-04Z_isaac-phase2-xyzw-l4/gate.log`
+
+Cleanup:
+
+- Artifacts were pulled locally before shutdown.
+- The instance remained visible in `DELETING` for several minutes, so the wrapper kept reissuing delete by name and id.
+- Final wrapper check returned `No instances in org NCA-57cf-29515`.
+- Two independent post-run checks also returned:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `null`
+
+Metrics:
+
+```json
+{
+  "steps_requested": 40,
+  "initial_action_tip_alignment": 0.0,
+  "final_action_tip_alignment": 0.0,
+  "best_action_tip_alignment": 0.0,
+  "best_action_tip_alignment_step": 0,
+  "initial_lateral": 0.19297145307064056,
+  "final_lateral": 0.10373983532190323,
+  "best_lateral": 0.10373983532190323,
+  "best_lateral_step": 39,
+  "initial_axial": 0.40741926431655884,
+  "final_axial": 0.4401460886001587,
+  "initial_rot": 2.8727784156799316,
+  "final_rot": 2.858823537826538,
+  "best_rot": 2.858823537826538,
+  "best_rot_step": 39,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Interpretation:
+
+- Primary pass condition succeeded: `best_action_tip_alignment=0.0 < 0.005 m`.
+- The physical peg tip, action frame, and scripted trace metric now agree.
+- This validates the `XYZW` migration and closes the quaternion/frame bug.
+- The task still does not solve insertion. The scripted controller only improves lateral error from `0.193 m` to `0.104 m`; it never reaches `approach_xy_tol=0.04`, so insertion never starts.
+
+Next useful action:
+
+- Stop spending GPU on frame debugging.
+- Locally redesign the scripted controller target sequence for the aligned frame.
+- The next remote gate should test reachability/staging, not PPO.

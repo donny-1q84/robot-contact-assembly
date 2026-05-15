@@ -221,7 +221,7 @@ Interpretation:
 
 See [experiments/2026-04-26_phase2_direct_contact_baseline.md](experiments/2026-04-26_phase2_direct_contact_baseline.md) for the exact commands, runtime workaround, artifacts, and next decision.
 
-## Contact Frame Fix Pending Validation
+## Contact Frame Fix Validated
 
 After the first direct-contact baseline, the main local diagnosis found a frame-consistency bug rather than a pure PPO/reward problem:
 
@@ -229,7 +229,13 @@ After the first direct-contact baseline, the main local diagnosis found a frame-
 - the relative-IK action offset used only position, so the controller frame and physical peg-tip frame were not guaranteed to match
 - scripted/live controllers were compensating for the old hand-frame target instead of commanding the socket frame directly
 
-The code now aligns the physical peg, IK action offset, and scripted controller around the same peg-tip frame under the runtime `XYZW` convention. This has passed local geometry and syntax checks, but it still needs one cheap remote scripted gate before any new PPO training.
+The code now aligns the physical peg, IK action offset, and scripted controller around the same peg-tip frame under the runtime `XYZW` convention. The cheap L4 scripted gate on 2026-05-15 validated the primary invariant:
+
+- `best_action_tip_alignment=0.0`
+- `final_action_tip_alignment=0.0`
+- `final_success_rate=0.0`
+
+The frame bug is fixed. The remaining Phase 2 work is controller/reach/insertion behavior, not more quaternion debugging.
 
 See [experiments/2026-04-26_phase2_contact_frame_fix.md](experiments/2026-04-26_phase2_contact_frame_fix.md) for the diagnosis, local checks, and next GPU gate.
 

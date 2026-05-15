@@ -251,3 +251,41 @@ python3 -m py_compile \
 ```
 
 Next gate remains the same: one short cheap L4 scripted eval, with `best_action_tip_alignment < 0.005 m` as the only primary pass condition.
+
+### 2026-05-15 Validation Result
+
+The `XYZW` migration passed the frame-alignment gate.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-15T14-13-20Z/seed_42.json`
+- Scripted eval trace: `artifacts/evaluations/scripted/2026-05-15T14-13-20Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-15T14-13-20Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-15T13-58-04Z_isaac-phase2-xyzw-l4/gate.log`
+
+Metrics:
+
+```json
+{
+  "initial_action_tip_alignment": 0.0,
+  "final_action_tip_alignment": 0.0,
+  "best_action_tip_alignment": 0.0,
+  "initial_lateral": 0.19297145307064056,
+  "final_lateral": 0.10373983532190323,
+  "best_lateral": 0.10373983532190323,
+  "initial_axial": 0.40741926431655884,
+  "final_axial": 0.4401460886001587,
+  "best_axial": 0.40741926431655884,
+  "initial_rot": 2.8727784156799316,
+  "final_rot": 2.858823537826538,
+  "best_rot": 2.858823537826538,
+  "final_success_rate": 0.0
+}
+```
+
+Interpretation:
+
+- The controller action frame and physical peg-tip metric frame are now exactly aligned.
+- The previous fixed `0.08 m` error was caused by the legacy `WXYZ` quaternion convention, especially identity quaternions written as `(1, 0, 0, 0)`.
+- The remaining failure is no longer a frame bug. The scripted controller reduces lateral error from about `0.193 m` to `0.104 m`, but does not reach the approach gate or begin insertion.
+- Next work should focus on controller reachability and staging, then PPO/IL only after a scripted nonzero insertion attempt exists.
