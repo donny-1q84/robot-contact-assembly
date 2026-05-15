@@ -1849,3 +1849,123 @@ Next useful action:
 - Do not run another GPU attempt until the controller is changed locally.
 - Diagnose the deterministic reset, socket override, tool-tip body offset, and hand-target mapping from the trace.
 - Prefer either a reachable socket/waypoint target near the deterministic initial pose or a simpler deterministic joint-space waypoint baseline before returning to cloud validation.
+
+## Attempt 25: Built-in Absolute IK Gate Improves Axial Approach, But Still Fails Lateral/Rotation
+
+Command:
+
+```bash
+scripts/run_phase2_absik_gate.sh
+```
+
+Code state:
+
+- Commit before run: `889abde Add Abs IK gate and richer scripted trace`
+- Added richer trace fields for hand pose, controller action-frame pose, physical peg-tip pose, socket-relative physical tip position, and action-to-physical-tip delta.
+- Added `scripts/run_phase2_absik_gate.sh` to compare Isaac Lab's built-in absolute IK action term against the custom standalone Joint-IK pre-controller.
+
+Price selection:
+
+- Live price table selected `g2-standard-4:nvidia-l4:1` at about `$0.85/hr`.
+- The lowest visible L40S option was about `$1.86/hr`.
+- L4 remained the correct choice for this short controller diagnostic.
+
+Result:
+
+- Instance was created: `isaac-phase2-absik-l4`, id `3r8vzmme8`.
+- The instance reached `RUNNING / COMPLETED / READY`.
+- Remote GPU probe succeeded:
+  - GPU: `NVIDIA L4`
+  - VRAM: `23034 MiB`
+  - driver: `580.126.20`
+- Isaac Lab runtime setup completed.
+- The absolute IK contact play task registered and ran:
+  - task: `RCA-PegInHole-Franka-IK-Abs-Contact-Play-v0`
+  - observation width: `43`
+  - action width: `7`
+- Scripted eval completed for seed `42` and 100 steps.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-15T11-55-39Z/seed_42.json`
+- Scripted eval trace: `artifacts/evaluations/scripted/2026-05-15T11-55-39Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-15T11-55-39Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-15T11-38-57Z_isaac-phase2-absik-l4/gate.log`
+
+Cleanup:
+
+- Artifacts were pulled locally before shutdown.
+- Initial delete attempts hit Brev API `context deadline exceeded` while the instance was still `RUNNING / COMPLETED / READY`.
+- Manual and guarded delete retries by both name and id eventually moved the instance to `DELETING`.
+- Final guarded and independent checks returned:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `null`
+
+Metrics:
+
+```json
+{
+  "task": "RCA-PegInHole-Franka-IK-Abs-Contact-Play-v0",
+  "scripted_control_mode": "mdp",
+  "abs_control_mode": "waypoint",
+  "action_dim": 7,
+  "deterministic_reset": true,
+  "socket_pos_override": [0.22, 0.04, 0.19],
+  "initial_lateral": 0.21771036088466644,
+  "final_lateral": 0.2411496788263321,
+  "best_lateral": 0.08073757588863373,
+  "best_lateral_step": 58,
+  "initial_axial": 0.3017815947532654,
+  "final_axial": 0.015910804271697998,
+  "best_axial": 0.004813969135284424,
+  "best_axial_step": 95,
+  "initial_rot": 2.9826011657714844,
+  "final_rot": 2.6274900436401367,
+  "best_rot": 2.404057502746582,
+  "best_rot_step": 95,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Trace highlights:
+
+```text
+step=0:
+  action_pos=[0.1326, -0.1409, 0.5328]
+  physical_tip=[0.0637, -0.1185, 0.5254]
+  action_to_physical_tip_delta=[-0.0689, 0.0224, -0.0073]
+  lateral=0.2177, axial=0.3018, rot=2.9826
+
+step=58:
+  best lateral=0.0807
+  action_pos=[0.2068, 0.0526, 0.4442]
+  physical_tip=[0.1376, 0.0674, 0.4268]
+  action_to_physical_tip_delta=[-0.0691, 0.0149, -0.0174]
+
+step=95:
+  best axial=0.0048 and best rot=2.4041
+  physical_tip_rel_socket_pos=[0.1267, -0.1683, 0.0363]
+
+step=99:
+  lateral=0.2411, axial=0.0159, rot=2.6275
+  physical_tip_rel_socket_pos=[0.1575, -0.1690, -0.0200]
+```
+
+Interpretation:
+
+- Built-in absolute IK is materially better than the custom standalone Joint-IK for this task: axial error reached `0.0048 m`, while the previous bounded Joint-IK gate only reached `0.9153 m`.
+- The controller still fails the task because lateral error does not converge; it improves to `0.0807 m` and then worsens to `0.2411 m`.
+- Rotation never enters a useful correction phase because the state machine remains in `reach`; the current transition requires much tighter lateral alignment before rotation starts.
+- The richer trace exposed a persistent offset between the controller action frame and the physical peg tip, roughly `6-7 cm` in world position during this rollout.
+- This suggests the current kinematic peg sync / frame mapping is not reliable enough for PPO yet.
+
+Next useful action:
+
+- Keep PPO blocked.
+- Replace the coupled XYZ reach with a staged scripted approach:
+  - first align XY while holding current height,
+  - then descend to the pre-insertion height,
+  - then rotate,
+  - then insert.
+- Investigate replacing the kinematic `sync_peg_to_hand` event with a more robust fixed attachment/link representation, or make metrics/rewards consistently use the same physical tip frame as the controller until a fixed attachment is implemented.

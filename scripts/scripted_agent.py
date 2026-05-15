@@ -193,6 +193,12 @@ parser.add_argument("--approach-xy-tol", type=float, default=0.015, help="Latera
 parser.add_argument("--approach-z-tol", type=float, default=0.02, help="World-Z tolerance for the pre-insertion hold pose.")
 parser.add_argument("--approach-rot-tol", type=float, default=0.25, help="Orientation tolerance before switching to insertion.")
 parser.add_argument(
+    "--staged-approach",
+    action="store_true",
+    default=False,
+    help="Align XY at the current height before descending to the pre-insertion approach height.",
+)
+parser.add_argument(
     "--coupled-approach",
     action="store_true",
     default=False,
@@ -524,6 +530,7 @@ def main():
         best_rot = float("inf")
         best_rot_step = None
         trace_rows = []
+        xy_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         rotate_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         polish_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         settle_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
@@ -578,6 +585,7 @@ def main():
             approach_pos_w[:, 2] += args_cli.approach_height
             target_pos_w = approach_pos_w.clone()
             target_quat_w = target_action_quat_w.clone()
+            controller_lateral_error = torch.linalg.norm((target_action_pos_w - action_pos_w)[:, :2], dim=1)
 
             if args_cli.coupled_approach:
                 position_ready = (lateral_error < args_cli.approach_xy_tol) & (
@@ -585,6 +593,22 @@ def main():
                 )
                 rotate_state |= position_ready
                 insert_mask = position_ready
+            elif args_cli.staged_approach:
+                xy_state |= controller_lateral_error < args_cli.approach_xy_tol
+                xy_target_pos_w = target_action_pos_w.clone()
+                xy_target_pos_w[:, 2] = action_pos_w[:, 2]
+                target_pos_w[~xy_state] = xy_target_pos_w[~xy_state]
+
+                approach_z_error = torch.abs(action_pos_w[:, 2] - approach_pos_w[:, 2])
+                position_ready = xy_state & (approach_z_error < args_cli.approach_z_tol)
+                rotate_state |= position_ready
+                target_quat_w = action_quat_w.clone()
+                target_quat_w[rotate_state] = target_action_quat_w[rotate_state]
+                insert_mask = (
+                    rotate_state
+                    & (controller_lateral_error < args_cli.approach_xy_tol)
+                    & (orientation_error < args_cli.approach_rot_tol)
+                )
             else:
                 # Decouple gross translation from large orientation changes. With a rigid tip offset, rotating
                 # while still far from the socket can move the tip away from the approach corridor.
@@ -753,6 +777,7 @@ def main():
                     f"target_pos={target_pos_w[0].tolist()} "
                     f"command_pos={command_pos_w[0].tolist()} "
                     f"pos_error={pos_error[0].tolist()} "
+                    f"controller_lateral_error={controller_lateral_error[0].item():.6f} "
                     f"action_pos_error={action_pos_error[0].tolist()} "
                     f"signed_action_pos_error={signed_action_pos_error[0].tolist()} "
                     f"axis_angle_error={axis_angle_error[0].tolist()} "
@@ -760,6 +785,7 @@ def main():
                     f"scripted_control_mode={scripted_control_mode} "
                     f"position_control_mode={args_cli.position_control_mode} "
                     f"abs_control_mode={args_cli.abs_control_mode} "
+                    f"staged_approach={args_cli.staged_approach} "
                     f"selected_calibrated_action="
                     f"{calibrated_candidate_names[int(selected_candidate_idxs[0].item())] if selected_candidate_idxs is not None else None} "
                     f"raw_action={actions[0].tolist()} "
@@ -798,6 +824,7 @@ def main():
                     f"[SCRIPTED] step={step:04d} lateral={final_lateral:.4f} axial={final_axial:.4f} "
                     f"rot={final_rot:.4f} success_rate={final_success:.3f} "
                     f"position_ready={position_ready.float().mean().item():.3f} "
+                    f"xy_ready={xy_state.float().mean().item():.3f} "
                     f"rotate_ready={rotate_state.float().mean().item():.3f} "
                     f"insert_ready={insert_mask.float().mean().item():.3f} "
                     f"polish_ready={polish_only.float().mean().item():.3f} "
@@ -814,6 +841,8 @@ def main():
                     phase = "insert"
                 elif rotate_state[0].item():
                     phase = "rotate"
+                elif xy_state[0].item():
+                    phase = "descend"
                 else:
                     phase = "reach"
                 trace_rows.append(
@@ -830,6 +859,7 @@ def main():
                         "action_to_physical_tip_delta_w": (
                             physical_tip_pos_w[0] - action_pos_w[0]
                         ).detach().cpu().tolist(),
+                        "controller_lateral_error": controller_lateral_error[0].item(),
                         "socket_pos_w": socket_pos_w[0].detach().cpu().tolist(),
                         "approach_pos_w": approach_pos_w[0].detach().cpu().tolist(),
                         "target_pos_w": target_pos_w[0].detach().cpu().tolist(),
@@ -852,6 +882,7 @@ def main():
                         "rot": rot[0].item(),
                         "success": bool(success[0].item()),
                         "position_ready": bool(position_ready[0].item()),
+                        "xy_state": bool(xy_state[0].item()),
                         "rotate_state": bool(rotate_state[0].item()),
                         "insert_mask": bool(insert_mask[0].item()),
                         "polish_state": bool(polish_state[0].item()),
@@ -886,6 +917,7 @@ def main():
             "video_backend": args_cli.video_backend if args_cli.video else None,
             "video_folder": video_folder,
             "coupled_approach": args_cli.coupled_approach,
+            "staged_approach": args_cli.staged_approach,
             "action_axis_signs": list(args_cli.action_axis_signs),
             "action_dim": action_dim,
             "scripted_control_mode": scripted_control_mode,
