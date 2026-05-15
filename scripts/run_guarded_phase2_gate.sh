@@ -405,8 +405,19 @@ main() {
         "${EVAL_TIMEOUT_SECONDS}" \
         "${combined_scripted_args}"
       ;;
+    scripted_reach_sweep)
+      log "running scripted reachability sweep"
+      bash "${SCRIPT_DIR}/run_remote_scripted_reach_sweep.sh" \
+        "${INSTANCE_NAME}" \
+        "${REMOTE_ROOT}" \
+        "${REMOTE_COMPOSE_ROOT}" \
+        "${TASK_NAME}" \
+        "${NUM_ENVS}" \
+        "${SEEDS%%,*}" \
+        "${EVAL_TIMEOUT_SECONDS}"
+      ;;
     *)
-      echo "[guarded-gate] unknown RCA_GATE_COMMAND=${GATE_COMMAND}; use scripted_eval, action_calibration, or calibration_then_scripted_eval" >&2
+      echo "[guarded-gate] unknown RCA_GATE_COMMAND=${GATE_COMMAND}; use scripted_eval, scripted_reach_sweep, action_calibration, or calibration_then_scripted_eval" >&2
       return 2
       ;;
   esac

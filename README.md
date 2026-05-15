@@ -307,6 +307,8 @@ Once the runtime is bootstrapped, the shortest useful commands are:
   - `./scripts/run_remote_scripted_baseline.sh`
 - Fixed-seed scripted baseline sweep with per-seed JSON summaries:
   - `./scripts/run_remote_scripted_eval.sh`
+- Same-instance scripted reachability sweep for controller tuning:
+  - `./scripts/run_remote_scripted_reach_sweep.sh`
 - PPO training wrapper for the custom peg-in-hole task package:
   - `./scripts/run_remote_train_ppo.sh`
 - Short contact-baseline smoke run:
