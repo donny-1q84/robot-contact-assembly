@@ -332,6 +332,15 @@ parser.add_argument(
     ),
 )
 parser.add_argument(
+    "--hold-orientation-during-descend",
+    action="store_true",
+    default=False,
+    help=(
+        "After staged rotation reaches tolerance, hold the measured orientation while descending to the "
+        "approach height. This prioritizes Cartesian descent and avoids over-constraining JointIK."
+    ),
+)
+parser.add_argument(
     "--scripted-control-mode",
     choices=("auto", "mdp", "joint-ik"),
     default="auto",
@@ -743,6 +752,9 @@ def main():
                         )
                     target_quat_w[rotate_state] = target_action_quat_w[rotate_state]
                     position_ready = rotation_ready & (approach_z_error < args_cli.approach_z_tol)
+                    if args_cli.hold_orientation_during_descend:
+                        post_rotate_descend_mask = rotation_ready & ~position_ready & ~insert_state
+                        target_quat_w[post_rotate_descend_mask] = action_quat_w[post_rotate_descend_mask]
                 else:
                     position_ready = xy_state & (approach_z_error < args_cli.approach_z_tol)
                     rotate_state |= position_ready
@@ -1165,6 +1177,7 @@ def main():
                         "rotate_only": bool(rotate_only_mask[0].item()),
                         "rotate_quat_hold": bool(rotate_quat_hold_mask[0].item()),
                         "rotate_control_mode": args_cli.rotate_control_mode,
+                        "hold_orientation_during_descend": args_cli.hold_orientation_during_descend,
                         "insert_xy_tolerance": insert_xy_tolerance,
                         "insert_rot_tolerance": insert_rot_tolerance,
                         "insert_abort_xy_tolerance": insert_abort_xy_tolerance,
@@ -1247,6 +1260,7 @@ def main():
             "position_control_mode": args_cli.position_control_mode,
             "abs_control_mode": args_cli.abs_control_mode,
             "rotate_control_mode": args_cli.rotate_control_mode,
+            "hold_orientation_during_descend": args_cli.hold_orientation_during_descend,
             "insert_xy_tolerance": args_cli.insert_xy_tol if args_cli.insert_xy_tol is not None else args_cli.approach_xy_tol,
             "insert_rot_tolerance": args_cli.insert_rot_tol if args_cli.insert_rot_tol is not None else args_cli.approach_rot_tol,
             "insert_abort_xy_tolerance": (
