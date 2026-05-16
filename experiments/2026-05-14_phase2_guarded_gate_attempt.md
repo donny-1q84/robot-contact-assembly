@@ -4445,3 +4445,48 @@ Next pass condition:
 - Better than Attempt 51 if `insert_state` remains active continuously after first entry and `best_axial < 0.15`.
 - Successful if `success_step != null`.
 - Failed but useful if branch jump still occurs with continuous insertion, because that would justify replacing the final JointIK descent with a nominal joint trajectory or planner-generated path.
+
+## Attempt 52: relaxed insertion gate aborted during Brev create
+
+Date: 2026-05-16
+
+Local base commit:
+
+- `de3cc3e Record early insert gate result`
+
+Goal:
+
+- Run the relaxed insertion latch gate prepared after Attempt 51.
+
+Remote run:
+
+- Run id: `2026-05-16T22-41-55Z`
+- Requested instance: `isaac-phase2-relaxed-insert-l4`
+- Requested machine: `g2-standard-4:nvidia-l4:1`
+- Selected live price: `$0.85/hr`
+
+Result:
+
+- No scripted evaluation ran.
+- Brev returned `unexpected EOF` while creating the workspace:
+  - `CreateWorkspace ... Post ... unexpected EOF`
+  - `Warning: Only created 0/1 instances`
+  - `could only create 0/1 instances`
+- The guarded cleanup still found a potential half-created instance id `2d6qquumg` and deleted it.
+
+Artifacts:
+
+- Gate log: `artifacts/gpu_gate/2026-05-16T22-41-55Z_isaac-phase2-relaxed-insert-l4/gate.log`
+
+Cleanup verification:
+
+- Guarded cleanup completed.
+- Final independent cleanup confirmation:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Interpretation:
+
+- This was a Brev workspace creation/backend failure, not a project-code failure.
+- The relaxed insertion latch remains untested.
+- A single retry is reasonable because the guarded cleanup confirmed the org is empty.
