@@ -540,16 +540,36 @@ def _clamp_joint_targets(
     max_step = max(0.0, max_step)
     joint_pos_des = joint_pos + torch.clamp(joint_pos_des - joint_pos, min=-max_step, max=max_step)
 
+    lower, upper = _selected_joint_limits(robot, joint_ids, margin=limit_margin)
+    if lower is None or upper is None:
+        return joint_pos_des
+
+    return torch.minimum(torch.maximum(joint_pos_des, lower), upper)
+
+
+def _selected_joint_limits(
+    robot,
+    joint_ids: torch.Tensor,
+    margin: float = 0.0,
+) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+    """Return selected joint lower/upper limits with an optional safety margin."""
+
     limits = getattr(robot.data, "soft_joint_pos_limits", None)
     if limits is None:
         limits = getattr(robot.data, "joint_pos_limits", None)
     if limits is None:
-        return joint_pos_des
+        return None, None
 
     limits = _as_torch(limits).index_select(1, joint_ids)
     lower = limits[..., 0] + limit_margin
     upper = limits[..., 1] - limit_margin
-    return torch.minimum(torch.maximum(joint_pos_des, lower), upper)
+    return lower, upper
+
+
+def _joint_limit_margin(joint_pos: torch.Tensor, lower: torch.Tensor | None, upper: torch.Tensor | None) -> torch.Tensor | None:
+    if lower is None or upper is None:
+        return None
+    return torch.minimum(joint_pos - lower, upper - joint_pos)
 
 
 def main():
@@ -718,6 +738,8 @@ def main():
         settle_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         branch_jump_step = None
         branch_jump_reason = None
+        branch_jump_contact_force_magnitude = None
+        branch_jump_joint_limit_margin_min = None
         action_axis_signs = torch.tensor(args_cli.action_axis_signs, device=env_unwrapped.device).unsqueeze(0)
         calibrated_candidate_names: list[str] = []
         calibrated_candidate_actions = None
@@ -928,6 +950,14 @@ def main():
             hand_target_quat_w = None
             joint_pos_des = None
             joint_pos_des_raw = None
+            joint_pos = None
+            joint_vel = None
+            joint_limit_lower = None
+            joint_limit_upper = None
+            joint_limit_margin = None
+            post_joint_pos = None
+            post_joint_vel = None
+            post_joint_limit_margin = None
             abs_pos_step_limit = torch.full_like(pos_error, args_cli.abs_pos_step)
             if args_cli.insert_pos_step is not None and insert_mask.any():
                 abs_pos_step_limit[insert_mask] = args_cli.insert_pos_step
@@ -1014,6 +1044,9 @@ def main():
                 jacobians = _as_torch(robot.root_physx_view.get_jacobians())
                 jacobian = jacobians[:, ee_jacobi_idx, :, :].index_select(-1, joint_ids)
                 joint_pos = _as_torch(robot.data.joint_pos).index_select(-1, joint_ids)
+                joint_vel = _as_torch(robot.data.joint_vel).index_select(-1, joint_ids)
+                joint_limit_lower, joint_limit_upper = _selected_joint_limits(robot, joint_ids)
+                joint_limit_margin = _joint_limit_margin(joint_pos, joint_limit_lower, joint_limit_upper)
                 joint_pos_des_raw = diff_ik_controller.compute(hand_pos_b, hand_quat_b, jacobian, joint_pos)
                 joint_pos_des = _clamp_joint_targets(
                     robot,
@@ -1159,6 +1192,16 @@ def main():
                     socket_cfg=socket_cfg,
                     force_scale=1.0,
                 )
+            if scripted_control_mode == "joint-ik":
+                assert robot_entity_cfg is not None
+                joint_ids = torch.as_tensor(
+                    robot_entity_cfg.joint_ids,
+                    device=env_unwrapped.device,
+                    dtype=torch.long,
+                )
+                post_joint_pos = _as_torch(robot.data.joint_pos).index_select(-1, joint_ids)
+                post_joint_vel = _as_torch(robot.data.joint_vel).index_select(-1, joint_ids)
+                post_joint_limit_margin = _joint_limit_margin(post_joint_pos, joint_limit_lower, joint_limit_upper)
 
             if step == 0:
                 initial_lateral = lateral.mean().item()
@@ -1198,9 +1241,15 @@ def main():
             )
             if branch_jump_step is None and branch_jump_mask.any():
                 branch_jump_step = step
+                if contact_force_magnitude is not None:
+                    branch_jump_contact_force_magnitude = contact_force_magnitude[0].item()
+                if post_joint_limit_margin is not None:
+                    branch_jump_joint_limit_margin_min = torch.min(post_joint_limit_margin[0]).item()
                 branch_jump_reason = (
                     f"lateral={lateral[0].item():.4f} rot={rot[0].item():.4f} "
-                    f"after_aligned={bool(aligned_state[0].item())}"
+                    f"after_aligned={bool(aligned_state[0].item())} "
+                    f"joint_margin_min={branch_jump_joint_limit_margin_min} "
+                    f"contact_force={branch_jump_contact_force_magnitude}"
                 )
                 print(f"[SCRIPTED] branch jump detected at step={step:04d} {branch_jump_reason}", flush=True)
 
@@ -1291,6 +1340,36 @@ def main():
                         "joint_pos_des": joint_pos_des[0].detach().cpu().tolist() if joint_pos_des is not None else None,
                         "joint_pos_des_raw": (
                             joint_pos_des_raw[0].detach().cpu().tolist() if joint_pos_des_raw is not None else None
+                        ),
+                        "joint_pos": joint_pos[0].detach().cpu().tolist() if joint_pos is not None else None,
+                        "joint_vel": joint_vel[0].detach().cpu().tolist() if joint_vel is not None else None,
+                        "joint_limit_lower": (
+                            joint_limit_lower[0].detach().cpu().tolist() if joint_limit_lower is not None else None
+                        ),
+                        "joint_limit_upper": (
+                            joint_limit_upper[0].detach().cpu().tolist() if joint_limit_upper is not None else None
+                        ),
+                        "joint_limit_margin": (
+                            joint_limit_margin[0].detach().cpu().tolist() if joint_limit_margin is not None else None
+                        ),
+                        "joint_limit_margin_min": (
+                            torch.min(joint_limit_margin[0]).item() if joint_limit_margin is not None else None
+                        ),
+                        "post_joint_pos": (
+                            post_joint_pos[0].detach().cpu().tolist() if post_joint_pos is not None else None
+                        ),
+                        "post_joint_vel": (
+                            post_joint_vel[0].detach().cpu().tolist() if post_joint_vel is not None else None
+                        ),
+                        "post_joint_limit_margin": (
+                            post_joint_limit_margin[0].detach().cpu().tolist()
+                            if post_joint_limit_margin is not None
+                            else None
+                        ),
+                        "post_joint_limit_margin_min": (
+                            torch.min(post_joint_limit_margin[0]).item()
+                            if post_joint_limit_margin is not None
+                            else None
                         ),
                         "pos_error": pos_error[0].detach().cpu().tolist(),
                         "axis_angle_error": axis_angle_error[0].detach().cpu().tolist(),
@@ -1420,6 +1499,8 @@ def main():
             "branch_jump_aligned_rot_tolerance": args_cli.branch_jump_aligned_rot_tol,
             "branch_jump_xy_tolerance": args_cli.branch_jump_xy_tol,
             "branch_jump_rot_tolerance": args_cli.branch_jump_rot_tol,
+            "branch_jump_contact_force_magnitude": branch_jump_contact_force_magnitude,
+            "branch_jump_joint_limit_margin_min": branch_jump_joint_limit_margin_min,
             "insert_xy_tolerance": args_cli.insert_xy_tol if args_cli.insert_xy_tol is not None else args_cli.approach_xy_tol,
             "insert_rot_tolerance": args_cli.insert_rot_tol if args_cli.insert_rot_tol is not None else args_cli.approach_rot_tol,
             "insert_abort_xy_tolerance": (

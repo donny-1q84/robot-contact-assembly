@@ -4723,3 +4723,30 @@ Decision:
   - adding branch-jump forensics to trace current joint position, joint velocity, joint limits, and contact force at the exact jump;
   - moving the socket pose to a kinematically safer height/position and documenting the reachability reason;
   - replacing the final descent with a planned/cached joint trajectory that avoids the unstable branch.
+
+## Prepared next diagnostic: branch-jump joint forensics
+
+Date: 2026-05-17
+
+Local change:
+
+- Extended `scripts/scripted_agent.py` trace output with:
+  - pre-step selected joint positions and velocities
+  - post-step selected joint positions and velocities
+  - selected joint lower/upper limits
+  - pre-step and post-step joint-limit margin vectors
+  - min joint-limit margin at the branch-jump step
+  - contact force at the branch-jump step
+- Extended `scripts/summarize_scripted_trace.py` with a `jlim` column for quick branch-jump review.
+
+Why:
+
+- Attempts 53 and 54 both failed at the same branch-jump step (`472`) after the rollout had already reached aligned states.
+- The existing trace proves that the end-effector pose jumps, but not whether the jump is caused by joint-limit saturation, velocity spike, contact impulse, or the direct joint-position action path.
+- The next paid run should collect these diagnostics before trying a new controller family.
+
+Next diagnostic pass condition:
+
+- Useful if it identifies whether the step-472 jump coincides with near-zero joint-limit margin, large joint velocity, or contact force spike.
+- If the joint-limit margin is the root cause, move the socket pose or reset posture before another controller experiment.
+- If the joint limits are not implicated, switch to a planned/cached final joint trajectory or lower-level action smoothing.
