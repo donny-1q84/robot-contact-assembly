@@ -341,6 +341,15 @@ parser.add_argument(
     ),
 )
 parser.add_argument(
+    "--hold-orientation-during-insert",
+    action="store_true",
+    default=False,
+    help=(
+        "Freeze the action-frame orientation at insertion entry instead of continuing to rotate toward the socket "
+        "during final descent."
+    ),
+)
+parser.add_argument(
     "--insert-after-alignment",
     action="store_true",
     default=False,
@@ -348,6 +357,21 @@ parser.add_argument(
         "In staged rotate-before-descend mode, latch insertion as soon as lateral and orientation errors "
         "are within insertion tolerances instead of waiting to reach the approach-height waypoint."
     ),
+)
+parser.add_argument(
+    "--insert-descent-mode",
+    choices=("pose-target", "vertical"),
+    default="pose-target",
+    help=(
+        "Final insertion target strategy. 'pose-target' sends the socket pose as before; 'vertical' commands a "
+        "bounded world-Z descent while keeping XY aimed at the socket."
+    ),
+)
+parser.add_argument(
+    "--insert-vertical-step",
+    type=float,
+    default=None,
+    help="World-Z step for --insert-descent-mode vertical. Defaults to insert-pos-step, then abs-pos-step.",
 )
 parser.add_argument(
     "--stop-on-branch-jump",
@@ -688,6 +712,8 @@ def main():
         rotate_hold_valid = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         rotate_command_quat_w = torch.zeros((env_unwrapped.num_envs, 4), dtype=torch.float32, device=env_unwrapped.device)
         rotate_command_valid = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
+        insert_hold_quat_w = torch.zeros((env_unwrapped.num_envs, 4), dtype=torch.float32, device=env_unwrapped.device)
+        insert_hold_valid = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         polish_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         settle_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         branch_jump_step = None
@@ -826,6 +852,7 @@ def main():
                 )
 
             insert_entry_mask = insert_mask
+            insert_new_entry_mask = insert_entry_mask & ~insert_state
             insert_state |= insert_entry_mask
             insert_abort_counts[insert_entry_mask] = 0
             insert_abort_violation_mask = insert_state & (
@@ -837,10 +864,39 @@ def main():
             insert_abort_mask = insert_abort_violation_mask & (insert_abort_counts >= insert_abort_grace_steps)
             insert_state[insert_abort_mask] = False
             insert_abort_counts[insert_abort_mask] = 0
+            insert_hold_valid[insert_abort_mask] = False
+            insert_hold_valid &= insert_state
+            insert_new_active_mask = insert_new_entry_mask & insert_state
+            if insert_new_active_mask.any():
+                insert_hold_quat_w[insert_new_active_mask] = action_quat_w[insert_new_active_mask]
+                insert_hold_valid[insert_new_active_mask] = True
             insert_mask = insert_state
 
-            target_pos_w[insert_mask] = target_action_pos_w[insert_mask]
-            target_quat_w[insert_mask] = target_action_quat_w[insert_mask]
+            if insert_mask.any():
+                if args_cli.insert_descent_mode == "vertical":
+                    insert_vertical_step = (
+                        args_cli.insert_vertical_step
+                        if args_cli.insert_vertical_step is not None
+                        else args_cli.insert_pos_step
+                        if args_cli.insert_pos_step is not None
+                        else args_cli.abs_pos_step
+                    )
+                    vertical_insert_pos_w = target_action_pos_w.clone()
+                    vertical_insert_pos_w[:, 2] = torch.maximum(
+                        target_action_pos_w[:, 2],
+                        action_pos_w[:, 2] - insert_vertical_step,
+                    )
+                    target_pos_w[insert_mask] = vertical_insert_pos_w[insert_mask]
+                else:
+                    target_pos_w[insert_mask] = target_action_pos_w[insert_mask]
+                if args_cli.hold_orientation_during_insert:
+                    target_quat_w[insert_mask] = torch.where(
+                        insert_hold_valid[insert_mask, None],
+                        insert_hold_quat_w[insert_mask],
+                        action_quat_w[insert_mask],
+                    )
+                else:
+                    target_quat_w[insert_mask] = target_action_quat_w[insert_mask]
             polish_mask = (lateral_error < args_cli.polish_xy_tol) & (axial_error < args_cli.polish_z_tol)
             polish_state |= polish_mask
             settle_mask = polish_state & (lateral_error < args_cli.settle_xy_tol) & (orientation_error < args_cli.settle_rot_tol)
@@ -1245,6 +1301,17 @@ def main():
                         "rotate_control_mode": args_cli.rotate_control_mode,
                         "hold_orientation_during_descend": args_cli.hold_orientation_during_descend,
                         "insert_after_alignment": args_cli.insert_after_alignment,
+                        "insert_descent_mode": args_cli.insert_descent_mode,
+                        "insert_vertical_step": (
+                            args_cli.insert_vertical_step
+                            if args_cli.insert_vertical_step is not None
+                            else args_cli.insert_pos_step
+                            if args_cli.insert_pos_step is not None
+                            else args_cli.abs_pos_step
+                        ),
+                        "hold_orientation_during_insert": args_cli.hold_orientation_during_insert,
+                        "insert_hold_valid": bool(insert_hold_valid[0].item()),
+                        "insert_hold_quat_w": insert_hold_quat_w[0].detach().cpu().tolist(),
                         "insert_xy_tolerance": insert_xy_tolerance,
                         "insert_rot_tolerance": insert_rot_tolerance,
                         "insert_abort_xy_tolerance": insert_abort_xy_tolerance,
@@ -1252,6 +1319,7 @@ def main():
                         "insert_xy_ready": bool(insert_xy_ready[0].item()),
                         "insert_orientation_ready": bool(insert_orientation_ready[0].item()),
                         "insert_entry": bool(insert_entry_mask[0].item()),
+                        "insert_new_entry": bool(insert_new_entry_mask[0].item()),
                         "insert_abort_violation": bool(insert_abort_violation_mask[0].item()),
                         "insert_abort_count": int(insert_abort_counts[0].item()),
                         "insert_abort_grace_steps": insert_abort_grace_steps,
@@ -1335,7 +1403,16 @@ def main():
             "abs_control_mode": args_cli.abs_control_mode,
             "rotate_control_mode": args_cli.rotate_control_mode,
             "hold_orientation_during_descend": args_cli.hold_orientation_during_descend,
+            "hold_orientation_during_insert": args_cli.hold_orientation_during_insert,
             "insert_after_alignment": args_cli.insert_after_alignment,
+            "insert_descent_mode": args_cli.insert_descent_mode,
+            "insert_vertical_step": (
+                args_cli.insert_vertical_step
+                if args_cli.insert_vertical_step is not None
+                else args_cli.insert_pos_step
+                if args_cli.insert_pos_step is not None
+                else args_cli.abs_pos_step
+            ),
             "stop_on_branch_jump": args_cli.stop_on_branch_jump,
             "branch_jump_step": branch_jump_step,
             "branch_jump_reason": branch_jump_reason,

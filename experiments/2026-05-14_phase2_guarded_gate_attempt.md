@@ -4566,6 +4566,10 @@ step  phase   lat      ax      rot     insert  aligned  branch  note
 400   insert  0.0075   0.3420  0.3138  1       1        0       continuous insert
 425   insert  0.0053   0.3379  0.3440  1       1        0       near XY threshold
 450   insert  0.0038   0.3380  0.3483  1       1        0       best XY region
+458   insert  0.0038   0.3260  0.4873  1       1        0       rotation drift reached abort threshold
+459   align   0.0028   0.3280  0.4675  0       1        0       relaxed latch aborted after 8 violating steps
+468   align   0.0052   0.3499  0.2477  0       1        0       re-aligned near insertion tolerance
+469   insert  0.0067   0.3484  0.2587  1       1        0       insertion re-entered
 470   insert  0.0063   0.3466  0.2751  1       1        0       axial still far above success threshold
 472   insert  0.2466   0.1955  2.3981  1       1        1       branch jump, stopped early
 ```
@@ -4579,7 +4583,7 @@ Cleanup verification:
 
 Interpretation:
 
-- The relaxed latch fixed the state-machine oscillation observed in Attempt 51. `insert_state` remained active from first entry through the branch-jump stop.
+- The relaxed latch reduced the immediate insert/align oscillation observed in Attempt 51. It stayed in `insert` from step `325` through `458`, then aborted at `459` after eight over-rotation steps and re-entered at `469`.
 - The controller still did not produce useful axial insertion. From step `325` to `470`, axial error only moved from `0.3581` to `0.3466`; the apparent best axial at step `472` coincided with a branch jump and should not be treated as a valid insertion improvement.
 - This is now strong evidence against spending more GPU time on scripted JointIK threshold tuning.
 - The next useful local change is a new final-descent strategy: either a nominal joint trajectory, a planner-generated final descent path, or a cached waypoint replay that keeps the arm on the same IK branch during insertion.
@@ -4588,3 +4592,28 @@ Decision:
 
 - Stop running more GPU gates until the final descent controller changes.
 - Keep the current artifacts as the diagnostic evidence for why Phase 2 needs a controller change rather than another reward or threshold tweak.
+
+## Prepared next gate: vertical insertion descent
+
+Date: 2026-05-17
+
+Local change:
+
+- Added `--insert-descent-mode vertical` to `scripts/scripted_agent.py`.
+- Added `--hold-orientation-during-insert` so the insertion phase can freeze the action-frame orientation at insertion entry instead of continuing to rotate toward the socket.
+- Added trace fields for insertion descent mode, frozen insertion orientation state, and true first insertion entry.
+- Updated `scripts/run_phase2_jointik_gate.sh` so the next guarded gate uses:
+  - `--insert-descent-mode vertical`
+  - `--insert-vertical-step 0.018`
+  - `--hold-orientation-during-insert`
+
+Why:
+
+- Attempt 53 showed that full pose-target insertion over-constrains the final descent: lateral error stayed good, but rotation drifted until the latch aborted, then the rollout re-entered insertion and hit the same branch jump.
+- The next test should isolate vertical insertion from socket-orientation chasing. If this avoids the branch jump, the remaining issue is orientation refinement near contact. If it still jumps, the next step should be a planner/cached joint trajectory rather than another Cartesian JointIK variant.
+
+Pass condition:
+
+- Better than Attempt 53 if no branch jump occurs before step `500` and axial error improves below `0.25` without losing lateral alignment.
+- Successful if `success_step != null`.
+- Failed but useful if branch jump still appears, because that would justify replacing this controller path with a planned/cached joint trajectory.
