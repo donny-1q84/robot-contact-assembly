@@ -133,6 +133,31 @@ def _axis_angle_to_quat(axis_angle: torch.Tensor) -> torch.Tensor:
     return _normalize_quat(quat)
 
 
+def _quat_step_towards(current: torch.Tensor, target: torch.Tensor, max_rotation: float) -> torch.Tensor:
+    """Move `current` toward `target` by at most `max_rotation` radians.
+
+    This keeps quaternion sign continuity against the previous command. That matters near 180 deg, where
+    recomputing an axis-angle waypoint from the measured pose can alternate between antipodal branches.
+    """
+
+    current = _normalize_quat(current)
+    target = _normalize_quat(target)
+    dot = torch.sum(current * target, dim=-1, keepdim=True)
+    target = torch.where(dot < 0.0, -target, target)
+    dot = torch.abs(dot).clamp(max=1.0)
+    omega = torch.acos(dot)
+    angle = 2.0 * omega
+    t = torch.clamp(max_rotation / torch.clamp(angle, min=1.0e-8), max=1.0)
+    sin_omega = torch.sin(omega)
+    linear_mask = sin_omega < 1.0e-6
+    slerp = (
+        torch.sin((1.0 - t) * omega) / torch.clamp(sin_omega, min=1.0e-8) * current
+        + torch.sin(t * omega) / torch.clamp(sin_omega, min=1.0e-8) * target
+    )
+    lerp = _normalize_quat((1.0 - t) * current + t * target)
+    return _normalize_quat(torch.where(linear_mask, lerp, slerp))
+
+
 def _load_calibrated_position_response(path: str) -> tuple[list[dict[str, list[float]]], int]:
     with open(path, "r", encoding="utf-8") as f:
         summary = json.load(f)
@@ -298,11 +323,12 @@ parser.add_argument(
 )
 parser.add_argument(
     "--rotate-control-mode",
-    choices=("inherit", "target", "waypoint"),
+    choices=("inherit", "target", "waypoint", "stateful-waypoint"),
     default="inherit",
     help=(
         "Override quaternion control only during the rotate-only staged phase. "
-        "'target' keeps the position waypoint but sends the full target quaternion."
+        "'target' keeps the position waypoint but sends the full target quaternion; "
+        "'stateful-waypoint' advances a persistent quaternion command toward the target."
     ),
 )
 parser.add_argument(
@@ -611,6 +637,8 @@ def main():
         insert_abort_counts = torch.zeros(env_unwrapped.num_envs, dtype=torch.long, device=env_unwrapped.device)
         rotate_hold_pos_w = torch.zeros((env_unwrapped.num_envs, 3), dtype=torch.float32, device=env_unwrapped.device)
         rotate_hold_valid = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
+        rotate_command_quat_w = torch.zeros((env_unwrapped.num_envs, 4), dtype=torch.float32, device=env_unwrapped.device)
+        rotate_command_valid = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         polish_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         settle_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         action_axis_signs = torch.tensor(args_cli.action_axis_signs, device=env_unwrapped.device).unsqueeze(0)
@@ -814,7 +842,19 @@ def main():
                     command_quat_w = _normalize_quat(
                         _quat_multiply(action_quat_w, _axis_angle_to_quat(axis_angle_error * axis_angle_scale))
                     )
-                if args_cli.rotate_control_mode == "target" and rotate_quat_hold_mask.any():
+                if args_cli.rotate_control_mode == "stateful-waypoint" and rotate_only_mask.any():
+                    rotate_command_valid &= rotate_only_mask
+                    rotate_command_seed_mask = rotate_only_mask & ~rotate_command_valid
+                    if rotate_command_seed_mask.any():
+                        rotate_command_quat_w[rotate_command_seed_mask] = action_quat_w[rotate_command_seed_mask]
+                    rotate_command_valid[rotate_only_mask] = True
+                    rotate_command_quat_w[rotate_only_mask] = _quat_step_towards(
+                        rotate_command_quat_w[rotate_only_mask],
+                        target_quat_w[rotate_only_mask],
+                        args_cli.abs_rot_step,
+                    )
+                    command_quat_w[rotate_only_mask] = rotate_command_quat_w[rotate_only_mask]
+                elif args_cli.rotate_control_mode == "target" and rotate_quat_hold_mask.any():
                     command_quat_w[rotate_quat_hold_mask] = target_quat_w[rotate_quat_hold_mask]
                 elif args_cli.rotate_control_mode == "waypoint" and rotate_only_mask.any():
                     axis_angle_norm = torch.linalg.norm(axis_angle_error, dim=-1, keepdim=True)
@@ -885,7 +925,19 @@ def main():
                     command_quat_w = _normalize_quat(
                         _quat_multiply(action_quat_w, _axis_angle_to_quat(axis_angle_error * axis_angle_scale))
                     )
-                if args_cli.rotate_control_mode == "target" and rotate_quat_hold_mask.any():
+                if args_cli.rotate_control_mode == "stateful-waypoint" and rotate_only_mask.any():
+                    rotate_command_valid &= rotate_only_mask
+                    rotate_command_seed_mask = rotate_only_mask & ~rotate_command_valid
+                    if rotate_command_seed_mask.any():
+                        rotate_command_quat_w[rotate_command_seed_mask] = action_quat_w[rotate_command_seed_mask]
+                    rotate_command_valid[rotate_only_mask] = True
+                    rotate_command_quat_w[rotate_only_mask] = _quat_step_towards(
+                        rotate_command_quat_w[rotate_only_mask],
+                        target_quat_w[rotate_only_mask],
+                        args_cli.abs_rot_step,
+                    )
+                    command_quat_w[rotate_only_mask] = rotate_command_quat_w[rotate_only_mask]
+                elif args_cli.rotate_control_mode == "target" and rotate_quat_hold_mask.any():
                     command_quat_w[rotate_quat_hold_mask] = target_quat_w[rotate_quat_hold_mask]
                 elif args_cli.rotate_control_mode == "waypoint" and rotate_only_mask.any():
                     axis_angle_norm = torch.linalg.norm(axis_angle_error, dim=-1, keepdim=True)
@@ -1091,6 +1143,8 @@ def main():
                         "approach_pos_w": approach_pos_w[0].detach().cpu().tolist(),
                         "rotate_hold_pos_w": rotate_hold_pos_w[0].detach().cpu().tolist(),
                         "rotate_hold_valid": bool(rotate_hold_valid[0].item()),
+                        "rotate_command_quat_w": rotate_command_quat_w[0].detach().cpu().tolist(),
+                        "rotate_command_valid": bool(rotate_command_valid[0].item()),
                         "target_pos_w": target_pos_w[0].detach().cpu().tolist(),
                         "target_quat_w": target_quat_w[0].detach().cpu().tolist(),
                         "command_pos_w": command_pos_w[0].detach().cpu().tolist(),

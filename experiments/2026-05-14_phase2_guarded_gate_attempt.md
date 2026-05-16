@@ -3987,3 +3987,103 @@ Next useful verification:
 - Enable `--staged-approach --rotate-before-descend` for JointIK.
 - Increase horizon to `500` steps so the staged sequence has enough time for XY, rotation, descent, and possible insertion.
 - Pass condition: the trace reaches `rotate` before z descent and avoids the step-271-style lateral discontinuity.
+
+## Attempt 48: staged JointIK reaches rotate but stalls at the 180-degree branch
+
+Date: 2026-05-16
+
+Local base commit:
+
+- `4d4de00 Stage JointIK approach before descent`
+
+Goal:
+
+- Verify the staged sequence: align XY first, rotate before z descent, then allow insertion.
+- Check whether the step-271-style discontinuity was caused by descending before orientation alignment.
+
+Remote run:
+
+- Run id: `2026-05-16T20-39-57Z`
+- Instance: `isaac-phase2-jointik-staged-l4`
+- Instance id: `4z56xfo9m`
+- Selected machine: `g2-standard-4:nvidia-l4:1`
+- Selected live price: `$0.85/hr`
+- Task: `RCA-PegInHole-Franka-JointPos-Contact-Play-v0`
+- Steps: `500`
+- Seed: `42`
+- Extra controller flags: `--staged-approach --rotate-before-descend`
+
+Result:
+
+- Runtime setup completed under Isaac Lab `5.3.0`.
+- Scripted eval completed and artifacts were pulled locally.
+- `success_rate=0.0`; no insertion success.
+- The staged state machine worked: it entered `rotate` around step `100` and held XY alignment for hundreds of steps.
+- Rotation did not converge; the controller stayed near a `pi`-radian orientation error until a late kinematic branch jump around step `472`.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-16T20-53-36Z/seed_42.json`
+- Scripted trace: `artifacts/evaluations/scripted/2026-05-16T20-53-36Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-16T20-53-36Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-16T20-39-57Z_isaac-phase2-jointik-staged-l4/gate.log`
+
+Metrics:
+
+```json
+{
+  "steps_requested": 500,
+  "joint_ik_step": 0.08,
+  "initial_lateral": 0.15045957267284393,
+  "final_lateral": 0.19186298549175262,
+  "best_lateral": 0.0000070654918999935035,
+  "best_lateral_step": 142,
+  "initial_axial": 0.5510136485099792,
+  "final_axial": 0.23291534185409546,
+  "best_axial": 0.19548767805099487,
+  "best_axial_step": 472,
+  "initial_rot": 3.048344850540161,
+  "final_rot": 2.84551739692688,
+  "best_rot": 2.3980886936187744,
+  "best_rot_step": 472,
+  "max_contact_force_magnitude": 2.543524980545044,
+  "max_contact_force_magnitude_step": 2,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Trace highlights:
+
+```text
+step  phase   lat      ax      rot     contact
+075   reach   0.0182   0.5623  3.0822  0.9224
+100   rotate  0.0016   0.5627  3.1386  0.0987
+150   rotate  0.0000   0.5624  3.1351  0.0711
+250   rotate  0.0000   0.5624  3.1346  0.0677
+350   rotate  0.0000   0.5624  3.1341  0.0660
+450   rotate  0.0000   0.5624  3.1337  0.0698
+471   rotate  0.0000   0.5624  3.1358  0.0142
+472   rotate  0.2466   0.1955  2.3981  0.0696
+499   rotate  0.1919   0.2329  2.8455  0.4805
+```
+
+Cleanup verification:
+
+- Guarded cleanup completed.
+- Final independent cleanup confirmation:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Interpretation:
+
+- Staging fixed the previous diagnosis: the system no longer descends before trying to rotate.
+- The new bottleneck is a quaternion branch issue in the scripted rotate waypoint. The target pose is close to a 180-degree rotation from the current action frame, so recomputing an axis-angle waypoint from the measured pose alternates between antipodal `+pi/-pi` branches.
+- The trace confirms the oscillation: `command_quat_w` flips sign across adjacent rotate steps while the measured `rot` remains near `3.13` rad.
+- This is a controller artifact, not a contact asset failure. It happens high above the socket, before insertion.
+
+Next useful verification:
+
+- Add a stateful rotate waypoint that advances a persistent quaternion command toward the target and preserves sign continuity across steps.
+- Run the same staged JointIK gate with `--rotate-control-mode stateful-waypoint`.
+- Pass condition: `rot` should decrease monotonically or at least drop well below `1.0` rad before any z descent or branch jump.
