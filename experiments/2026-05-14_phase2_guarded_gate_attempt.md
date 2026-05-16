@@ -4087,3 +4087,102 @@ Next useful verification:
 - Add a stateful rotate waypoint that advances a persistent quaternion command toward the target and preserves sign continuity across steps.
 - Run the same staged JointIK gate with `--rotate-control-mode stateful-waypoint`.
 - Pass condition: `rot` should decrease monotonically or at least drop well below `1.0` rad before any z descent or branch jump.
+
+## Attempt 49: stateful rotate fixes orientation but exposes unstable post-rotate descent
+
+Date: 2026-05-16
+
+Local base commit:
+
+- `b388c0d Add stateful rotate waypoint for JointIK`
+
+Goal:
+
+- Verify that `--rotate-control-mode stateful-waypoint` fixes the 180-degree quaternion branch oscillation from Attempt 48.
+- Keep the same staged JointIK gate otherwise unchanged.
+
+Remote run:
+
+- Run id: `2026-05-16T21-06-47Z`
+- Instance: `isaac-phase2-jointik-stateful-rot-l4`
+- Instance id: `cvyfoyyn2`
+- Selected machine: `g2-standard-4:nvidia-l4:1`
+- Selected live price: `$0.85/hr`
+- Task: `RCA-PegInHole-Franka-JointPos-Contact-Play-v0`
+- Steps: `500`
+- Seed: `42`
+- Extra controller flags: `--rotate-control-mode stateful-waypoint --staged-approach --rotate-before-descend`
+
+Result:
+
+- Runtime setup completed under Isaac Lab `5.3.0`.
+- Scripted eval completed and artifacts were pulled locally.
+- `success_rate=0.0`; no insertion success.
+- The stateful quaternion command worked: best rotation error improved from Attempt 48's `2.3981` rad to `0.2232` rad.
+- The rollout then exposed the next bottleneck: after rotation becomes acceptable, JointIK descends toward the approach height very slowly and eventually jumps to a bad kinematic branch around step `475`.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-16T21-21-00Z/seed_42.json`
+- Scripted trace: `artifacts/evaluations/scripted/2026-05-16T21-21-00Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-16T21-21-00Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-16T21-06-47Z_isaac-phase2-jointik-stateful-rot-l4/gate.log`
+
+Metrics:
+
+```json
+{
+  "steps_requested": 500,
+  "joint_ik_step": 0.08,
+  "initial_lateral": 0.15045957267284393,
+  "final_lateral": 0.2889006435871124,
+  "best_lateral": 0.0027058895211666822,
+  "best_lateral_step": 412,
+  "initial_axial": 0.5510136485099792,
+  "final_axial": 0.2738342881202698,
+  "best_axial": 0.1939792037010193,
+  "best_axial_step": 475,
+  "initial_rot": 3.048344850540161,
+  "final_rot": 2.209791421890259,
+  "best_rot": 0.2232261598110199,
+  "best_rot_step": 197,
+  "max_contact_force_magnitude": 4.209502220153809,
+  "max_contact_force_magnitude_step": 110,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Trace highlights:
+
+```text
+step  phase   lat      ax      rot     note
+100   rotate  0.0922   0.5611  2.8951  stateful rotation has started
+150   rotate  0.3509   0.5774  1.6631  orientation improving, XY drifting
+197   rotate  0.2657   0.5632  0.2232  best rotation
+225   rotate  0.2221   0.5498  0.2525  orientation ready, descent begins
+350   rotate  0.0282   0.5394  0.2530  XY recovered, z descent still slow
+412   rotate  0.0027   0.5287  0.2657  best XY, still high above socket
+470   rotate  0.0034   0.5169  0.2582  aligned but still far above approach height
+475   rotate  0.2543   0.1940  2.3312  branch jump
+499   rotate  0.2889   0.2738  2.2098  failed recovery
+```
+
+Cleanup verification:
+
+- Guarded cleanup completed.
+- Final independent cleanup confirmation:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Interpretation:
+
+- The quaternion branch fix is validated. Attempt 49 is a useful positive result even though insertion still fails.
+- The remaining failure is trajectory/controller stability after the high-altitude rotation. The controller reaches a near-correct orientation, recovers XY alignment, but cannot descend efficiently to the approach pose before a late IK branch jump.
+- This suggests that the next fix should be a post-rotate descent strategy, not more rotation logic.
+
+Next useful verification:
+
+- Add a dedicated post-rotate descent phase with a larger joint step or a lower intermediate hold height, while keeping orientation target fixed.
+- Alternatively test the same staged state machine on the absolute-IK task, because the stateful rotate fix may make AbsIK usable again.
+- Pass condition: after rotation, the trace should reduce axial error below `0.1` while keeping `lateral < 0.015` and `rot < 0.25` before entering insertion.
