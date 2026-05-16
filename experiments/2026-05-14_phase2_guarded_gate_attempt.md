@@ -4291,3 +4291,26 @@ Next useful verification:
 - Add branch-jump detection to abort when lateral or rotation error spikes after an aligned state, so failed traces terminate cleanly instead of hiding the root cause.
 - Split the current `rotate` stage into explicit `align`, `descend`, and `insert` states. Enter controlled insertion once `lateral < 0.015` and `rot < 0.25`, instead of waiting for the high-level approach target to be fully reached.
 - Consider generating the final descent with a motion planner or a cached nominal joint trajectory, then use JointIK only for small corrections near the socket.
+
+## Prepared next gate: early insert after alignment plus branch-jump stop
+
+Date: 2026-05-16
+
+Local change:
+
+- Added `--insert-after-alignment` to let the staged controller latch insertion as soon as lateral and orientation errors are inside insertion tolerances.
+- Added `--stop-on-branch-jump` and branch-jump thresholds so a rollout stops when it has already been aligned and then suddenly jumps to a bad lateral or orientation state.
+- Updated the trace summarizer to show `desc`, `aligned`, and `branch` columns.
+- Updated `scripts/run_phase2_jointik_gate.sh` so the next guarded GPU gate uses these flags by default.
+
+Why:
+
+- Attempt 50 showed the controller could reach both `lateral < 0.005` and `rot < 0.18`, but it kept waiting for the approach-height waypoint and then jumped branches around step `475`.
+- The next verification should test whether entering insertion immediately after alignment avoids that late branch jump.
+- If it still jumps, the new stop condition will shorten the paid GPU run and record the jump step directly in summary/trace JSON.
+
+Next pass condition:
+
+- Better than Attempt 50 if insertion enters before step `475` and axial error drops below `0.1` without a branch jump.
+- Successful if the rollout reaches `success_step != null`.
+- Failed but useful if `branch_jump_step` is recorded earlier with a trace showing which phase triggered it.

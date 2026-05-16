@@ -341,6 +341,45 @@ parser.add_argument(
     ),
 )
 parser.add_argument(
+    "--insert-after-alignment",
+    action="store_true",
+    default=False,
+    help=(
+        "In staged rotate-before-descend mode, latch insertion as soon as lateral and orientation errors "
+        "are within insertion tolerances instead of waiting to reach the approach-height waypoint."
+    ),
+)
+parser.add_argument(
+    "--stop-on-branch-jump",
+    action="store_true",
+    default=False,
+    help="Stop the scripted rollout when an aligned state is followed by a large lateral or orientation jump.",
+)
+parser.add_argument(
+    "--branch-jump-aligned-xy-tol",
+    type=float,
+    default=0.015,
+    help="Lateral threshold used to mark that the rollout has reached a post-alignment state.",
+)
+parser.add_argument(
+    "--branch-jump-aligned-rot-tol",
+    type=float,
+    default=0.25,
+    help="Orientation threshold used to mark that the rollout has reached a post-alignment state.",
+)
+parser.add_argument(
+    "--branch-jump-xy-tol",
+    type=float,
+    default=0.05,
+    help="Post-alignment lateral error threshold that indicates an IK branch jump.",
+)
+parser.add_argument(
+    "--branch-jump-rot-tol",
+    type=float,
+    default=0.75,
+    help="Post-alignment orientation error threshold that indicates an IK branch jump.",
+)
+parser.add_argument(
     "--scripted-control-mode",
     choices=("auto", "mdp", "joint-ik"),
     default="auto",
@@ -643,6 +682,7 @@ def main():
         xy_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         rotate_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         insert_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
+        aligned_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         insert_abort_counts = torch.zeros(env_unwrapped.num_envs, dtype=torch.long, device=env_unwrapped.device)
         rotate_hold_pos_w = torch.zeros((env_unwrapped.num_envs, 3), dtype=torch.float32, device=env_unwrapped.device)
         rotate_hold_valid = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
@@ -650,6 +690,8 @@ def main():
         rotate_command_valid = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         polish_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         settle_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
+        branch_jump_step = None
+        branch_jump_reason = None
         action_axis_signs = torch.tensor(args_cli.action_axis_signs, device=env_unwrapped.device).unsqueeze(0)
         calibrated_candidate_names: list[str] = []
         calibrated_candidate_actions = None
@@ -720,6 +762,7 @@ def main():
             target_pos_w = approach_pos_w.clone()
             target_quat_w = target_action_quat_w.clone()
             controller_lateral_error = torch.linalg.norm((target_action_pos_w - action_pos_w)[:, :2], dim=1)
+            descend_mask = torch.zeros_like(xy_state)
 
             if args_cli.coupled_approach:
                 position_ready = (lateral_error < args_cli.approach_xy_tol) & (
@@ -752,18 +795,20 @@ def main():
                         )
                     target_quat_w[rotate_state] = target_action_quat_w[rotate_state]
                     position_ready = rotation_ready & (approach_z_error < args_cli.approach_z_tol)
+                    aligned_insert_ready = rotation_ready & insert_xy_ready & insert_orientation_ready
+                    if args_cli.insert_after_alignment:
+                        insert_mask = aligned_insert_ready
+                    else:
+                        insert_mask = position_ready & insert_xy_ready & insert_orientation_ready
+                    descend_mask = rotation_ready & ~position_ready & ~insert_mask & ~insert_state
                     if args_cli.hold_orientation_during_descend:
-                        post_rotate_descend_mask = rotation_ready & ~position_ready & ~insert_state
-                        target_quat_w[post_rotate_descend_mask] = action_quat_w[post_rotate_descend_mask]
+                        target_quat_w[descend_mask] = action_quat_w[descend_mask]
                 else:
                     position_ready = xy_state & (approach_z_error < args_cli.approach_z_tol)
                     rotate_state |= position_ready
                     target_quat_w[rotate_state] = target_action_quat_w[rotate_state]
-                insert_mask = (
-                    position_ready
-                    & insert_xy_ready
-                    & insert_orientation_ready
-                )
+                    insert_mask = position_ready & insert_xy_ready & insert_orientation_ready
+                    descend_mask = xy_state & ~position_ready & ~insert_mask & ~insert_state
             else:
                 # Decouple gross translation from large orientation changes. With a rigid tip offset, rotating
                 # while still far from the socket can move the tip away from the approach corridor.
@@ -795,6 +840,7 @@ def main():
             insert_mask = insert_state
 
             target_pos_w[insert_mask] = target_action_pos_w[insert_mask]
+            target_quat_w[insert_mask] = target_action_quat_w[insert_mask]
             polish_mask = (lateral_error < args_cli.polish_xy_tol) & (axial_error < args_cli.polish_z_tol)
             polish_state |= polish_mask
             settle_mask = polish_state & (lateral_error < args_cli.settle_xy_tol) & (orientation_error < args_cli.settle_rot_tol)
@@ -1087,6 +1133,21 @@ def main():
                     max_contact_force_magnitude = current_contact_force
                     max_contact_force_magnitude_step = step
 
+            post_aligned_mask = (lateral < args_cli.branch_jump_aligned_xy_tol) & (
+                rot < args_cli.branch_jump_aligned_rot_tol
+            )
+            aligned_state |= post_aligned_mask
+            branch_jump_mask = aligned_state & (
+                (lateral > args_cli.branch_jump_xy_tol) | (rot > args_cli.branch_jump_rot_tol)
+            )
+            if branch_jump_step is None and branch_jump_mask.any():
+                branch_jump_step = step
+                branch_jump_reason = (
+                    f"lateral={lateral[0].item():.4f} rot={rot[0].item():.4f} "
+                    f"after_aligned={bool(aligned_state[0].item())}"
+                )
+                print(f"[SCRIPTED] branch jump detected at step={step:04d} {branch_jump_reason}", flush=True)
+
             if step % 25 == 0 or step == args_cli.steps - 1:
                 print(
                     f"[SCRIPTED] step={step:04d} lateral={final_lateral:.4f} axial={final_axial:.4f} "
@@ -1113,10 +1174,14 @@ def main():
                     phase = "polish"
                 elif insert_mask[0].item():
                     phase = "insert"
+                elif descend_mask[0].item():
+                    phase = "descend"
+                elif rotate_only_mask[0].item():
+                    phase = "align"
                 elif rotate_state[0].item():
                     phase = "rotate"
                 elif xy_state[0].item():
-                    phase = "descend"
+                    phase = "xy-align"
                 else:
                     phase = "reach"
                 trace_rows.append(
@@ -1176,8 +1241,10 @@ def main():
                         "axis_angle_error_norm": torch.linalg.norm(axis_angle_error[0]).item(),
                         "rotate_only": bool(rotate_only_mask[0].item()),
                         "rotate_quat_hold": bool(rotate_quat_hold_mask[0].item()),
+                        "descend_mask": bool(descend_mask[0].item()),
                         "rotate_control_mode": args_cli.rotate_control_mode,
                         "hold_orientation_during_descend": args_cli.hold_orientation_during_descend,
+                        "insert_after_alignment": args_cli.insert_after_alignment,
                         "insert_xy_tolerance": insert_xy_tolerance,
                         "insert_rot_tolerance": insert_rot_tolerance,
                         "insert_abort_xy_tolerance": insert_abort_xy_tolerance,
@@ -1213,6 +1280,10 @@ def main():
                         "success": bool(success[0].item()),
                         "position_ready": bool(position_ready[0].item()),
                         "orientation_ready": bool(orientation_ready[0].item()),
+                        "aligned_state": bool(aligned_state[0].item()),
+                        "branch_jump": bool(branch_jump_mask[0].item()),
+                        "branch_jump_step": branch_jump_step,
+                        "branch_jump_reason": branch_jump_reason,
                         "xy_state": bool(xy_state[0].item()),
                         "rotate_state": bool(rotate_state[0].item()),
                         "insert_mask": bool(insert_mask[0].item()),
@@ -1224,6 +1295,9 @@ def main():
             if success.any():
                 success_step = step
                 print(f"[SCRIPTED] success reached at step={step:04d}", flush=True)
+                break
+            if args_cli.stop_on_branch_jump and branch_jump_step == step:
+                print(f"[SCRIPTED] stopping after branch jump at step={step:04d}", flush=True)
                 break
 
         env.close()
@@ -1261,6 +1335,14 @@ def main():
             "abs_control_mode": args_cli.abs_control_mode,
             "rotate_control_mode": args_cli.rotate_control_mode,
             "hold_orientation_during_descend": args_cli.hold_orientation_during_descend,
+            "insert_after_alignment": args_cli.insert_after_alignment,
+            "stop_on_branch_jump": args_cli.stop_on_branch_jump,
+            "branch_jump_step": branch_jump_step,
+            "branch_jump_reason": branch_jump_reason,
+            "branch_jump_aligned_xy_tolerance": args_cli.branch_jump_aligned_xy_tol,
+            "branch_jump_aligned_rot_tolerance": args_cli.branch_jump_aligned_rot_tol,
+            "branch_jump_xy_tolerance": args_cli.branch_jump_xy_tol,
+            "branch_jump_rot_tolerance": args_cli.branch_jump_rot_tol,
             "insert_xy_tolerance": args_cli.insert_xy_tol if args_cli.insert_xy_tol is not None else args_cli.approach_xy_tol,
             "insert_rot_tolerance": args_cli.insert_rot_tol if args_cli.insert_rot_tol is not None else args_cli.approach_rot_tol,
             "insert_abort_xy_tolerance": (

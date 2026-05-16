@@ -108,7 +108,10 @@ def main() -> int:
                 "xy": step.get("xy_state"),
                 "ori": step.get("orientation_ready"),
                 "pos": step.get("position_ready"),
+                "desc": step.get("descend_mask"),
                 "insert": step.get("insert_mask"),
+                "aligned": step.get("aligned_state"),
+                "branch": step.get("branch_jump"),
             }
         )
 
@@ -143,7 +146,10 @@ def main() -> int:
         "xy",
         "ori",
         "pos",
+        "desc",
         "insert",
+        "aligned",
+        "branch",
     ]
     print("\t".join(headers))
     for row in rows:
