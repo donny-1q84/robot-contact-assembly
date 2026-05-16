@@ -4186,3 +4186,108 @@ Next useful verification:
 - Add a dedicated post-rotate descent phase with a larger joint step or a lower intermediate hold height, while keeping orientation target fixed.
 - Alternatively test the same staged state machine on the absolute-IK task, because the stateful rotate fix may make AbsIK usable again.
 - Pass condition: after rotation, the trace should reduce axial error below `0.1` while keeping `lateral < 0.015` and `rot < 0.25` before entering insertion.
+
+## Attempt 50: post-rotate descent hold improves alignment but still hits late IK branch jump
+
+Date: 2026-05-16
+
+Local base commit:
+
+- `08995b3 Hold orientation during post-rotate descent`
+
+Goal:
+
+- Verify whether holding the current action-frame orientation during post-rotate descent lets JointIK reduce axial error faster than Attempt 49.
+- Keep the stateful rotate waypoint and staged approach unchanged.
+
+Remote run:
+
+- Run id: `2026-05-16T21-32-26Z`
+- Instance: `isaac-phase2-jointik-descend-hold-l4`
+- Instance id: `vuicephzj`
+- Selected machine: `g2-standard-4:nvidia-l4:1`
+- Selected live price: `$0.85/hr`
+- Task: `RCA-PegInHole-Franka-JointPos-Contact-Play-v0`
+- Steps: `500`
+- Seed: `42`
+- Extra controller flags: `--rotate-control-mode stateful-waypoint --staged-approach --rotate-before-descend --hold-orientation-during-descend`
+
+Result:
+
+- Runtime setup completed under Isaac Lab `5.3.0`.
+- Scripted eval completed and artifacts were pulled locally.
+- `success_rate=0.0`; no insertion success.
+- The post-rotate descent hold improved the rollout compared with Attempt 49:
+  - best rotation crossed the success threshold: `0.1707 < 0.18` rad.
+  - best lateral alignment crossed the success threshold: `0.0008 < 0.005` m.
+  - axial error decreased much faster after rotation, reaching `0.19398` m by step `475`.
+- The same late IK branch jump still occurs near step `475`, before axial insertion reaches the `0.008` m success threshold.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-16T21-45-50Z/seed_42.json`
+- Scripted trace: `artifacts/evaluations/scripted/2026-05-16T21-45-50Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-16T21-45-50Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-16T21-32-26Z_isaac-phase2-jointik-descend-hold-l4/gate.log`
+
+Metrics:
+
+```json
+{
+  "steps_requested": 500,
+  "joint_ik_step": 0.08,
+  "hold_orientation_during_descend": true,
+  "initial_lateral": 0.15045957267284393,
+  "final_lateral": 0.2889006435871124,
+  "best_lateral": 0.0008446893189102411,
+  "best_lateral_step": 345,
+  "initial_axial": 0.5510136485099792,
+  "final_axial": 0.2738342881202698,
+  "best_axial": 0.1939792037010193,
+  "best_axial_step": 475,
+  "initial_rot": 3.048344850540161,
+  "final_rot": 2.209791421890259,
+  "best_rot": 0.17067496478557587,
+  "best_rot_step": 380,
+  "max_contact_force_magnitude": 4.209502220153809,
+  "max_contact_force_magnitude_step": 110,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Trace highlights:
+
+```text
+step  phase   lat      ax      rot     note
+200   rotate  0.2586   0.5602  0.2240  orientation becomes usable
+300   rotate  0.0559   0.3974  0.2494  descent is much faster than Attempt 49
+325   rotate  0.0129   0.3582  0.2316  XY and orientation ready for insertion tolerances
+345   rotate  0.0008   0.3244  0.2383  best XY
+375   rotate  0.0059   0.2835  0.1733  rotation success threshold crossed
+380   rotate  0.0058   0.2769  0.1707  best rotation
+400   rotate  0.0048   0.2498  0.2061  XY remains within success threshold
+450   rotate  0.0029   0.2086  0.2392  still aligned, axial still too high
+470   rotate  0.0027   0.1967  0.2386  final stable aligned state before jump
+475   rotate  0.2543   0.1940  2.3312  branch jump
+499   rotate  0.2889   0.2738  2.2098  failed recovery
+```
+
+Cleanup verification:
+
+- Guarded cleanup completed.
+- Final independent cleanup confirmation:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Interpretation:
+
+- The descent-hold change is validated as an incremental improvement: the controller can now independently hit the XY and rotation success thresholds in the real contact scene.
+- It still does not solve the whole scripted gate because insertion requires XY, axial, and rotation to be good at the same time, and the rollout jumps to a bad IK branch while still about `0.19` m above the target axial threshold.
+- Additional random tuning of this JointIK controller has diminishing returns. The next useful work should add a safer post-alignment insertion transition or replace the final descent with a planner-generated nominal joint path.
+
+Next useful verification:
+
+- Add branch-jump detection to abort when lateral or rotation error spikes after an aligned state, so failed traces terminate cleanly instead of hiding the root cause.
+- Split the current `rotate` stage into explicit `align`, `descend`, and `insert` states. Enter controlled insertion once `lateral < 0.015` and `rot < 0.25`, instead of waiting for the high-level approach target to be fully reached.
+- Consider generating the final descent with a motion planner or a cached nominal joint trajectory, then use JointIK only for small corrections near the socket.
