@@ -3797,3 +3797,96 @@ Next useful verification:
 
 - Re-run `scripts/run_phase2_jointik_gate.sh` with the same L4 cheap profile.
 - Do not manually delete while the instance is still progressing through first-time Docker image pull unless billing visibly continues after delete or the instance becomes stuck beyond the configured timeout.
+
+## Attempt 46: JointIK gate completes but 100 steps only reaches laterally
+
+Date: 2026-05-16
+
+Local base commit:
+
+- `b5333d0 Record aborted JointIK gate startup`
+
+Goal:
+
+- Re-run the JointPos + bounded joint-IK gate without prematurely deleting during normal startup.
+- Verify whether the JointIK controller avoids the large AbsIK contact jump and can enter the near-socket corridor.
+
+Remote run:
+
+- Run id: `2026-05-16T19-54-03Z`
+- Instance: `isaac-phase2-jointik-retry-l4`
+- Instance id: `38p29648n`
+- Selected machine: `g2-standard-4:nvidia-l4:1`
+- Selected live price: `$0.85/hr`
+- Task: `RCA-PegInHole-Franka-JointPos-Contact-Play-v0`
+- Steps: `100`
+- Seed: `42`
+
+Result:
+
+- Runtime setup completed under Isaac Lab `5.3.0`.
+- Scripted eval completed and artifacts were pulled locally.
+- `success_rate=0.0`; no insertion success.
+- The controller did not reach the rotate/insert phase within 100 steps; all sampled rows remained in `reach`.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-16T20-07-36Z/seed_42.json`
+- Scripted trace: `artifacts/evaluations/scripted/2026-05-16T20-07-36Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-16T20-07-36Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-16T19-54-03Z_isaac-phase2-jointik-retry-l4/gate.log`
+
+Metrics:
+
+```json
+{
+  "steps_requested": 100,
+  "initial_lateral": 0.15123368799686432,
+  "final_lateral": 0.04914068430662155,
+  "best_lateral": 0.04914068430662155,
+  "best_lateral_step": 99,
+  "initial_axial": 0.5511814951896667,
+  "final_axial": 0.5991832613945007,
+  "best_axial": 0.5511814951896667,
+  "best_axial_step": 0,
+  "initial_rot": 3.048175811767578,
+  "final_rot": 3.082163095474243,
+  "best_rot": 3.032543420791626,
+  "best_rot_step": 24,
+  "max_contact_force_magnitude": 1.758440613746643,
+  "max_contact_force_magnitude_step": 2,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Trace highlights:
+
+```text
+step  phase  lat     ax      rot     insert  contact
+0     reach  0.1512  0.5512  3.0482  0       0.7986
+25    reach  0.1243  0.5752  3.0327  0       1.2514
+50    reach  0.1066  0.5919  3.0505  0       0.4093
+75    reach  0.0827  0.6012  3.0676  0       0.6857
+99    reach  0.0491  0.5992  3.0822  0       0.9389
+```
+
+Cleanup verification:
+
+- Guarded cleanup repeatedly re-issued delete while Brev showed the instance as `DELETING`; the list briefly changed to `DEPLOYING / NOT READY` before disappearing.
+- Final independent cleanup confirmation:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Interpretation:
+
+- JointIK did not reproduce the AbsIK near-contact jump because it never reached the near-contact corridor in this short run.
+- Lateral error improved monotonically from `0.1512 m` to `0.0491 m`, so the controller is moving in a useful direction.
+- Axial error worsened because the early joint-limited path raises the action/tip frame while reducing lateral error. This does not yet prove the z direction is wrong; the run is too short.
+- The next JointIK verification should use a longer horizon and a slightly less conservative joint step so it can actually reach rotate/insert.
+
+Next useful verification:
+
+- Increase the JointIK gate horizon from `100` to at least `300` steps.
+- Increase `--joint-ik-step` modestly from `0.05` to `0.08`.
+- Pass condition: the trace reaches `rotate` or `insert` and does not show the large AbsIK-style discontinuity.
