@@ -3522,3 +3522,112 @@ Next useful verification:
 - Run one short guarded eval with the compatibility import fix.
 - Pass condition for the runtime fix is that environment registration reaches scripted eval startup.
 - Pass condition for the controller change remains: `insert_state` stays true beyond the old abort point around step `227`.
+
+## Attempt 43: configclass fix verified, contact jump remains
+
+Date: 2026-05-16
+
+Local base commit:
+
+- `ab25388 Handle Isaac Lab configclass version drift`
+
+Goal:
+
+- Verify the Isaac Lab 5.3 `configclass` compatibility fix on a live Brev runtime.
+- Re-run the debounced insert-abort gate after environment registration succeeds.
+
+Remote run:
+
+- Run id: `2026-05-16T18-50-03Z`
+- Instance: `isaac-phase2-configclass-compat-l4`
+- Instance id: `mx1f6iaeq`
+- Selected machine: `g2-standard-4:nvidia-l4:1`
+- Selected live price: `$0.85/hr`
+- Task: `RCA-PegInHole-Franka-IK-Abs-Contact-Play-v0`
+- Steps: `260`
+- Seed: `42`
+
+Result:
+
+- Runtime registration succeeded under:
+  - `isaaclab==5.3.0`
+  - `isaaclab_rl==0.5.2`
+- The `configclass` API drift blocker from Attempt 42 is fixed.
+- Scripted eval completed and artifacts were pulled locally.
+- `success_rate=0.0`; no insertion success.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-16T19-04-04Z/seed_42.json`
+- Scripted trace: `artifacts/evaluations/scripted/2026-05-16T19-04-04Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-16T19-04-04Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-16T18-50-03Z_isaac-phase2-configclass-compat-l4/gate.log`
+
+Metrics:
+
+```json
+{
+  "steps_requested": 260,
+  "insert_abort_xy_tolerance": 0.08,
+  "insert_abort_rot_tolerance": 0.5,
+  "insert_abort_grace_steps": 8,
+  "insert_pos_step": 0.01,
+  "insert_rot_step": 0.06,
+  "initial_lateral": 0.19102078676223755,
+  "final_lateral": 0.18682925403118134,
+  "best_lateral": 0.0005068883765488863,
+  "best_lateral_step": 165,
+  "initial_axial": 0.4095129370689392,
+  "final_axial": 0.3670172095298767,
+  "best_axial": 0.04665598273277283,
+  "best_axial_step": 210,
+  "initial_rot": 2.87626576423645,
+  "final_rot": 0.7406370043754578,
+  "best_rot": 0.004081662744283676,
+  "best_rot_step": 119,
+  "max_contact_force_magnitude": 28.8151798248291,
+  "max_contact_force_magnitude_step": 62,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Trace highlights:
+
+```text
+step  phase   lat     ax      rot     insert_state  violation  count  aborted
+200   insert  0.0019  0.0563  0.0322  1             0          0      0
+225   insert  0.0393  0.0553  0.1783  1             0          0      0
+226   insert  0.0415  0.0561  0.1864  1             0          0      0
+227   insert  0.0435  0.0569  0.1948  1             0          0      0
+230   insert  0.0497  0.0594  0.2211  1             0          0      0
+231   insert  0.2466  0.1955  2.3981  1             0          0      0
+232   insert  0.2452  0.1945  2.4054  1             1          1      0
+238   insert  0.2345  0.1863  2.4561  1             1          7      0
+239   rotate  0.2416  0.1960  2.3388  0             1          0      1
+```
+
+Cleanup verification:
+
+- Guarded cleanup initially saw the instance as `DELETING` and repeatedly re-issued delete.
+- Final independent cleanup confirmation:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Interpretation:
+
+- The runtime compatibility issue is fixed.
+- The debounced abort logic is validated against the old failure mode: `insert_state` now stays true past step `227`.
+- The new blocker is a contact/dynamics jump during insertion. Lateral error grows gradually to about `5 cm`, then jumps to about `24.7 cm` at step `231` while still in insert mode.
+- The next change should reduce insert-phase aggressiveness, not loosen abort thresholds again.
+
+Local fix after this run:
+
+- Reduced default insert waypoint speed in `scripts/run_phase2_absik_gate.sh`:
+  - `--insert-pos-step 0.010` -> `--insert-pos-step 0.004`
+  - `--insert-rot-step 0.06` -> `--insert-rot-step 0.02`
+
+Next useful verification:
+
+- Run one more guarded eval only after confirming Brev billing is stable.
+- Pass condition: the large step-231 jump is delayed or eliminated; success is secondary.
