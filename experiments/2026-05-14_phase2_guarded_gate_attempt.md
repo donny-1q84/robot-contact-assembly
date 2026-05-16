@@ -4314,3 +4314,134 @@ Next pass condition:
 - Better than Attempt 50 if insertion enters before step `475` and axial error drops below `0.1` without a branch jump.
 - Successful if the rollout reaches `success_step != null`.
 - Failed but useful if `branch_jump_step` is recorded earlier with a trace showing which phase triggered it.
+
+## Attempt 51: early insert enters but aborts too aggressively before late branch jump
+
+Date: 2026-05-16
+
+Local base commit:
+
+- `7f5bdcb Add early insertion gate diagnostics`
+
+Goal:
+
+- Test whether `--insert-after-alignment` can enter insertion before the late JointIK branch jump observed in Attempt 50.
+- Use `--stop-on-branch-jump` to terminate as soon as the already-aligned rollout jumps to a bad IK branch.
+
+Remote run:
+
+- Run id: `2026-05-16T22-18-16Z`
+- Instance: `isaac-phase2-early-insert-l4`
+- Instance id: `gurs4smx9`
+- Selected machine: `g2-standard-4:nvidia-l4:1`
+- Selected live price: `$0.85/hr`
+- Task: `RCA-PegInHole-Franka-JointPos-Contact-Play-v0`
+- Steps requested: `500`
+- Seed: `42`
+- Extra controller flags: `--rotate-control-mode stateful-waypoint --hold-orientation-during-descend --insert-after-alignment --stop-on-branch-jump --staged-approach --rotate-before-descend`
+
+Result:
+
+- Runtime setup completed under Isaac Lab `5.3.0`.
+- Scripted eval completed and artifacts were pulled locally.
+- `success_rate=0.0`; no insertion success.
+- The new early-insert logic worked mechanically: the rollout entered `insert` at step `325`, instead of waiting until the approach-height waypoint was reached.
+- The rollout still failed because the insertion latch is too brittle. It repeatedly toggled between `insert` and `align` due to the immediate abort condition, then hit the same late IK branch jump at step `472`.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-16T22-33-24Z/seed_42.json`
+- Scripted trace: `artifacts/evaluations/scripted/2026-05-16T22-33-24Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-16T22-33-24Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-16T22-18-16Z_isaac-phase2-early-insert-l4/gate.log`
+
+Metrics:
+
+```json
+{
+  "steps_requested": 500,
+  "joint_ik_step": 0.08,
+  "insert_after_alignment": true,
+  "stop_on_branch_jump": true,
+  "branch_jump_step": 472,
+  "branch_jump_reason": "lateral=0.2466 rot=2.3981 after_aligned=True",
+  "initial_lateral": 0.15045957267284393,
+  "final_lateral": 0.24659933149814606,
+  "best_lateral": 0.0004201083502266556,
+  "best_lateral_step": 340,
+  "initial_axial": 0.5510136485099792,
+  "final_axial": 0.19548767805099487,
+  "best_axial": 0.19548767805099487,
+  "best_axial_step": 472,
+  "initial_rot": 3.048344850540161,
+  "final_rot": 2.3980886936187744,
+  "best_rot": 0.22196103632450104,
+  "best_rot_step": 217,
+  "max_contact_force_magnitude": 4.209502220153809,
+  "max_contact_force_magnitude_step": 110,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Trace highlights:
+
+```text
+step  phase    lat      ax      rot     insert  aligned  branch  note
+300   descend  0.0559   0.3974  0.2494  0       0        0       alignment almost ready
+325   insert   0.0131   0.3581  0.2459  1       1        0       early insertion entered
+340   align    0.0004   0.3564  0.2432  0       1        0       insert latch aborted despite good post-step pose
+350   insert   0.0026   0.3546  0.2551  1       1        0       insert re-entered
+375   insert   0.0039   0.3532  0.2487  1       1        0       stable XY, axial still high
+400   insert   0.0052   0.3509  0.2535  1       1        0       rot/XY near threshold
+425   insert   0.0052   0.3487  0.2507  1       1        0       slow axial progress
+450   align    0.0040   0.3458  0.2429  0       1        0       latch aborted again
+470   insert   0.0058   0.3421  0.2462  1       1        0       still far above axial threshold
+472   align    0.2466   0.1955  2.3981  0       1        1       branch jump, stopped early
+```
+
+Cleanup verification:
+
+- Guarded cleanup completed.
+- Final independent cleanup confirmation:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Interpretation:
+
+- Attempt 51 answered the intended question: early insertion avoids waiting for `position_ready`, but it does not yet solve the controller failure.
+- The next blocker is not task registration, contact assets, or frame alignment. It is the scripted insertion latch and final descent controller.
+- Immediate abort with `insert_abort_grace_steps=1` is too strict for this noisy near-contact phase. It causes the state machine to oscillate out of insertion even when the post-step pose is visually aligned.
+- Axial progress during insertion is too slow: from step `325` to `470`, axial error only improves from `0.3581` to `0.3421` before the late branch jump. The final insertion command needs either a less constrained joint-space path or a stronger controlled z descent.
+
+Next useful verification:
+
+- Relax the insertion latch before another GPU run:
+  - `--insert-abort-grace-steps 8`
+  - `--insert-abort-xy-tol 0.03`
+  - `--insert-abort-rot-tol 0.35`
+- Keep `--stop-on-branch-jump` enabled so the run still terminates early if the IK branch jump persists.
+- If relaxed insertion still makes little axial progress, stop tuning this scripted JointIK gate and switch to a nominal joint trajectory or planner-generated final descent.
+
+## Prepared next gate: relaxed insertion latch
+
+Date: 2026-05-16
+
+Local change:
+
+- Updated `scripts/run_phase2_jointik_gate.sh` to keep early insertion enabled but relax insertion abort:
+  - `--insert-abort-grace-steps 8`
+  - `--insert-abort-xy-tol 0.03`
+  - `--insert-abort-rot-tol 0.35`
+- Kept `--stop-on-branch-jump` enabled to limit cost and preserve a clean diagnostic if the IK branch jump remains.
+
+Why:
+
+- Attempt 51 showed that early insertion enters at step `325`, but the latch exits insertion on single-step tolerance violations.
+- The next run should answer whether continuous insertion command improves axial progress before the branch jump.
+
+Next pass condition:
+
+- Better than Attempt 51 if `insert_state` remains active continuously after first entry and `best_axial < 0.15`.
+- Successful if `success_step != null`.
+- Failed but useful if branch jump still occurs with continuous insertion, because that would justify replacing the final JointIK descent with a nominal joint trajectory or planner-generated path.
