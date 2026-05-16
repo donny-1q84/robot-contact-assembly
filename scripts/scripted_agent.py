@@ -218,6 +218,12 @@ parser.add_argument(
     help="Exit latched insert mode if current orientation error exceeds this value. Defaults to approach-rot-tol.",
 )
 parser.add_argument(
+    "--insert-abort-grace-steps",
+    type=int,
+    default=1,
+    help="Consecutive over-threshold steps required before exiting latched insert mode. 1 preserves immediate abort behavior.",
+)
+parser.add_argument(
     "--staged-approach",
     action="store_true",
     default=False,
@@ -602,6 +608,7 @@ def main():
         xy_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         rotate_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         insert_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
+        insert_abort_counts = torch.zeros(env_unwrapped.num_envs, dtype=torch.long, device=env_unwrapped.device)
         rotate_hold_pos_w = torch.zeros((env_unwrapped.num_envs, 3), dtype=torch.float32, device=env_unwrapped.device)
         rotate_hold_valid = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         polish_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
@@ -735,10 +742,16 @@ def main():
 
             insert_entry_mask = insert_mask
             insert_state |= insert_entry_mask
-            insert_abort_mask = insert_state & (
+            insert_abort_counts[insert_entry_mask] = 0
+            insert_abort_violation_mask = insert_state & (
                 (lateral_error > insert_abort_xy_tolerance) | (orientation_error > insert_abort_rot_tolerance)
             )
+            insert_abort_counts[insert_abort_violation_mask] += 1
+            insert_abort_counts[~insert_abort_violation_mask] = 0
+            insert_abort_grace_steps = max(1, args_cli.insert_abort_grace_steps)
+            insert_abort_mask = insert_abort_violation_mask & (insert_abort_counts >= insert_abort_grace_steps)
             insert_state[insert_abort_mask] = False
+            insert_abort_counts[insert_abort_mask] = 0
             insert_mask = insert_state
 
             target_pos_w[insert_mask] = target_action_pos_w[insert_mask]
@@ -1081,6 +1094,9 @@ def main():
                         "insert_xy_ready": bool(insert_xy_ready[0].item()),
                         "insert_orientation_ready": bool(insert_orientation_ready[0].item()),
                         "insert_entry": bool(insert_entry_mask[0].item()),
+                        "insert_abort_violation": bool(insert_abort_violation_mask[0].item()),
+                        "insert_abort_count": int(insert_abort_counts[0].item()),
+                        "insert_abort_grace_steps": insert_abort_grace_steps,
                         "insert_aborted": bool(insert_abort_mask[0].item()),
                         "insert_state": bool(insert_state[0].item()),
                         "socket_guide_clearance": SOCKET_GUIDE_CLEARANCE_M,
@@ -1161,6 +1177,7 @@ def main():
             "insert_abort_rot_tolerance": (
                 args_cli.insert_abort_rot_tol if args_cli.insert_abort_rot_tol is not None else args_cli.approach_rot_tol
             ),
+            "insert_abort_grace_steps": max(1, args_cli.insert_abort_grace_steps),
             "insert_pos_step": args_cli.insert_pos_step if args_cli.insert_pos_step is not None else args_cli.abs_pos_step,
             "insert_rot_step": args_cli.insert_rot_step if args_cli.insert_rot_step is not None else args_cli.abs_rot_step,
             "success_xy_tolerance": SOCKET_SUCCESS_XY_TOLERANCE_M,
