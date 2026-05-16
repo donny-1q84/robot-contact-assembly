@@ -3743,3 +3743,57 @@ Next useful verification:
 - Run the existing JointPos + bounded joint-IK gate next:
   - `scripts/run_phase2_jointik_gate.sh`
 - Pass condition: no large jump after entering the near-socket contact corridor. Success is secondary.
+
+## Attempt 45: JointIK gate aborted during startup cost guard
+
+Date: 2026-05-16
+
+Local base commit:
+
+- `2e1c725 Record slow insert gate and trace post-step poses`
+
+Goal:
+
+- Run the existing JointPos + bounded joint-IK gate after adding post-step trace fields.
+- Use the cheapest viable live-priced GPU option instead of defaulting to the previous L40S choice.
+
+Remote run:
+
+- Run id: `2026-05-16T19-40-03Z`
+- Instance: `isaac-phase2-jointik-posttrace-l4`
+- Instance id: `vvxjhm9bq`
+- Selected machine: `g2-standard-4:nvidia-l4:1`
+- Selected live price: `$0.85/hr`
+- Task: `RCA-PegInHole-Franka-JointPos-Contact-Play-v0`
+- Steps: `100`
+- Seed: `42`
+
+Result:
+
+- No Isaac Lab evaluation result was produced.
+- The instance spent several minutes in `RUNNING / BUILDING / NOT READY`.
+- To avoid repeating prior Brev ghost-billing exposure, the instance was manually deleted before the runtime setup finished.
+- The later log shows the instance did become `RUNNING / COMPLETED / READY`, but the manual deletion had already been triggered; Docker image pull/runtime setup was then interrupted by shutdown.
+- This attempt is therefore an infrastructure/cost-guard abort, not evidence about the JointIK controller.
+
+Artifacts:
+
+- Gate log: `artifacts/gpu_gate/2026-05-16T19-40-03Z_isaac-phase2-jointik-posttrace-l4/gate.log`
+- Gate metadata: `artifacts/gpu_gate/2026-05-16T19-40-03Z_isaac-phase2-jointik-posttrace-l4/gate_metadata.env`
+
+Cleanup verification:
+
+- Final independent cleanup confirmation:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Interpretation:
+
+- The cost guard did the safe thing from a billing-risk standpoint, but it also aborted the run before the actual robotics test.
+- The next attempt should allow the instance to pass through the normal image-pull/runtime setup path, while continuing to require final double-check cleanup.
+- Do not interpret this run as a JointIK failure.
+
+Next useful verification:
+
+- Re-run `scripts/run_phase2_jointik_gate.sh` with the same L4 cheap profile.
+- Do not manually delete while the instance is still progressing through first-time Docker image pull unless billing visibly continues after delete or the instance becomes stuck beyond the configured timeout.
