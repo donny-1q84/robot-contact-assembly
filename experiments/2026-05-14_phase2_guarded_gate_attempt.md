@@ -3890,3 +3890,100 @@ Next useful verification:
 - Increase the JointIK gate horizon from `100` to at least `300` steps.
 - Increase `--joint-ik-step` modestly from `0.05` to `0.08`.
 - Pass condition: the trace reaches `rotate` or `insert` and does not show the large AbsIK-style discontinuity.
+
+## Attempt 47: longer JointIK reaches deep alignment but jumps before rotate
+
+Date: 2026-05-16
+
+Local base commit:
+
+- `e158388 Extend JointIK gate horizon`
+
+Goal:
+
+- Give JointIK enough horizon to move beyond the first 100-step lateral approach.
+- Check whether bounded joint-space IK avoids the large discontinuity seen in AbsIK when approaching the socket.
+
+Remote run:
+
+- Run id: `2026-05-16T20-18-26Z`
+- Instance: `isaac-phase2-jointik-300-l4`
+- Instance id: `ivgjctcyx`
+- Selected machine: `g2-standard-4:nvidia-l4:1`
+- Selected live price: `$0.85/hr`
+- Task: `RCA-PegInHole-Franka-JointPos-Contact-Play-v0`
+- Steps: `300`
+- Seed: `42`
+
+Result:
+
+- Runtime setup completed under Isaac Lab `5.3.0`.
+- Scripted eval completed and artifacts were pulled locally.
+- `success_rate=0.0`; no insertion success.
+- The controller stayed in `reach` for the full rollout and never entered `rotate` or `insert`.
+- A large discontinuity appeared around step `271`, while still in `reach`.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-16T20-32-11Z/seed_42.json`
+- Scripted trace: `artifacts/evaluations/scripted/2026-05-16T20-32-11Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-16T20-32-11Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-16T20-18-26Z_isaac-phase2-jointik-300-l4/gate.log`
+
+Metrics:
+
+```json
+{
+  "steps_requested": 300,
+  "joint_ik_step": 0.08,
+  "initial_lateral": 0.15152442455291748,
+  "final_lateral": 0.19721953570842743,
+  "best_lateral": 0.00010250138439005241,
+  "best_lateral_step": 162,
+  "initial_axial": 0.5511776804924011,
+  "final_axial": 0.1583719551563263,
+  "best_axial": 0.1583719551563263,
+  "best_axial_step": 299,
+  "initial_rot": 3.048088312149048,
+  "final_rot": 2.404402017593384,
+  "best_rot": 2.395254373550415,
+  "best_rot_step": 275,
+  "max_contact_force_magnitude": 1.8983913660049438,
+  "max_contact_force_magnitude_step": 2,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Trace highlights:
+
+```text
+step  phase  lat     ax      rot     insert  contact
+100   reach  0.0002  0.5215  3.0686  0       0.2659
+150   reach  0.0001  0.4456  3.0683  0       0.2917
+200   reach  0.0002  0.3716  3.0688  0       0.3305
+250   reach  0.0003  0.2994  3.0703  0       0.3630
+270   reach  0.0004  0.2710  3.0712  0       0.3770
+271   reach  0.2466  0.1955  2.3981  0       0.3800
+299   reach  0.1972  0.1584  2.4044  0       0.3702
+```
+
+Cleanup verification:
+
+- Guarded cleanup completed.
+- Final independent cleanup confirmation:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Interpretation:
+
+- The longer horizon proved that JointIK can hold sub-millimeter lateral alignment while descending for many steps.
+- The discontinuity is not an insert/contact event. It occurs during the unconstrained `reach` descent while the orientation error remains near `pi`.
+- The current phase logic descends before rotating; this is unsafe for the JointPos + standalone JointIK controller because it can approach a bad kinematic branch before correcting orientation.
+- The next useful fix is not more horizon. It is staged approach: align XY at current height, rotate before descent, then descend.
+
+Next useful verification:
+
+- Enable `--staged-approach --rotate-before-descend` for JointIK.
+- Increase horizon to `500` steps so the staged sequence has enough time for XY, rotation, descent, and possible insertion.
+- Pass condition: the trace reaches `rotate` before z descent and avoids the step-271-style lateral discontinuity.
