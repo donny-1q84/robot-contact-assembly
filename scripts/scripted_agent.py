@@ -969,6 +969,17 @@ def main():
 
             lateral, axial, rot = mdp.insertion_metrics(env_unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg)
             success = mdp.insertion_success(env_unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg)
+            post_hand_pos_w, post_hand_quat_w = _hand_pose_w(env_unwrapped, body_idx)
+            post_action_pos_w, post_action_quat_w = _action_frame_pose_w(env_unwrapped, body_idx)
+            post_physical_tip_pos_w, post_physical_tip_quat_w = _physical_peg_tip_pose_w(env_unwrapped)
+            post_socket_pos_w, post_socket_quat_w = _socket_pose_w(env_unwrapped)
+            post_physical_tip_rel_socket_pos, _ = subtract_frame_transforms(
+                post_socket_pos_w,
+                post_socket_quat_w,
+                post_physical_tip_pos_w,
+                post_physical_tip_quat_w,
+            )
+            post_action_tip_alignment = torch.linalg.norm(post_physical_tip_pos_w - post_action_pos_w, dim=1)
             success_xy_ready = lateral < SOCKET_SUCCESS_XY_TOLERANCE_M
             success_axial_ready = axial < SOCKET_SUCCESS_Z_TOLERANCE_M
             success_rot_ready = rot < SOCKET_SUCCESS_ROT_TOLERANCE_RAD
@@ -987,13 +998,13 @@ def main():
                 initial_lateral = lateral.mean().item()
                 initial_axial = axial.mean().item()
                 initial_rot = rot.mean().item()
-                initial_action_tip_alignment = action_tip_alignment.mean().item()
+                initial_action_tip_alignment = post_action_tip_alignment.mean().item()
 
             final_lateral = lateral.mean().item()
             final_axial = axial.mean().item()
             final_rot = rot.mean().item()
             final_success = success.float().mean().item()
-            final_action_tip_alignment = action_tip_alignment.mean().item()
+            final_action_tip_alignment = post_action_tip_alignment.mean().item()
             if final_lateral < best_lateral:
                 best_lateral = final_lateral
                 best_lateral_step = step
@@ -1059,6 +1070,19 @@ def main():
                             physical_tip_pos_w[0] - action_pos_w[0]
                         ).detach().cpu().tolist(),
                         "action_tip_alignment": action_tip_alignment[0].item(),
+                        "post_hand_pos_w": post_hand_pos_w[0].detach().cpu().tolist(),
+                        "post_hand_quat_w": post_hand_quat_w[0].detach().cpu().tolist(),
+                        "post_action_pos_w": post_action_pos_w[0].detach().cpu().tolist(),
+                        "post_action_quat_w": post_action_quat_w[0].detach().cpu().tolist(),
+                        "post_physical_tip_pos_w": post_physical_tip_pos_w[0].detach().cpu().tolist(),
+                        "post_physical_tip_quat_w": post_physical_tip_quat_w[0].detach().cpu().tolist(),
+                        "post_physical_tip_rel_socket_pos": post_physical_tip_rel_socket_pos[0].detach().cpu().tolist(),
+                        "post_socket_pos_w": post_socket_pos_w[0].detach().cpu().tolist(),
+                        "post_socket_quat_w": post_socket_quat_w[0].detach().cpu().tolist(),
+                        "post_action_to_physical_tip_delta_w": (
+                            post_physical_tip_pos_w[0] - post_action_pos_w[0]
+                        ).detach().cpu().tolist(),
+                        "post_action_tip_alignment": post_action_tip_alignment[0].item(),
                         "controller_lateral_error": controller_lateral_error[0].item(),
                         "socket_pos_w": socket_pos_w[0].detach().cpu().tolist(),
                         "socket_quat_w": socket_quat_w[0].detach().cpu().tolist(),

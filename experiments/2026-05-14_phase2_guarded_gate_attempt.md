@@ -3631,3 +3631,115 @@ Next useful verification:
 
 - Run one more guarded eval only after confirming Brev billing is stable.
 - Pass condition: the large step-231 jump is delayed or eliminated; success is secondary.
+
+## Attempt 44: slower insert still jumps; AbsIK is the likely blocker
+
+Date: 2026-05-16
+
+Local base commit:
+
+- `c7c2f28 Record compat gate and slow insert motion`
+
+Goal:
+
+- Verify whether slower insert-stage Cartesian waypointing removes the large contact-induced jump seen in Attempt 43.
+- Keep the run cheap by using the guarded `cheap` profile and L4 pricing.
+
+Remote run:
+
+- Run id: `2026-05-16T19-16-12Z`
+- Instance: `isaac-phase2-slow-insert-l4`
+- Instance id: `svife0deq`
+- Selected machine: `g2-standard-4:nvidia-l4:1`
+- Selected live price: `$0.85/hr`
+- Task: `RCA-PegInHole-Franka-IK-Abs-Contact-Play-v0`
+- Steps: `260`
+- Seed: `42`
+
+Result:
+
+- Scripted eval completed and artifacts were pulled locally.
+- `success_rate=0.0`; no insertion success.
+- Runtime and environment registration remained healthy under Isaac Lab 5.3.
+
+Artifacts:
+
+- Scripted eval JSON: `artifacts/evaluations/scripted/2026-05-16T19-30-33Z/seed_42.json`
+- Scripted trace: `artifacts/evaluations/scripted/2026-05-16T19-30-33Z/seed_42_trace.json`
+- Scripted eval log: `artifacts/evaluations/scripted/2026-05-16T19-30-33Z/seed_42.log`
+- Gate log: `artifacts/gpu_gate/2026-05-16T19-16-12Z_isaac-phase2-slow-insert-l4/gate.log`
+
+Metrics:
+
+```json
+{
+  "steps_requested": 260,
+  "insert_abort_xy_tolerance": 0.08,
+  "insert_abort_rot_tolerance": 0.5,
+  "insert_abort_grace_steps": 8,
+  "insert_pos_step": 0.004,
+  "insert_rot_step": 0.02,
+  "initial_lateral": 0.19102078676223755,
+  "final_lateral": 0.18592825531959534,
+  "best_lateral": 0.0004320175212342292,
+  "best_lateral_step": 195,
+  "initial_axial": 0.4095129370689392,
+  "final_axial": 0.3684142827987671,
+  "best_axial": 0.05908873677253723,
+  "best_axial_step": 230,
+  "initial_rot": 2.87626576423645,
+  "final_rot": 0.7124825119972229,
+  "best_rot": 0.004081662744283676,
+  "best_rot_step": 119,
+  "max_contact_force_magnitude": 28.8151798248291,
+  "max_contact_force_magnitude_step": 62,
+  "final_success_rate": 0.0,
+  "success_step": null
+}
+```
+
+Trace highlights:
+
+```text
+step  phase   lat     ax      rot     insert_state  violation  count  aborted
+195   insert  0.0004  0.0660  0.0232  1             0          0      0
+200   insert  0.0006  0.0649  0.0281  1             0          0      0
+225   insert  0.0015  0.0600  0.0838  1             0          0      0
+230   insert  0.0015  0.0591  0.0977  1             0          0      0
+231   insert  0.2466  0.1955  2.3981  1             0          0      0
+232   insert  0.2460  0.1951  2.4004  1             1          1      0
+238   insert  0.2420  0.1924  2.4176  1             1          7      0
+239   rotate  0.2489  0.2025  2.3080  0             1          0      1
+```
+
+Cleanup verification:
+
+- Guarded cleanup initially saw the instance as `DELETING` and repeatedly re-issued delete.
+- A delete-by-id attempt later reported `instance with id/name svife0deq not found`, while the list briefly still showed the name as `DELETING`; this resolved without support escalation.
+- Final independent cleanup confirmation:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Interpretation:
+
+- Reducing insert velocity did not solve the jump. The lateral error stayed excellent through step `230`, then jumped at step `231` exactly as before.
+- The likely blocker is the absolute differential-IK action path under contact, not simply excessive insert step size.
+- The previous trace format mixed pre-step poses with post-step metrics; this made the first jump row look inconsistent. The next local fix should record post-step poses too.
+
+Local fix after this run:
+
+- Added post-step pose fields to scripted traces:
+  - `post_hand_pos_w`
+  - `post_action_pos_w`
+  - `post_physical_tip_pos_w`
+  - `post_socket_pos_w`
+  - `post_physical_tip_rel_socket_pos`
+  - `post_action_tip_alignment`
+- Updated `scripts/summarize_scripted_trace.py` to prefer post-step poses when present.
+
+Next useful verification:
+
+- Stop tuning the AbsIK gate for now.
+- Run the existing JointPos + bounded joint-IK gate next:
+  - `scripts/run_phase2_jointik_gate.sh`
+- Pass condition: no large jump after entering the near-socket contact corridor. Success is secondary.

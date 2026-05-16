@@ -63,15 +63,15 @@ def main() -> int:
     rows = []
     for idx in _step_indices(len(steps), args.steps):
         step = steps[idx]
-        action_quat = step.get("action_quat_w")
+        action_quat = step.get("post_action_quat_w") or step.get("action_quat_w")
         command_quat = step.get("command_quat_w")
         target_quat = step.get("target_quat_w") or step.get("target_action_quat_w")
-        socket_quat = step.get("socket_quat_w")
-        physical_quat = step.get("physical_tip_quat_w")
+        socket_quat = step.get("post_socket_quat_w") or step.get("socket_quat_w")
+        physical_quat = step.get("post_physical_tip_quat_w") or step.get("physical_tip_quat_w")
         raw_action = step.get("raw_action") or []
         if command_quat is None and len(raw_action) >= 7:
             command_quat = raw_action[3:7]
-        action_pos = step.get("action_pos_w")
+        action_pos = step.get("post_action_pos_w") or step.get("action_pos_w")
         command_pos = step.get("command_pos_w")
         target_action_pos = step.get("target_action_pos_w")
         rotate_hold_pos = step.get("rotate_hold_pos_w")
