@@ -4617,3 +4617,109 @@ Pass condition:
 - Better than Attempt 53 if no branch jump occurs before step `500` and axial error improves below `0.25` without losing lateral alignment.
 - Successful if `success_step != null`.
 - Failed but useful if branch jump still appears, because that would justify replacing this controller path with a planned/cached joint trajectory.
+
+## Attempt 54: vertical insertion descent gate
+
+Date: 2026-05-16 / 2026-05-17 local
+
+Local base commit:
+
+- `e502d35 Add vertical insert descent gate`
+
+Goal:
+
+- Test the new final descent path from the prepared gate above.
+- Isolate vertical insertion from socket-orientation chasing by freezing the action-frame orientation at insertion entry.
+
+Remote run:
+
+- Run id: `2026-05-16T23-12-50Z`
+- Instance: `isaac-phase2-vertical-insert-l4`
+- Instance id: `4md4qpsj`
+- Machine: `g2-standard-4:nvidia-l4:1`
+- Selected live price: `$0.85/hr`
+
+Price selection:
+
+- The guarded wrapper recorded the live 24 GB / 32 GB / 40 GB Brev price tables before creating the instance.
+- The selected L4 was the cheapest suitable single-GPU candidate for this short scripted gate.
+- The cheapest visible L40S candidate in the same table was `gpu-l40s-a.1gpu-8vcpu-32gb` at `$1.86/hr`, so L4 was the better value for this validation.
+
+Artifacts:
+
+- Gate archive: `artifacts/gpu_gate/2026-05-16T23-12-50Z_isaac-phase2-vertical-insert-l4/`
+- Eval JSON: `artifacts/evaluations/scripted/2026-05-16T23-26-56Z/seed_42.json`
+- Trace JSON: `artifacts/evaluations/scripted/2026-05-16T23-26-56Z/seed_42_trace.json`
+- Eval log: `artifacts/evaluations/scripted/2026-05-16T23-26-56Z/seed_42.log`
+
+Configuration highlights:
+
+- Task: `RCA-PegInHole-Franka-JointPos-Contact-Play-v0`
+- Seed: `42`
+- Socket override: `0.22,0.04,0.19`
+- Control mode: `joint-ik`
+- Insert descent mode: `vertical`
+- Insert vertical step: `0.018`
+- Hold orientation during insert: enabled
+- Branch-jump stop: enabled
+
+Result:
+
+```json
+{
+  "final_success_rate": 0.0,
+  "success_step": null,
+  "initial_lateral": 0.15045957267284393,
+  "final_lateral": 0.24659933149814606,
+  "best_lateral": 0.0002292781719006598,
+  "best_lateral_step": 455,
+  "initial_axial": 0.5510136485099792,
+  "final_axial": 0.19548767805099487,
+  "best_axial": 0.19468888640403748,
+  "best_axial_step": 471,
+  "initial_rot": 3.048344850540161,
+  "final_rot": 2.3980886936187744,
+  "best_rot": 0.12049026042222977,
+  "best_rot_step": 362,
+  "branch_jump_step": 472,
+  "branch_jump_reason": "lateral=0.2466 rot=2.3981 after_aligned=True"
+}
+```
+
+Trace highlights:
+
+```text
+step  phase   lat      ax      rot     succ_xy  succ_z  succ_rot  mode      note
+325   insert  0.0129   0.3582  0.2316  0        0       0         vertical  insertion entered
+350   insert  0.0058   0.3202  0.2162  0        0       0         vertical  faster axial progress than Attempt 53
+362   insert  0.0068   0.3058  0.1205  0        0       1         vertical  rotation success reached
+425   insert  0.0022   0.2500  0.2908  1        0       0         vertical  XY success reached, axial still high
+450   insert  0.0015   0.2288  0.2304  1        0       0         vertical  strong XY, still no insertion depth
+471   insert  0.0005   0.1947  0.3061  1        0       0         vertical  best axial before jump
+472   insert  0.2466   0.1955  2.3981  0        0       0         vertical  same branch jump, stopped early
+```
+
+Cleanup verification:
+
+- Guarded cleanup completed after repeated delete retries while Brev showed the instance as `DELETING`.
+- Final independent cleanup confirmation:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Interpretation:
+
+- Vertical insertion descent improved the useful metrics, but did not solve the rollout.
+- Compared with Attempt 53:
+  - best lateral improved from `0.002389 m` to `0.000229 m`
+  - best rotation improved from `0.221961 rad` to `0.120490 rad`
+  - best axial was effectively unchanged at about `0.195 m`
+- The policy/controller can now independently satisfy XY and rotation thresholds in the real contact scene, but not insertion depth.
+- The same branch jump at step `472` means the next blocker is not another insertion threshold or orientation-hold tweak. The final descent still drives the arm into an unstable branch/contact event before axial success.
+
+Decision:
+
+- Do not run another paid GPU gate until the controller path changes again.
+- Next local work should focus on one of:
+  - adding branch-jump forensics to trace current joint position, joint velocity, joint limits, and contact force at the exact jump;
+  - moving the socket pose to a kinematically safer height/position and documenting the reachability reason;
+  - replacing the final descent with a planned/cached joint trajectory that avoids the unstable branch.
