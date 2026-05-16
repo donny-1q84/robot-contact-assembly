@@ -4490,3 +4490,101 @@ Interpretation:
 - This was a Brev workspace creation/backend failure, not a project-code failure.
 - The relaxed insertion latch remains untested.
 - A single retry is reasonable because the guarded cleanup confirmed the org is empty.
+
+## Attempt 53: relaxed insertion latch gate
+
+Date: 2026-05-16
+
+Local base commit:
+
+- `7f06d21 Record aborted relaxed insert gate create`
+
+Goal:
+
+- Retry Attempt 52 after the Brev create failure.
+- Test whether a relaxed insertion latch can keep the scripted controller in `insert` long enough to improve axial progress.
+
+Remote run:
+
+- Run id: `2026-05-16T22-45-03Z`
+- Instance: `isaac-phase2-relaxed-insert-retry-l4`
+- Instance id: `7xxno8b0a`
+- Machine: `g2-standard-4:nvidia-l4:1`
+- Selected live price: `$0.85/hr`
+
+Artifacts:
+
+- Gate archive: `artifacts/gpu_gate/2026-05-16T22-45-03Z_isaac-phase2-relaxed-insert-retry-l4/`
+- Eval JSON: `artifacts/evaluations/scripted/2026-05-16T22-58-58Z/seed_42.json`
+- Trace JSON: `artifacts/evaluations/scripted/2026-05-16T22-58-58Z/seed_42_trace.json`
+- Eval log: `artifacts/evaluations/scripted/2026-05-16T22-58-58Z/eval.log`
+
+Configuration highlights:
+
+- Task: `RCA-PegInHole-Franka-JointPos-Contact-Play-v0`
+- Seed: `42`
+- Socket override: `0.22,0.04,0.19`
+- Control mode: `joint-ik`
+- Joint IK step: `0.08`
+- Abort grace: `8`
+- Abort XY tolerance: `0.03`
+- Abort rotation tolerance: `0.35`
+- Branch-jump stop: enabled
+
+Result:
+
+```json
+{
+  "final_success_rate": 0.0,
+  "success_step": null,
+  "initial_lateral": 0.15045957267284393,
+  "final_lateral": 0.24659933149814606,
+  "best_lateral": 0.002389051951467991,
+  "best_lateral_step": 454,
+  "initial_axial": 0.5510136485099792,
+  "final_axial": 0.19548767805099487,
+  "best_axial": 0.19548767805099487,
+  "best_axial_step": 472,
+  "initial_rot": 3.048344850540161,
+  "final_rot": 2.3980886936187744,
+  "best_rot": 0.22196103632450104,
+  "best_rot_step": 217,
+  "max_contact_force_magnitude": 4.209502220153809,
+  "max_contact_force_magnitude_step": 110,
+  "branch_jump_step": 472,
+  "branch_jump_reason": "lateral=0.2466 rot=2.3981 after_aligned=True"
+}
+```
+
+Trace highlights:
+
+```text
+step  phase   lat      ax      rot     insert  aligned  branch  note
+325   insert  0.0131   0.3581  0.2459  1       1        0       early insertion entered
+350   insert  0.0087   0.3509  0.2787  1       1        0       latch stayed active
+375   insert  0.0092   0.3463  0.2942  1       1        0       axial still high
+400   insert  0.0075   0.3420  0.3138  1       1        0       continuous insert
+425   insert  0.0053   0.3379  0.3440  1       1        0       near XY threshold
+450   insert  0.0038   0.3380  0.3483  1       1        0       best XY region
+470   insert  0.0063   0.3466  0.2751  1       1        0       axial still far above success threshold
+472   insert  0.2466   0.1955  2.3981  1       1        1       branch jump, stopped early
+```
+
+Cleanup verification:
+
+- Guarded cleanup completed.
+- Final independent cleanup confirmation:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Interpretation:
+
+- The relaxed latch fixed the state-machine oscillation observed in Attempt 51. `insert_state` remained active from first entry through the branch-jump stop.
+- The controller still did not produce useful axial insertion. From step `325` to `470`, axial error only moved from `0.3581` to `0.3466`; the apparent best axial at step `472` coincided with a branch jump and should not be treated as a valid insertion improvement.
+- This is now strong evidence against spending more GPU time on scripted JointIK threshold tuning.
+- The next useful local change is a new final-descent strategy: either a nominal joint trajectory, a planner-generated final descent path, or a cached waypoint replay that keeps the arm on the same IK branch during insertion.
+
+Decision:
+
+- Stop running more GPU gates until the final descent controller changes.
+- Keep the current artifacts as the diagnostic evidence for why Phase 2 needs a controller change rather than another reward or threshold tweak.
