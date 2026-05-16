@@ -3453,3 +3453,72 @@ Next useful verification:
 
 - Run one more guarded eval only if Brev deletion behavior looks normal.
 - Pass condition is not necessarily success; the immediate pass condition is that `insert_state` remains true past step `227` and the controller no longer returns to rotate before the contact-induced jump.
+
+## Attempt 42: Isaac Lab 5.3 configclass import drift
+
+Date: 2026-05-16
+
+Local base commit:
+
+- `bb7a20b Debounce insert abort hysteresis`
+
+Goal:
+
+- Verify the debounced insert-abort hysteresis change on the live Isaac Lab runtime.
+- Keep the run cheap by using the guarded `cheap` profile and L4 pricing.
+
+Remote run:
+
+- Run id: `2026-05-16T18-20-36Z`
+- Instance: `isaac-phase2-abort-debounce-l4`
+- Instance id: `vgtlogh5k`
+- Selected machine: `g2-standard-4:nvidia-l4:1`
+- Selected live price: `$0.85/hr`
+
+Result:
+
+- No scripted eval was executed.
+- The run failed during runtime environment registration after the remote image reported:
+  - `isaaclab==5.3.0`
+  - `isaaclab_rl==0.5.2`
+- Failure:
+
+```text
+TypeError: 'module' object is not callable
+```
+
+- The traceback pointed to `@configclass` in `peg_in_hole_env_cfg.py`.
+
+Artifacts:
+
+- Gate run dir: `artifacts/gpu_gate/2026-05-16T18-20-36Z_isaac-phase2-abort-debounce-l4`
+
+Cleanup verification:
+
+- `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+- `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Interpretation:
+
+- This attempt does not validate or invalidate the debounced abort logic.
+- The blocker is Isaac Lab API/version drift: Isaac Lab 5.3 exposes `configclass` differently than the older runtime used by previous successful attempts.
+- The correct local fix is a small compatibility layer, not a controller or reward change.
+
+Local fix after this run:
+
+- Added `robot_contact_assembly_tasks._compat.configclass`.
+- Updated all local task config imports to use the compatibility helper instead of importing `configclass` directly from `isaaclab.utils`.
+- Local syntax verification:
+
+```text
+python3 -m py_compile source/robot_contact_assembly_tasks/robot_contact_assembly_tasks/_compat.py \
+  source/robot_contact_assembly_tasks/robot_contact_assembly_tasks/tasks/manager_based/manipulation/peg_in_hole/peg_in_hole_env_cfg.py \
+  source/robot_contact_assembly_tasks/robot_contact_assembly_tasks/tasks/manager_based/manipulation/peg_in_hole/config/franka/ik_rel_env_cfg.py \
+  source/robot_contact_assembly_tasks/robot_contact_assembly_tasks/tasks/manager_based/manipulation/peg_in_hole/config/franka/agents/rsl_rl_ppo_cfg.py
+```
+
+Next useful verification:
+
+- Run one short guarded eval with the compatibility import fix.
+- Pass condition for the runtime fix is that environment registration reaches scripted eval startup.
+- Pass condition for the controller change remains: `insert_state` stays true beyond the old abort point around step `227`.

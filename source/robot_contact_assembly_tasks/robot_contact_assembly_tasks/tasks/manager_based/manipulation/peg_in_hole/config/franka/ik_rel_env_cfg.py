@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from isaaclab.controllers.differential_ik_cfg import DifferentialIKControllerCfg
 from isaaclab.envs.mdp.actions.actions_cfg import DifferentialInverseKinematicsActionCfg, JointPositionActionCfg
-from isaaclab.utils import configclass
+
+from robot_contact_assembly_tasks._compat import configclass
 
 from ...constants import PEG_TIP_BODY_OFFSET_POS, PEG_TIP_BODY_OFFSET_ROT
 from ...peg_in_hole_env_cfg import PegInHoleEnvCfg
