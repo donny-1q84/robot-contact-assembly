@@ -4778,3 +4778,211 @@ Next pass condition:
 - Successful if `success_step != null`.
 - Better than Attempt 54 if the rollout passes step `500` without the reset-like branch jump and keeps reducing axial error.
 - Failed but useful if no reset occurs and axial still plateaus, because that would confirm final insertion depth is a real controller/contact problem.
+
+## Attempt 55: timeout-safe success attempt startup failure
+
+Date: 2026-05-17
+
+Run:
+
+- Gate run id: `2026-05-17T01-10-05Z`
+- Instance: `isaac-phase2-timeout-safe-success-l4`
+- Instance id: `u19wx2ecb`
+- Instance type: `g2-standard-4:nvidia-l4:1`
+- Recorded cheapest relevant price: L4 `g2-standard-4:nvidia-l4:1` at `$0.85/hr`
+- Output dir: `artifacts/evaluations/scripted/2026-05-17T01-25-51Z/`
+
+Result:
+
+- No valid rollout.
+- Isaac Lab launched and created the environment, but the scripted controller crashed before the first controlled step.
+- Error:
+
+```text
+NameError: name 'limit_margin' is not defined
+```
+
+Root cause:
+
+- The new joint-limit helper accepted a parameter named `margin`, but its body used the old local name `limit_margin`.
+- This was a bookkeeping bug introduced while adding branch-jump forensics, not a controller or environment failure.
+
+Fix:
+
+- Commit `cb54e9e Fix joint limit margin helper`
+- `python3 -m py_compile scripts/scripted_agent.py` passed.
+- Commit was pushed to GitHub before the next GPU run.
+
+Cleanup verification:
+
+- Guarded cleanup completed after repeated delete retries.
+- Independent cleanup confirmation:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+## Attempt 56: timeout-safe 800-step insertion gate
+
+Date: 2026-05-17
+
+Run:
+
+- Gate run id: `2026-05-17T01-35-11Z`
+- Instance: `isaac-phase2-success-l4-r2`
+- Instance id: `tpbo4quc9`
+- Instance type: `g2-standard-4:nvidia-l4:1`
+- Recorded cheapest relevant price: L4 `g2-standard-4:nvidia-l4:1` at `$0.85/hr`
+- Output dir: `artifacts/evaluations/scripted/2026-05-17T01-52-32Z/`
+- Steps: `800`
+- Effective episode length: `28.333333333333332s`
+- Required scripted steps including warmup/buffer: `850`
+
+Configuration:
+
+- Deterministic reset at socket position `(0.22, 0.04, 0.19)`
+- Joint-IK pre-controller
+- Staged approach
+- Rotate before descend
+- Vertical insert descent
+- Insert vertical step: `0.018`
+- Hold orientation during insert: enabled
+- Branch-jump stop: enabled
+
+Result:
+
+```json
+{
+  "final_success_rate": 0.0,
+  "success_step": null,
+  "final_lateral": 0.010781876742839813,
+  "final_axial": 0.04254131019115448,
+  "final_rot": 0.442598819732666,
+  "best_lateral": 0.0002292781719006598,
+  "best_lateral_step": 455,
+  "best_axial": 0.038863569498062134,
+  "best_axial_step": 788,
+  "best_rot": 0.12049026042222977,
+  "best_rot_step": 362
+}
+```
+
+Trace highlights:
+
+```text
+step  phase   lat      ax      rot     succ_xy  succ_z  succ_rot  contact  note
+362   insert  0.0068   0.3058  0.1205  0        0       1         0.1245   rotation success reached
+425   insert  0.0022   0.2500  0.2908  1        0       0         0.2662   XY success reached
+475   insert  0.0005   0.1878  0.3510  1        0       0         0.1759   passed old step-472 reset point
+600   align   0.0029   0.1456  0.4590  1        0       0         0.5842   axial still improving
+775   insert  0.0062   0.0416  0.2445  0        0       0         5.3462   contact spike near deep insertion
+788   insert  0.0091   0.0389  0.3178  0        0       0         0.0687   best axial
+799   align   0.0108   0.0425  0.4426  0        0       0         0.8422   insert aborted near the end
+```
+
+Interpretation:
+
+- The old step-472 failure was confirmed to be mostly a timeout/reset artifact, not the original branch-jump diagnosis.
+- The horizon fix worked: the rollout passed step `500` and reached step `799`.
+- This is the best real-contact scripted result so far:
+  - `best_axial` improved from about `0.1947m` to `0.0389m`
+  - XY alignment remained sub-millimeter at best
+  - rotation success was reached earlier in the rollout
+- Remaining blocker: final 3-4 cm insertion depth with coupled contact/rotation instability.
+
+Decision after Attempt 56:
+
+- One more paid run was allowed, but only with a different hypothesis:
+  - require stricter insert entry (`insert_rot_tol=0.18`, `insert_xy_tol=0.008`)
+  - slow the vertical insert step
+  - extend rollout to `1400` steps
+  - widen abort grace to avoid early insert cancellation
+
+Cleanup verification:
+
+- Guarded cleanup completed after repeated delete retries while Brev showed the instance as `DELETING`/`STOPPING`.
+- Independent cleanup confirmation:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+## Attempt 57: strict insert-entry and slow-insert gate
+
+Date: 2026-05-17
+
+Run:
+
+- Gate run id: `2026-05-17T02-01-42Z`
+- Instance: `isaac-phase2-success-l4-r3`
+- Instance id: `s1vat3i14`
+- Instance type: `g2-standard-4:nvidia-l4:1`
+- Recorded cheapest relevant price: L4 `g2-standard-4:nvidia-l4:1` at `$0.85/hr`
+- Output dir: `artifacts/evaluations/scripted/2026-05-17T02-14-50Z/`
+- Steps requested: `1400`
+- Eval timeout: `900s`
+
+Configuration delta from Attempt 56:
+
+- `--insert-xy-tol 0.008`
+- `--insert-rot-tol 0.18`
+- `--insert-vertical-step 0.010`
+- `--insert-abort-grace-steps 50`
+- `--insert-abort-xy-tol 0.05`
+- `--insert-abort-rot-tol 0.55`
+
+Result:
+
+```json
+{
+  "final_success_rate": 0.0,
+  "success_step": null,
+  "final_lateral": 0.001716297585517168,
+  "final_axial": 0.20860570669174194,
+  "final_rot": 0.7634401321411133,
+  "best_lateral": 0.0008446893189102411,
+  "best_lateral_step": 345,
+  "best_axial": 0.20860570669174194,
+  "best_axial_step": 423,
+  "best_rot": 0.16883118450641632,
+  "best_rot_step": 381,
+  "branch_jump_step": 423
+}
+```
+
+Trace highlights:
+
+```text
+step  phase    lat      ax      rot     succ_xy  succ_z  succ_rot  contact  jlim    note
+350   descend  0.0019   0.3169  0.2320  1        0       0         0.0487   0.0292  good XY, waiting for stricter rotation
+375   insert   0.0053   0.2843  0.1731  0        0       1         0.0968   0.0206  strict insert entry reached
+381   insert   0.0033   0.2765  0.1688  1        0       1         0.1319   0.0208  XY and rotation success together, axial still high
+400   insert   0.0024   0.2475  0.3610  1        0       0         0.1727   0.1406  orientation drifts after insert
+423   insert   0.0017   0.2086  0.7634  1        0       0         0.4160   0.3477  branch jump, stopped
+```
+
+Interpretation:
+
+- The stricter entry hypothesis was falsified.
+- It did produce a clean moment where XY and rotation were both within success thresholds (`step 381`), but axial error was still `0.2765m`.
+- During insertion, rotation diverged quickly even though joint-limit margin was healthy (`jlim=0.3477` at the detected jump).
+- This points away from joint-limit saturation and toward the current target-generation/controller path being unsuitable for final constrained insertion.
+
+Decision:
+
+- Stop paid GPU attempts for this controller family.
+- Do not keep tuning `insert_rot_tol`, `insert_xy_tol`, vertical step size, or abort grace in isolation.
+- Next work should be local until the controller path changes materially.
+
+Next controller direction:
+
+- Replace frame-by-frame Cartesian descent with a cached joint-space insertion segment:
+  - first solve/record a stable pre-insert joint posture;
+  - then replay a short, bounded joint-space descent segment;
+  - keep the contact task and success metrics unchanged.
+- Alternative if joint-space replay is too brittle:
+  - run a small local/remote sweep over socket pose height and XY placement to find a kinematic sweet spot;
+  - document the workspace constraint before attempting another paid success gate.
+
+Cleanup verification:
+
+- Guarded cleanup completed after repeated delete retries while Brev showed the instance as `DELETING`.
+- Independent cleanup confirmation:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
