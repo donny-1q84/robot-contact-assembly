@@ -240,6 +240,10 @@ wait_for_empty_org() {
     fi
     sleep 10
   done
+  if org_is_empty; then
+    run_brev_ls_all || true
+    return 0
+  fi
   return 1
 }
 

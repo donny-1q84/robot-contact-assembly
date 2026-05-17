@@ -291,3 +291,83 @@ Next decision:
 
 - The intended gate is still valid but incomplete. A rerun should complete the remaining socket candidates unless an actual scripted success appears first.
 - If the full sweep still produces no success, stop paid runs again and inspect whether the first true success should come from relaxed insertion depth / guide clearance instead of more controller tuning.
+
+## Socket Sweep Gate Attempt 2
+
+Run:
+
+```bash
+RCA_GATE_PROFILE=cheap \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-workspace-socket-sweep-l4-r2 \
+RCA_GATE_INSTANCE_TYPE=g2-standard-4:nvidia-l4:1 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_BUILD_STUCK_SECONDS=600 \
+RCA_GATE_DELETE_TIMEOUT_SECONDS=1200 \
+RCA_GATE_CREATE_TIMEOUT=600 \
+RCA_SOCKET_SWEEP_POSITIONS='0.24,0.03,0.22;0.26,0.02,0.22;0.28,0.00,0.22' \
+scripts/run_phase2_workspace_socket_sweep_gate.sh
+```
+
+Selected instance after live price comparison:
+
+```text
+name: isaac-phase2-workspace-socket-sweep-l4-r2
+id:   xxucldahl
+type: g2-standard-4:nvidia-l4:1
+rate: $0.85/hr
+```
+
+Price rationale:
+
+- cheapest visible 24GB+ candidate: `g2-standard-4:nvidia-l4:1` at `$0.85/hr`
+- cheapest visible 32GB+ candidate: T4 pair at `$0.90/hr`
+- cheapest visible 40GB+ candidate: L40S at `$1.86/hr`
+
+The L4 was still the best value for a single-env scripted gate.
+
+Artifacts:
+
+- `artifacts/gpu_gate/2026-05-17T18-38-29Z_isaac-phase2-workspace-socket-sweep-l4-r2/gate.log`
+- `artifacts/evaluations/scripted/2026-05-17T18-54-02Z/seed_42.json`
+- `artifacts/evaluations/scripted/2026-05-17T18-56-28Z/seed_42.json`
+- `artifacts/evaluations/scripted/2026-05-17T18-58-30Z/seed_42.json`
+
+Summary:
+
+```bash
+python3 scripts/summarize_socket_sweep_results.py --since 2026-05-17T18-09-44Z --limit 20
+```
+
+Result table:
+
+```text
+socket             success  best_lateral       best_axial        best_rot        final_lateral  final_axial  final_rot
+0.220,0.040,0.220 no       0.0003 @ 1045     0.0383 @ 1430    0.0494 @ 899    0.0045         0.0449       0.1590
+0.240,0.030,0.220 no       0.0001 @ 828      0.0368 @ 1525    0.0608 @ 1107   0.0034         0.0399       0.2478
+0.260,0.020,0.220 no       0.0089 @ 90       0.4756 @ 1598    0.2357 @ 360    0.0251         0.4758       0.2477
+0.280,0.000,0.220 no       0.0051 @ 740      0.5212 @ 0       0.7413 @ 677    0.0190         0.7468       0.8057
+```
+
+Interpretation:
+
+- The best swept candidate was `0.24,0.03,0.22`, but it still stalled around `3.7-4.0 cm` axial error.
+- The original raised-z candidate `0.22,0.04,0.22` remains competitive and has the best final rotation.
+- Moving farther outward/centerward (`0.26,0.02,0.22` and `0.28,0.00,0.22`) severely worsened insertion depth.
+- The sweep disproves the simple hypothesis that the near-seat failure is solved by moving the socket outward/centerward.
+
+Cleanup:
+
+- The gate completed and pulled artifacts.
+- Brev deletion briefly stalled through `DELETING`, `STOPPING`, `STOPPED`, and a transient `DEPLOYING` state.
+- Final independent verification after cleanup:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Decision:
+
+- Stop paid GPU runs for this scripted socket-pose branch.
+- Do not continue tuning the same controller against the same insertion geometry.
+- The next useful change should be a geometry-first first-success gate:
+  - temporarily relax insertion depth from the current final success depth to a shallow contact success
+  - or increase guide/socket clearance and then tighten it after one true-contact scripted success
+  - keep the best pose candidates near `0.22-0.24 x`, `0.03-0.04 y`, `0.22 z`
