@@ -567,8 +567,8 @@ def _selected_joint_limits(
         return None, None
 
     limits = _as_torch(limits).index_select(1, joint_ids)
-    lower = limits[..., 0] + limit_margin
-    upper = limits[..., 1] - limit_margin
+    lower = limits[..., 0] + margin
+    upper = limits[..., 1] - margin
     return lower, upper
 
 
