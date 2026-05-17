@@ -548,3 +548,54 @@ Next tightening order:
 2. Tighten rotation from `0.20` back to `0.18` while keeping `z < 0.045`.
 3. Tighten axial depth gradually from `0.045 -> 0.035 -> 0.025 -> 0.015 -> 0.008`.
 4. Only after strict scripted success exists, move to RL/IL on the contact environment.
+
+## Rotation Tightening Gate Plan
+
+Local check against the shallow-success trace:
+
+```bash
+python3 scripts/analyze_relaxed_success_gate.py \
+  artifacts/evaluations/scripted/2026-05-17T19-47-06Z/seed_42_trace.json \
+  --xy-tol 0.005 \
+  --z-tol 0.045 \
+  --rot-tol 0.18 \
+  --min-contact-force 0.5 \
+  --limit 10
+```
+
+Result:
+
+```text
+passing steps: 0
+closest step: 1538
+lateral: 0.0047 m
+axial:   0.0419 m
+rot:     0.1909 rad
+contact: 0.6927
+```
+
+Diagnosis:
+
+- The next strict-rotation gate misses by only `0.0109 rad`.
+- The current shallow-success script uses `--polish-rotation-mode current`, so near-contact polish intentionally freezes orientation and cannot remove that residual.
+- The next gate should change only near-contact rotation control, not socket pose or axial depth.
+
+Added:
+
+- `scripts/run_phase2_rotation_tight_contact_gate.sh`
+
+Gate definition:
+
+```text
+socket_pos: 0.22,0.04,0.22
+success_xy_tolerance: 0.005
+success_z_tolerance:  0.045
+success_rot_tolerance: 0.18
+success_min_contact_force: 0.5
+polish_rotation_mode: target
+polish_rot_gain: 0.35
+polish_rot_clamp: 0.012
+```
+
+This is a single-hypothesis run: mild target-orientation polish should remove the final
+rotation residual without reopening a broad parameter sweep.
