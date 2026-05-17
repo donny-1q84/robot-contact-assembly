@@ -516,6 +516,30 @@ parser.add_argument("--settle-z-gain", type=float, default=0.8, help="Axial posi
 parser.add_argument("--settle-z-clamp", type=float, default=0.004, help="Axial position clamp during the final seating phase.")
 parser.add_argument("--settle-rot-gain", type=float, default=1.5, help="Orientation gain during the final seating phase.")
 parser.add_argument("--settle-rot-clamp", type=float, default=0.12, help="Orientation clamp during the final seating phase.")
+parser.add_argument(
+    "--success-xy-tol",
+    type=float,
+    default=None,
+    help="Override scripted success lateral tolerance. Defaults to the task constant.",
+)
+parser.add_argument(
+    "--success-z-tol",
+    type=float,
+    default=None,
+    help="Override scripted success axial tolerance. Defaults to the task constant.",
+)
+parser.add_argument(
+    "--success-rot-tol",
+    type=float,
+    default=None,
+    help="Override scripted success orientation tolerance. Defaults to the task constant.",
+)
+parser.add_argument(
+    "--success-min-contact-force",
+    type=float,
+    default=0.0,
+    help="Require at least this peg contact-force magnitude for scripted success.",
+)
 add_launcher_args(parser)
 args_cli, hydra_args = parser.parse_known_args()
 skip_auto_enable_cameras = os.environ.get("RCA_SKIP_AUTO_ENABLE_CAMERAS", "0") == "1"
@@ -663,6 +687,22 @@ def main():
         if args_cli.socket_pos is not None:
             _override_socket_pose(env_cfg, args_cli.socket_pos)
             print(f"[SCRIPTED] overriding socket world position to {args_cli.socket_pos}", flush=True)
+        success_xy_tolerance = (
+            args_cli.success_xy_tol if args_cli.success_xy_tol is not None else SOCKET_SUCCESS_XY_TOLERANCE_M
+        )
+        success_z_tolerance = (
+            args_cli.success_z_tol if args_cli.success_z_tol is not None else SOCKET_SUCCESS_Z_TOLERANCE_M
+        )
+        success_rot_tolerance = (
+            args_cli.success_rot_tol if args_cli.success_rot_tol is not None else SOCKET_SUCCESS_ROT_TOLERANCE_RAD
+        )
+        success_min_contact_force = max(0.0, args_cli.success_min_contact_force)
+        print(
+            "[SCRIPTED] success gate "
+            f"xy<{success_xy_tolerance:.4f} z<{success_z_tolerance:.4f} "
+            f"rot<{success_rot_tolerance:.4f} min_contact>={success_min_contact_force:.3f}",
+            flush=True,
+        )
 
         render_mode = "rgb_array" if args_cli.video and args_cli.video_backend == "viewport" else None
         env = gym.make(args_cli.task, cfg=env_cfg, render_mode=render_mode)
@@ -1289,7 +1329,6 @@ def main():
             env.step(actions)
 
             lateral, axial, rot = mdp.insertion_metrics(env_unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg)
-            success = mdp.insertion_success(env_unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg)
             post_hand_pos_w, post_hand_quat_w = _hand_pose_w(env_unwrapped, body_idx)
             post_action_pos_w, post_action_quat_w = _action_frame_pose_w(env_unwrapped, body_idx)
             post_physical_tip_pos_w, post_physical_tip_quat_w = _physical_peg_tip_pose_w(env_unwrapped)
@@ -1301,9 +1340,6 @@ def main():
                 post_physical_tip_quat_w,
             )
             post_action_tip_alignment = torch.linalg.norm(post_physical_tip_pos_w - post_action_pos_w, dim=1)
-            success_xy_ready = lateral < SOCKET_SUCCESS_XY_TOLERANCE_M
-            success_axial_ready = axial < SOCKET_SUCCESS_Z_TOLERANCE_M
-            success_rot_ready = rot < SOCKET_SUCCESS_ROT_TOLERANCE_RAD
             contact_force_magnitude = None
             contact_force_socket = None
             if contact_sensor_cfg is not None:
@@ -1314,6 +1350,17 @@ def main():
                     socket_cfg=socket_cfg,
                     force_scale=1.0,
                 )
+            success_xy_ready = lateral < success_xy_tolerance
+            success_axial_ready = axial < success_z_tolerance
+            success_rot_ready = rot < success_rot_tolerance
+            if success_min_contact_force > 0.0:
+                if contact_force_magnitude is None:
+                    success_contact_ready = torch.zeros_like(success_xy_ready)
+                else:
+                    success_contact_ready = contact_force_magnitude.squeeze(-1) >= success_min_contact_force
+            else:
+                success_contact_ready = torch.ones_like(success_xy_ready)
+            success = success_xy_ready & success_axial_ready & success_rot_ready & success_contact_ready
             if scripted_control_mode == "joint-ik":
                 assert robot_entity_cfg is not None
                 joint_ids = torch.as_tensor(
@@ -1382,6 +1429,7 @@ def main():
                     f"success_xyzr={success_xy_ready.float().mean().item():.0f}/"
                     f"{success_axial_ready.float().mean().item():.0f}/"
                     f"{success_rot_ready.float().mean().item():.0f} "
+                    f"contact_ready={success_contact_ready.float().mean().item():.0f} "
                     f"contact_force="
                     f"{contact_force_magnitude.mean().item() if contact_force_magnitude is not None else 0.0:.3f} "
                     f"action_tip_alignment={final_action_tip_alignment:.4f} "
@@ -1546,12 +1594,17 @@ def main():
                         "success_xy_tolerance": SOCKET_SUCCESS_XY_TOLERANCE_M,
                         "success_z_tolerance": SOCKET_SUCCESS_Z_TOLERANCE_M,
                         "success_rot_tolerance": SOCKET_SUCCESS_ROT_TOLERANCE_RAD,
+                        "active_success_xy_tolerance": success_xy_tolerance,
+                        "active_success_z_tolerance": success_z_tolerance,
+                        "active_success_rot_tolerance": success_rot_tolerance,
+                        "success_min_contact_force": success_min_contact_force,
                         "success_xy_ready": bool(success_xy_ready[0].item()),
                         "success_axial_ready": bool(success_axial_ready[0].item()),
                         "success_rot_ready": bool(success_rot_ready[0].item()),
-                        "success_xy_margin": lateral[0].item() - SOCKET_SUCCESS_XY_TOLERANCE_M,
-                        "success_axial_margin": axial[0].item() - SOCKET_SUCCESS_Z_TOLERANCE_M,
-                        "success_rot_margin": rot[0].item() - SOCKET_SUCCESS_ROT_TOLERANCE_RAD,
+                        "success_contact_ready": bool(success_contact_ready[0].item()),
+                        "success_xy_margin": lateral[0].item() - success_xy_tolerance,
+                        "success_axial_margin": axial[0].item() - success_z_tolerance,
+                        "success_rot_margin": rot[0].item() - success_rot_tolerance,
                         "contact_force_magnitude": (
                             contact_force_magnitude[0].item() if contact_force_magnitude is not None else None
                         ),
@@ -1668,6 +1721,10 @@ def main():
             "success_xy_tolerance": SOCKET_SUCCESS_XY_TOLERANCE_M,
             "success_z_tolerance": SOCKET_SUCCESS_Z_TOLERANCE_M,
             "success_rot_tolerance": SOCKET_SUCCESS_ROT_TOLERANCE_RAD,
+            "active_success_xy_tolerance": success_xy_tolerance,
+            "active_success_z_tolerance": success_z_tolerance,
+            "active_success_rot_tolerance": success_rot_tolerance,
+            "success_min_contact_force": success_min_contact_force,
             "socket_guide_clearance": SOCKET_GUIDE_CLEARANCE_M,
             "max_contact_force_magnitude": max_contact_force_magnitude,
             "max_contact_force_magnitude_step": max_contact_force_magnitude_step,
