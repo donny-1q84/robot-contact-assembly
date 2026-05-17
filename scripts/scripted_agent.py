@@ -517,6 +517,63 @@ parser.add_argument("--settle-z-clamp", type=float, default=0.004, help="Axial p
 parser.add_argument("--settle-rot-gain", type=float, default=1.5, help="Orientation gain during the final seating phase.")
 parser.add_argument("--settle-rot-clamp", type=float, default=0.12, help="Orientation clamp during the final seating phase.")
 parser.add_argument(
+    "--settle-contact-retention",
+    action="store_true",
+    default=False,
+    help=(
+        "Latch a near-seat contact-retention mode when geometry is inside the active success gate but contact force "
+        "is below threshold. This keeps a small downward preload instead of bouncing back to Z-hold polish."
+    ),
+)
+parser.add_argument(
+    "--settle-contact-min-force",
+    type=float,
+    default=None,
+    help="Contact-force threshold used to enter retention. Defaults to --success-min-contact-force.",
+)
+parser.add_argument(
+    "--settle-contact-preload-step",
+    type=float,
+    default=0.020,
+    help="World-Z preload target below the current action-frame position while contact-retention is active.",
+)
+parser.add_argument(
+    "--settle-contact-xy-tol",
+    type=float,
+    default=None,
+    help="Lateral entry tolerance for contact-retention. Defaults to the active success XY tolerance.",
+)
+parser.add_argument(
+    "--settle-contact-z-tol",
+    type=float,
+    default=None,
+    help="Axial entry tolerance for contact-retention. Defaults to the active success Z tolerance.",
+)
+parser.add_argument(
+    "--settle-contact-rot-tol",
+    type=float,
+    default=None,
+    help="Rotation entry tolerance for contact-retention. Defaults to the active success rotation tolerance.",
+)
+parser.add_argument(
+    "--settle-contact-exit-xy-tol",
+    type=float,
+    default=0.008,
+    help="Exit contact-retention if lateral error exceeds this value.",
+)
+parser.add_argument(
+    "--settle-contact-exit-z-tol",
+    type=float,
+    default=0.055,
+    help="Exit contact-retention if axial error exceeds this value.",
+)
+parser.add_argument(
+    "--settle-contact-exit-rot-tol",
+    type=float,
+    default=0.24,
+    help="Exit contact-retention if rotation error exceeds this value.",
+)
+parser.add_argument(
     "--success-xy-tol",
     type=float,
     default=None,
@@ -817,6 +874,7 @@ def main():
         rotate_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         insert_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         aligned_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
+        contact_retention_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         insert_abort_counts = torch.zeros(env_unwrapped.num_envs, dtype=torch.long, device=env_unwrapped.device)
         rotate_hold_pos_w = torch.zeros((env_unwrapped.num_envs, 3), dtype=torch.float32, device=env_unwrapped.device)
         rotate_hold_valid = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
@@ -881,6 +939,12 @@ def main():
             lateral_error, axial_error, orientation_error = mdp.insertion_metrics(
                 env_unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg
             )
+            pre_contact_force_magnitude = None
+            if contact_sensor_cfg is not None:
+                pre_contact_force_magnitude = mdp.peg_contact_force_magnitude(
+                    env_unwrapped,
+                    sensor_cfg=contact_sensor_cfg,
+                )
             orientation_ready = orientation_error < args_cli.approach_rot_tol
             insert_xy_tolerance = args_cli.insert_xy_tol if args_cli.insert_xy_tol is not None else args_cli.approach_xy_tol
             insert_rot_tolerance = (
@@ -1025,7 +1089,43 @@ def main():
             settle_mask = polish_state & (lateral_error < args_cli.settle_xy_tol) & (orientation_error < args_cli.settle_rot_tol)
             settle_state = settle_mask
 
-            polish_only = polish_state & ~settle_state
+            if args_cli.settle_contact_retention:
+                retention_min_force = (
+                    success_min_contact_force
+                    if args_cli.settle_contact_min_force is None
+                    else max(0.0, args_cli.settle_contact_min_force)
+                )
+                retention_xy_tol = (
+                    success_xy_tolerance if args_cli.settle_contact_xy_tol is None else args_cli.settle_contact_xy_tol
+                )
+                retention_z_tol = (
+                    success_z_tolerance if args_cli.settle_contact_z_tol is None else args_cli.settle_contact_z_tol
+                )
+                retention_rot_tol = (
+                    success_rot_tolerance if args_cli.settle_contact_rot_tol is None else args_cli.settle_contact_rot_tol
+                )
+                contact_retention_ready = (
+                    polish_state
+                    & (lateral_error < retention_xy_tol)
+                    & (axial_error < retention_z_tol)
+                    & (orientation_error < retention_rot_tol)
+                )
+                if retention_min_force > 0.0 and pre_contact_force_magnitude is not None:
+                    contact_retention_ready &= pre_contact_force_magnitude.squeeze(-1) < retention_min_force
+                elif retention_min_force > 0.0:
+                    contact_retention_ready &= torch.zeros_like(contact_retention_ready)
+                contact_retention_state |= contact_retention_ready
+                contact_retention_exit = (
+                    (lateral_error > args_cli.settle_contact_exit_xy_tol)
+                    | (axial_error > args_cli.settle_contact_exit_z_tol)
+                    | (orientation_error > args_cli.settle_contact_exit_rot_tol)
+                )
+                contact_retention_state &= ~contact_retention_exit
+            else:
+                contact_retention_state &= torch.zeros_like(contact_retention_state)
+
+            seating_state = settle_state | contact_retention_state
+            polish_only = polish_state & ~seating_state
             target_pos_w[polish_only, 2] = action_pos_w[polish_only, 2]
             if polish_state.any():
                 if args_cli.polish_rotation_mode == "current":
@@ -1038,6 +1138,14 @@ def main():
                     )
                 else:
                     target_quat_w[polish_state] = target_action_quat_w[polish_state]
+            if contact_retention_state.any():
+                preload_step = max(0.0, args_cli.settle_contact_preload_step)
+                if preload_step > 0.0:
+                    preload_z = action_pos_w[:, 2] - preload_step
+                    target_pos_w[contact_retention_state, 2] = torch.minimum(
+                        target_pos_w[contact_retention_state, 2],
+                        preload_z[contact_retention_state],
+                    )
 
             pos_error, axis_angle_error = compute_pose_error(
                 action_pos_w, action_quat_w, target_pos_w, target_quat_w, rot_error_type="axis_angle"
@@ -1438,13 +1546,16 @@ def main():
                     f"rotate_ready={rotate_state.float().mean().item():.3f} "
                     f"insert_ready={insert_mask.float().mean().item():.3f} "
                     f"polish_ready={polish_only.float().mean().item():.3f} "
-                    f"settle_ready={settle_state.float().mean().item():.3f}",
+                    f"settle_ready={settle_state.float().mean().item():.3f} "
+                    f"contact_retention={contact_retention_state.float().mean().item():.3f}",
                     flush=True,
                 )
 
             if args_cli.trace_json:
                 if settle_state[0].item():
                     phase = "settle"
+                elif contact_retention_state[0].item():
+                    phase = "contact-retention"
                 elif polish_only[0].item():
                     phase = "polish"
                 elif insert_mask[0].item():
@@ -1564,6 +1675,17 @@ def main():
                         "polish_rotation_mode": args_cli.polish_rotation_mode,
                         "settle_xy_tolerance": args_cli.settle_xy_tol,
                         "settle_rot_tolerance": args_cli.settle_rot_tol,
+                        "settle_contact_retention": args_cli.settle_contact_retention,
+                        "settle_contact_retention_state": bool(contact_retention_state[0].item()),
+                        "settle_contact_preload_step": args_cli.settle_contact_preload_step,
+                        "settle_contact_min_force": (
+                            success_min_contact_force
+                            if args_cli.settle_contact_min_force is None
+                            else max(0.0, args_cli.settle_contact_min_force)
+                        ),
+                        "pre_contact_force_magnitude": (
+                            pre_contact_force_magnitude[0].item() if pre_contact_force_magnitude is not None else None
+                        ),
                         "joint_cache_active": bool(joint_cache_active_mask[0].item()),
                         "joint_cache_seed": bool(joint_cache_seed_mask[0].item()),
                         "joint_cache_valid": bool(insert_joint_cache_valid[0].item()),
@@ -1698,6 +1820,25 @@ def main():
             "polish_rotation_mode": args_cli.polish_rotation_mode,
             "settle_xy_tolerance": args_cli.settle_xy_tol,
             "settle_rot_tolerance": args_cli.settle_rot_tol,
+            "settle_contact_retention": args_cli.settle_contact_retention,
+            "settle_contact_preload_step": args_cli.settle_contact_preload_step,
+            "settle_contact_min_force": (
+                success_min_contact_force
+                if args_cli.settle_contact_min_force is None
+                else max(0.0, args_cli.settle_contact_min_force)
+            ),
+            "settle_contact_xy_tolerance": (
+                success_xy_tolerance if args_cli.settle_contact_xy_tol is None else args_cli.settle_contact_xy_tol
+            ),
+            "settle_contact_z_tolerance": (
+                success_z_tolerance if args_cli.settle_contact_z_tol is None else args_cli.settle_contact_z_tol
+            ),
+            "settle_contact_rot_tolerance": (
+                success_rot_tolerance if args_cli.settle_contact_rot_tol is None else args_cli.settle_contact_rot_tol
+            ),
+            "settle_contact_exit_xy_tolerance": args_cli.settle_contact_exit_xy_tol,
+            "settle_contact_exit_z_tolerance": args_cli.settle_contact_exit_z_tol,
+            "settle_contact_exit_rot_tolerance": args_cli.settle_contact_exit_rot_tol,
             "stop_on_branch_jump": args_cli.stop_on_branch_jump,
             "branch_jump_step": branch_jump_step,
             "branch_jump_reason": branch_jump_reason,

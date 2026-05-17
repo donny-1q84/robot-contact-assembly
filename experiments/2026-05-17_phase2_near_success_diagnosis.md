@@ -776,3 +776,33 @@ Next technical direction:
 2. Implement a contact-retention settle mode that keeps a small downward/axial preload when `xy/z/rot` are geometrically ready but contact force drops below threshold.
 3. Keep branch-jump prevention from the passive run: no target-rotation polish in contact.
 4. The next GPU run should validate only the new contact-retention settle behavior.
+
+## Contact-Retention Gate Prepared
+
+Change:
+
+- Added `--settle-contact-retention` to `scripts/scripted_agent.py`.
+- Added `scripts/run_phase2_contact_retention_gate.sh`.
+- The gate keeps the stable shallow-contact controller and changes one thing only: once the rollout satisfies strict geometry (`xy<5mm`, `z<45mm`, `rot<0.18rad`) but contact force is below `0.5`, it latches a contact-retention mode and keeps a small downward preload instead of returning to Z-hold polish.
+
+Why this is the right next gate:
+
+- The passive strict-rotation run already proved that target-rotation polish is destabilizing.
+- The same run also proved that strict geometry is reachable: step `1585` had `xy=0.0045m`, `z=0.0421m`, `rot=0.1696rad`.
+- The only missing term at that point was contact force: `0.0401 < 0.5`.
+- A replay-style check against the previous trace indicates the new retention logic would first latch around step `1580` and remain active until about step `1654`, exactly around the observed contact-loss window.
+
+Planned validation:
+
+```bash
+scripts/run_phase2_contact_retention_gate.sh
+```
+
+Pass condition:
+
+- `success_step` is not `null` under `xy<0.005`, `z<0.045`, `rot<0.18`, `contact>=0.5`.
+
+Fail condition:
+
+- If geometry remains good but contact still stays below `0.5`, the next fix should move from Cartesian preload to force-aware/action-space contact control.
+- If contact is retained but lateral/rotation exits the gate, the preload is too aggressive or the contact-retention exit window is too loose.
