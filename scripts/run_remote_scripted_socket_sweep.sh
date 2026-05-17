@@ -14,6 +14,7 @@ TIMEOUT_SECONDS="${8:-900}"
 SOCKET_POSITIONS="${9:-${RCA_SOCKET_SWEEP_POSITIONS:-0.22,0.04,0.22;0.24,0.03,0.22;0.26,0.02,0.22;0.28,0.00,0.22}}"
 EXTRA_AGENT_ARGS="${10:-${RCA_SOCKET_SWEEP_EXTRA_AGENT_ARGS:-}}"
 STOP_ON_SUCCESS="${RCA_SOCKET_SWEEP_STOP_ON_SUCCESS:-1}"
+CONTAINER_PYTHON="${RCA_REMOTE_CONTAINER_PYTHON:-/isaac-sim/python.sh}"
 
 if [[ -z "${SOCKET_POSITIONS}" ]]; then
   echo "[socket-sweep] no socket positions provided" >&2
@@ -24,6 +25,7 @@ echo "[socket-sweep] env=${RCA_ENV_NAME} task=${TASK_NAME} num_envs=${NUM_ENVS} 
 echo "[socket-sweep] seeds=${SEED_CSV}"
 echo "[socket-sweep] timeout_seconds=${TIMEOUT_SECONDS}"
 echo "[socket-sweep] stop_on_success=${STOP_ON_SUCCESS}"
+echo "[socket-sweep] container_python=${CONTAINER_PYTHON}"
 echo "[socket-sweep] positions=${SOCKET_POSITIONS}"
 if [[ -n "${EXTRA_AGENT_ARGS}" ]]; then
   echo "[socket-sweep] extra_agent_args=${EXTRA_AGENT_ARGS}"
@@ -54,8 +56,8 @@ for socket_pos in "${socket_positions[@]}"; do
   latest_dir="$(rca_remote_container_exec "ls -td /workspace/artifacts/evaluations/scripted/* | head -1" | tr -d '\r' | tail -1)"
   echo "[socket-sweep] latest_dir=${latest_dir}"
 
-  success_report="$(
-    rca_remote_container_exec "python3 - <<'PY'
+  if ! success_report="$(
+    rca_remote_container_exec "${CONTAINER_PYTHON} - <<'PY'
 import glob
 import json
 
@@ -76,7 +78,10 @@ if successes:
 else:
     print('success=0')
 PY"
-  )"
+  )"; then
+    echo "[socket-sweep] warning: failed to inspect success status in ${latest_dir}; continuing sweep" >&2
+    success_report="success=0"
+  fi
   printf '%s\n' "${success_report}"
 
   if [[ "${STOP_ON_SUCCESS}" == "1" ]] && printf '%s\n' "${success_report}" | grep -qx 'success=1'; then

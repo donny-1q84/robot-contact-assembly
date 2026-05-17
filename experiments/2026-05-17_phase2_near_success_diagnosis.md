@@ -222,3 +222,72 @@ python3 scripts/summarize_socket_sweep_results.py --since 2026-05-17T00-00-00Z
 ```
 
 The ranking uses a simple near-success score based on best lateral, axial, and rotation errors. Lower is better; any `success_step != null` ranks above failed near-success runs.
+
+## Socket Sweep Gate Attempt 1
+
+Run:
+
+```bash
+RCA_GATE_PROFILE=cheap \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-workspace-socket-sweep-l4-r1 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_BUILD_STUCK_SECONDS=600 \
+RCA_GATE_DELETE_TIMEOUT_SECONDS=1200 \
+RCA_GATE_CREATE_TIMEOUT=600 \
+scripts/run_phase2_workspace_socket_sweep_gate.sh
+```
+
+Selected instance:
+
+```text
+name: isaac-phase2-workspace-socket-sweep-l4-r1
+id:   3b5inj2j7
+type: g2-standard-4:nvidia-l4:1
+gpu:  NVIDIA L4, 23034 MiB
+rate: $0.85/hr
+```
+
+Artifacts:
+
+- `artifacts/gpu_gate/2026-05-17T18-09-44Z_isaac-phase2-workspace-socket-sweep-l4-r1/gate.log`
+- `artifacts/evaluations/scripted/2026-05-17T18-25-39Z/seed_42.json`
+- `artifacts/evaluations/scripted/2026-05-17T18-25-39Z/seed_42_trace.json`
+
+Result:
+
+```text
+socket:             0.220,0.040,0.220
+success_step:       None
+final_success_rate: 0.000
+final_lateral:      0.0045 m
+final_axial:        0.0449 m
+final_rot:          0.1590 rad
+best_lateral:       0.0003 m @ step 1045
+best_axial:         0.0383 m @ step 1430
+best_rot:           0.0494 rad @ step 899
+max_contact_force:  3.6931
+```
+
+Summary command:
+
+```bash
+python3 scripts/summarize_socket_sweep_results.py --since 2026-05-17T18-09-44Z --limit 20
+```
+
+Interpretation:
+
+- The raised socket-z candidate preserved the previous near-seat pattern: XY and rotation can both become good, but axial depth still stalls around `3.8-4.5 cm`.
+- This run is not a full four-position sweep. It stopped after the first candidate because the sweep wrapper tried to parse remote JSON with `python3`, but the Isaac Sim task container exposes Isaac's Python at `/isaac-sim/python.sh`.
+- Cleanup was verified after deletion with both Brev views:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Fix applied:
+
+- `scripts/run_remote_scripted_socket_sweep.sh` now uses `RCA_REMOTE_CONTAINER_PYTHON` with default `/isaac-sim/python.sh` for remote success parsing.
+- The parser failure path now warns and continues the sweep instead of aborting the guarded GPU session.
+
+Next decision:
+
+- The intended gate is still valid but incomplete. A rerun should complete the remaining socket candidates unless an actual scripted success appears first.
+- If the full sweep still produces no success, stop paid runs again and inspect whether the first true success should come from relaxed insertion depth / guide clearance instead of more controller tuning.
