@@ -162,6 +162,7 @@ Added a one-instance socket-pose sweep:
 
 - `scripts/run_remote_scripted_socket_sweep.sh`
 - `scripts/run_phase2_workspace_socket_sweep_gate.sh`
+- `scripts/summarize_socket_sweep_results.py`
 
 The guarded wrapper uses:
 
@@ -213,3 +214,11 @@ Stop condition:
 ```text
 if all four positions have success_step=null, stop and inspect the pulled traces locally before opening another GPU
 ```
+
+After artifacts are pulled, summarize all swept results with:
+
+```bash
+python3 scripts/summarize_socket_sweep_results.py --since 2026-05-17T00-00-00Z
+```
+
+The ranking uses a simple near-success score based on best lateral, axial, and rotation errors. Lower is better; any `success_step != null` ranks above failed near-success runs.

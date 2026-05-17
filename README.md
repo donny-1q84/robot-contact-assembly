@@ -361,6 +361,8 @@ Once the runtime is bootstrapped, the shortest useful commands are:
   - `./scripts/run_remote_contact_transfer_eval.sh`
 - One-instance socket-pose sweep for the next Phase 2 contact gate:
   - `./scripts/run_phase2_workspace_socket_sweep_gate.sh`
+- Summarize pulled socket-sweep JSON files:
+  - `python3 scripts/summarize_socket_sweep_results.py --since 2026-05-17T00-00-00Z`
 - Fixed-step checkpoint sweep over a matched run:
   - `./scripts/run_remote_eval_checkpoint_sweep.sh`
 - One-shot policy video recording:
