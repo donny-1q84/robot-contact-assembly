@@ -489,6 +489,21 @@ parser.add_argument(
 )
 parser.add_argument("--polish-xy-tol", type=float, default=0.008, help="Lateral tolerance to enter the near-contact polish phase.")
 parser.add_argument("--polish-z-tol", type=float, default=0.012, help="Axial tolerance to enter the near-contact polish phase.")
+parser.add_argument(
+    "--polish-rot-tol",
+    type=float,
+    default=None,
+    help="Optional orientation tolerance required before entering the near-contact polish phase.",
+)
+parser.add_argument(
+    "--polish-rotation-mode",
+    choices=("target", "current", "insert-hold"),
+    default="target",
+    help=(
+        "Orientation target during polish. 'target' rotates toward the socket, 'current' freezes the current "
+        "orientation, and 'insert-hold' reuses the insertion-entry orientation when available."
+    ),
+)
 parser.add_argument("--polish-pos-gain", type=float, default=1.2, help="Lateral position gain during the near-contact polish phase.")
 parser.add_argument("--polish-pos-clamp", type=float, default=0.008, help="Lateral position clamp during the near-contact polish phase.")
 parser.add_argument("--polish-rot-gain", type=float, default=5.0, help="Orientation gain during the near-contact polish phase.")
@@ -964,13 +979,25 @@ def main():
                 else:
                     target_quat_w[insert_mask] = target_action_quat_w[insert_mask]
             polish_mask = (lateral_error < args_cli.polish_xy_tol) & (axial_error < args_cli.polish_z_tol)
+            if args_cli.polish_rot_tol is not None:
+                polish_mask &= orientation_error < args_cli.polish_rot_tol
             polish_state |= polish_mask
             settle_mask = polish_state & (lateral_error < args_cli.settle_xy_tol) & (orientation_error < args_cli.settle_rot_tol)
             settle_state = settle_mask
 
             polish_only = polish_state & ~settle_state
             target_pos_w[polish_only, 2] = action_pos_w[polish_only, 2]
-            target_quat_w[polish_state] = target_action_quat_w[polish_state]
+            if polish_state.any():
+                if args_cli.polish_rotation_mode == "current":
+                    target_quat_w[polish_state] = action_quat_w[polish_state]
+                elif args_cli.polish_rotation_mode == "insert-hold":
+                    target_quat_w[polish_state] = torch.where(
+                        insert_hold_valid[polish_state, None],
+                        insert_hold_quat_w[polish_state],
+                        action_quat_w[polish_state],
+                    )
+                else:
+                    target_quat_w[polish_state] = target_action_quat_w[polish_state]
 
             pos_error, axis_angle_error = compute_pose_error(
                 action_pos_w, action_quat_w, target_pos_w, target_quat_w, rot_error_type="axis_angle"
@@ -1483,6 +1510,12 @@ def main():
                             if args_cli.insert_pos_step is not None
                             else args_cli.abs_pos_step
                         ),
+                        "polish_xy_tolerance": args_cli.polish_xy_tol,
+                        "polish_z_tolerance": args_cli.polish_z_tol,
+                        "polish_rot_tolerance": args_cli.polish_rot_tol,
+                        "polish_rotation_mode": args_cli.polish_rotation_mode,
+                        "settle_xy_tolerance": args_cli.settle_xy_tol,
+                        "settle_rot_tolerance": args_cli.settle_rot_tol,
                         "joint_cache_active": bool(joint_cache_active_mask[0].item()),
                         "joint_cache_seed": bool(joint_cache_seed_mask[0].item()),
                         "joint_cache_valid": bool(insert_joint_cache_valid[0].item()),
@@ -1606,6 +1639,12 @@ def main():
             "joint_cache_step_scale": args_cli.joint_cache_step_scale,
             "joint_cache_total_limit": args_cli.joint_cache_total_limit,
             "joint_cache_live_polish": args_cli.joint_cache_live_polish,
+            "polish_xy_tolerance": args_cli.polish_xy_tol,
+            "polish_z_tolerance": args_cli.polish_z_tol,
+            "polish_rot_tolerance": args_cli.polish_rot_tol,
+            "polish_rotation_mode": args_cli.polish_rotation_mode,
+            "settle_xy_tolerance": args_cli.settle_xy_tol,
+            "settle_rot_tolerance": args_cli.settle_rot_tol,
             "stop_on_branch_jump": args_cli.stop_on_branch_jump,
             "branch_jump_step": branch_jump_step,
             "branch_jump_reason": branch_jump_reason,
