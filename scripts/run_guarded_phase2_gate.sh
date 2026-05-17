@@ -451,8 +451,22 @@ main() {
         "${SEEDS%%,*}" \
         "${EVAL_TIMEOUT_SECONDS}"
       ;;
+    scripted_socket_sweep)
+      log "running scripted socket-pose sweep"
+      bash "${SCRIPT_DIR}/run_remote_scripted_socket_sweep.sh" \
+        "${INSTANCE_NAME}" \
+        "${REMOTE_ROOT}" \
+        "${REMOTE_COMPOSE_ROOT}" \
+        "${TASK_NAME}" \
+        "${NUM_ENVS}" \
+        "${STEPS}" \
+        "${SEEDS}" \
+        "${EVAL_TIMEOUT_SECONDS}" \
+        "${RCA_SOCKET_SWEEP_POSITIONS:-}" \
+        "${EXTRA_AGENT_ARGS}"
+      ;;
     *)
-      echo "[guarded-gate] unknown RCA_GATE_COMMAND=${GATE_COMMAND}; use scripted_eval, scripted_reach_sweep, action_calibration, or calibration_then_scripted_eval" >&2
+      echo "[guarded-gate] unknown RCA_GATE_COMMAND=${GATE_COMMAND}; use scripted_eval, scripted_socket_sweep, scripted_reach_sweep, action_calibration, or calibration_then_scripted_eval" >&2
       return 2
       ;;
   esac

@@ -155,3 +155,61 @@ Option C: controller-first lower-level final insertion
 ```
 
 Recommended next choice: Option A first. It is cheapest because it can be prepared locally and tested with one guarded L4 run.
+
+## Prepared Next Gate
+
+Added a one-instance socket-pose sweep:
+
+- `scripts/run_remote_scripted_socket_sweep.sh`
+- `scripts/run_phase2_workspace_socket_sweep_gate.sh`
+
+The guarded wrapper uses:
+
+```text
+RCA_GATE_COMMAND=scripted_socket_sweep
+RCA_GATE_TASK=RCA-PegInHole-Franka-JointPos-Contact-Play-v0
+RCA_GATE_INSTANCE_TYPE=g2-standard-4:nvidia-l4:1
+RCA_GATE_STEPS=1600
+RCA_GATE_SEEDS=42
+RCA_SOCKET_SWEEP_STOP_ON_SUCCESS=1
+```
+
+Default socket candidates:
+
+```text
+0.22,0.04,0.22
+0.24,0.03,0.22
+0.26,0.02,0.22
+0.28,0.00,0.22
+```
+
+Rationale:
+
+- the previous socket pose was `0.22,0.04,0.19`
+- near-seat samples repeatedly ran joint index `1` close to its lower limit
+- raising the socket by `3cm` reduces final descent demand
+- moving gradually outward and toward the centerline tests whether the joint-limit bottleneck is pose-specific
+
+Run command for the next paid test:
+
+```bash
+RCA_GATE_PROFILE=cheap \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-workspace-socket-sweep-l4-r1 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_BUILD_STUCK_SECONDS=600 \
+RCA_GATE_DELETE_TIMEOUT_SECONDS=900 \
+RCA_GATE_CREATE_TIMEOUT=600 \
+scripts/run_phase2_workspace_socket_sweep_gate.sh
+```
+
+Pass condition:
+
+```text
+any swept position produces success_step != null
+```
+
+Stop condition:
+
+```text
+if all four positions have success_step=null, stop and inspect the pulled traces locally before opening another GPU
+```

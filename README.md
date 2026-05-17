@@ -359,6 +359,8 @@ Once the runtime is bootstrapped, the shortest useful commands are:
   - `./scripts/run_remote_eval_policy.sh`
 - Zero-shot Phase-1-to-contact transfer eval + video wrapper:
   - `./scripts/run_remote_contact_transfer_eval.sh`
+- One-instance socket-pose sweep for the next Phase 2 contact gate:
+  - `./scripts/run_phase2_workspace_socket_sweep_gate.sh`
 - Fixed-step checkpoint sweep over a matched run:
   - `./scripts/run_remote_eval_checkpoint_sweep.sh`
 - One-shot policy video recording:
