@@ -271,7 +271,7 @@ Current decision:
 - Preserve Attempts 59, 62, and 63 as diagnostic evidence.
 - Next useful work is local-first: run a small workspace/geometry diagnosis, then either simplify the socket geometry for a first successful contact insertion or move to IL/RL on the contact environment.
 
-See [experiments/2026-05-14_phase2_guarded_gate_attempt.md](experiments/2026-05-14_phase2_guarded_gate_attempt.md) for the full guarded-gate sequence and artifact paths.
+See [experiments/2026-05-14_phase2_guarded_gate_attempt.md](experiments/2026-05-14_phase2_guarded_gate_attempt.md) for the full guarded-gate sequence and artifact paths. See [experiments/2026-05-17_phase2_near_success_diagnosis.md](experiments/2026-05-17_phase2_near_success_diagnosis.md) for the offline trace diagnosis that motivates the next socket-pose / geometry change.
 
 ## First Contact Validation
 
