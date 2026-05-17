@@ -544,6 +544,39 @@ parser.add_argument(
     help="Hold the action-frame XY position captured on retention entry while applying contact preload.",
 )
 parser.add_argument(
+    "--settle-contact-force-aware-xy",
+    action="store_true",
+    default=False,
+    help=(
+        "During contact-retention, add a bounded socket-frame XY correction from the measured peg contact force. "
+        "This is intended to keep the peg centered while the preload maintains contact."
+    ),
+)
+parser.add_argument(
+    "--settle-contact-force-scale",
+    type=float,
+    default=1.0,
+    help="Force scale passed to peg_contact_force_socket before computing force-aware XY correction.",
+)
+parser.add_argument(
+    "--settle-contact-force-xy-gain",
+    type=float,
+    default=0.003,
+    help="Meters of socket-frame XY target offset per scaled contact-force unit during force-aware retention.",
+)
+parser.add_argument(
+    "--settle-contact-force-xy-clamp",
+    type=float,
+    default=0.002,
+    help="Maximum absolute force-aware XY target offset in meters per socket-frame axis.",
+)
+parser.add_argument(
+    "--settle-contact-force-xy-sign",
+    type=float,
+    default=1.0,
+    help="Sign multiplier for force-aware XY correction. Use -1.0 if trace analysis shows the force sign is inverted.",
+)
+parser.add_argument(
     "--settle-contact-xy-tol",
     type=float,
     default=None,
@@ -949,10 +982,17 @@ def main():
                 env_unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg
             )
             pre_contact_force_magnitude = None
+            pre_contact_force_socket = None
             if contact_sensor_cfg is not None:
                 pre_contact_force_magnitude = mdp.peg_contact_force_magnitude(
                     env_unwrapped,
                     sensor_cfg=contact_sensor_cfg,
+                )
+                pre_contact_force_socket = mdp.peg_contact_force_socket(
+                    env_unwrapped,
+                    sensor_cfg=contact_sensor_cfg,
+                    socket_cfg=socket_cfg,
+                    force_scale=max(1.0e-6, args_cli.settle_contact_force_scale),
                 )
             orientation_ready = orientation_error < args_cli.approach_rot_tol
             insert_xy_tolerance = args_cli.insert_xy_tol if args_cli.insert_xy_tol is not None else args_cli.approach_xy_tol
@@ -1155,6 +1195,25 @@ def main():
                     target_pos_w[contact_retention_state, :2] = contact_retention_anchor_pos_w[
                         contact_retention_state, :2
                     ]
+                contact_force_xy_offset_w = torch.zeros_like(target_pos_w)
+                contact_force_xy_target_w = target_action_pos_w
+                if args_cli.settle_contact_force_aware_xy and pre_contact_force_socket is not None:
+                    contact_force_xy_socket = (
+                        args_cli.settle_contact_force_xy_sign
+                        * args_cli.settle_contact_force_xy_gain
+                        * pre_contact_force_socket[:, :2]
+                    )
+                    contact_force_xy_socket = _clamp_actions(
+                        contact_force_xy_socket,
+                        max(0.0, args_cli.settle_contact_force_xy_clamp),
+                    )
+                    contact_force_offset_socket = torch.zeros_like(target_pos_w)
+                    contact_force_offset_socket[:, :2] = contact_force_xy_socket
+                    contact_force_xy_offset_w = _quat_rotate(socket_quat_w, contact_force_offset_socket)
+                    contact_force_xy_target_w = target_action_pos_w + contact_force_xy_offset_w
+                    target_pos_w[contact_retention_state, :2] = contact_force_xy_target_w[
+                        contact_retention_state, :2
+                    ]
                 preload_step = max(0.0, args_cli.settle_contact_preload_step)
                 if preload_step > 0.0:
                     preload_z = action_pos_w[:, 2] - preload_step
@@ -1162,6 +1221,9 @@ def main():
                         target_pos_w[contact_retention_state, 2],
                         preload_z[contact_retention_state],
                     )
+            else:
+                contact_force_xy_offset_w = torch.zeros_like(target_pos_w)
+                contact_force_xy_target_w = target_action_pos_w
 
             pos_error, axis_angle_error = compute_pose_error(
                 action_pos_w, action_quat_w, target_pos_w, target_quat_w, rot_error_type="axis_angle"
@@ -1694,11 +1756,18 @@ def main():
                         "settle_contact_retention": args_cli.settle_contact_retention,
                         "settle_contact_retention_state": bool(contact_retention_state[0].item()),
                         "settle_contact_hold_xy": args_cli.settle_contact_hold_xy,
+                        "settle_contact_force_aware_xy": args_cli.settle_contact_force_aware_xy,
                         "settle_contact_anchor_pos_w": (
                             contact_retention_anchor_pos_w[0].detach().cpu().tolist()
                             if args_cli.settle_contact_hold_xy
                             else None
                         ),
+                        "settle_contact_force_xy_offset_w": contact_force_xy_offset_w[0].detach().cpu().tolist(),
+                        "settle_contact_force_xy_target_w": contact_force_xy_target_w[0].detach().cpu().tolist(),
+                        "settle_contact_force_scale": args_cli.settle_contact_force_scale,
+                        "settle_contact_force_xy_gain": args_cli.settle_contact_force_xy_gain,
+                        "settle_contact_force_xy_clamp": args_cli.settle_contact_force_xy_clamp,
+                        "settle_contact_force_xy_sign": args_cli.settle_contact_force_xy_sign,
                         "settle_contact_preload_step": args_cli.settle_contact_preload_step,
                         "settle_contact_min_force": (
                             success_min_contact_force
@@ -1707,6 +1776,11 @@ def main():
                         ),
                         "pre_contact_force_magnitude": (
                             pre_contact_force_magnitude[0].item() if pre_contact_force_magnitude is not None else None
+                        ),
+                        "pre_contact_force_socket": (
+                            pre_contact_force_socket[0].detach().cpu().tolist()
+                            if pre_contact_force_socket is not None
+                            else None
                         ),
                         "joint_cache_active": bool(joint_cache_active_mask[0].item()),
                         "joint_cache_seed": bool(joint_cache_seed_mask[0].item()),
@@ -1844,6 +1918,11 @@ def main():
             "settle_rot_tolerance": args_cli.settle_rot_tol,
             "settle_contact_retention": args_cli.settle_contact_retention,
             "settle_contact_hold_xy": args_cli.settle_contact_hold_xy,
+            "settle_contact_force_aware_xy": args_cli.settle_contact_force_aware_xy,
+            "settle_contact_force_scale": args_cli.settle_contact_force_scale,
+            "settle_contact_force_xy_gain": args_cli.settle_contact_force_xy_gain,
+            "settle_contact_force_xy_clamp": args_cli.settle_contact_force_xy_clamp,
+            "settle_contact_force_xy_sign": args_cli.settle_contact_force_xy_sign,
             "settle_contact_preload_step": args_cli.settle_contact_preload_step,
             "settle_contact_min_force": (
                 success_min_contact_force

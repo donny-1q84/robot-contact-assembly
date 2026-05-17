@@ -1108,3 +1108,71 @@ Decision:
   - implement a force-aware/contact-aware final insertion controller, or
   - prepare imitation-learning demonstrations for the true-contact environment, or
   - present the current milestone honestly as shallow true-contact success plus failed strict-gate diagnosis.
+
+## Force-Aware Contact-Retention Gate Prepared
+
+Local change:
+
+- `scripts/scripted_agent.py`
+- `scripts/run_phase2_force_aware_contact_retention_gate.sh`
+
+Why this is structurally different from the previous retention tweaks:
+
+- Early retention used the socket-center XY target and missed strict success by rotation only at step `1541`, then lost lateral/contact stability.
+- XY-hold retained contact and strict rotation later, but it fixed an off-center anchor and missed the strict gate by `1.07 mm` lateral error at step `1543`.
+- The new controller does not freeze XY. During contact-retention it computes a bounded socket-frame XY offset from `peg_contact_force_socket`, rotates that offset back to world frame, and adds it to the socket-center target while keeping the gentle downward preload.
+
+New controller arguments:
+
+```text
+--settle-contact-force-aware-xy
+--settle-contact-force-scale 1.0
+--settle-contact-force-xy-gain 0.003
+--settle-contact-force-xy-clamp 0.002
+--settle-contact-force-xy-sign 1.0
+```
+
+Prepared gate:
+
+```bash
+scripts/run_phase2_force_aware_contact_retention_gate.sh
+```
+
+Gate definition:
+
+```text
+socket_pos: 0.22,0.04,0.22
+success_xy_tolerance: 0.005
+success_z_tolerance:  0.045
+success_rot_tolerance: 0.18
+success_min_contact_force: 0.5
+retention entry: xy<0.005, z<0.045, rot<0.20
+retention preload: 0.010 m
+force-aware XY correction: max 0.002 m per socket-frame axis
+```
+
+Expected trace fields:
+
+```text
+pre_contact_force_socket
+settle_contact_force_aware_xy
+settle_contact_force_xy_offset_w
+settle_contact_force_xy_target_w
+settle_contact_force_scale
+settle_contact_force_xy_gain
+settle_contact_force_xy_clamp
+settle_contact_force_xy_sign
+```
+
+Validation before any paid run:
+
+```bash
+python3 -m py_compile scripts/scripted_agent.py
+bash -n scripts/run_phase2_force_aware_contact_retention_gate.sh scripts/run_guarded_phase2_gate.sh
+```
+
+Decision rule:
+
+- Run this gate at most once.
+- Pass condition: `success_step != null` under the strict shallow-contact gate.
+- If it fails with lateral/contact/rotation still trading off, stop scripted-controller work and move to IL or learned contact policy.
