@@ -476,3 +476,75 @@ Expected outcome:
 - If it reproduces `success_step != null`, archive it as "Phase 2 shallow true-contact success".
 - Then tighten either axial depth or rotation one dimension at a time.
 - Do not reopen the socket-pose sweep unless this one-shot gate fails unexpectedly.
+
+## Shallow Contact Success Gate Result
+
+Run:
+
+```bash
+scripts/run_phase2_shallow_contact_success_gate.sh
+```
+
+Selected instance after live price comparison:
+
+```text
+name: isaac-phase2-shallow-contact-success-l4
+id:   n9iah3gp1
+type: g2-standard-4:nvidia-l4:1
+rate: $0.85/hr
+```
+
+Price rationale:
+
+- cheapest visible 24GB+ / 500GB-disk candidate: `g2-standard-4:nvidia-l4:1` at `$0.85/hr`
+- cheapest visible 32GB+ / 500GB-disk candidate: dual T4 at `$0.90/hr`
+- cheapest visible 40GB+ / 500GB-disk candidate: L40S at `$1.86/hr`
+- L4 was selected because the previous gates already proved this runtime path works, while cheaper single-T4 options do not meet the 24GB VRAM floor.
+
+Artifacts:
+
+- `artifacts/gpu_gate/2026-05-17T19-32-40Z_isaac-phase2-shallow-contact-success-l4/gate.log`
+- `artifacts/gpu_gate/2026-05-17T19-32-40Z_isaac-phase2-shallow-contact-success-l4/gate_metadata.env`
+- `artifacts/evaluations/scripted/2026-05-17T19-47-06Z/seed_42.json`
+- `artifacts/evaluations/scripted/2026-05-17T19-47-06Z/seed_42.log`
+- `artifacts/evaluations/scripted/2026-05-17T19-47-06Z/seed_42_trace.json`
+
+Result:
+
+```text
+success_step: 1538
+final_success_rate: 1.0
+socket_pos_override: [0.22, 0.04, 0.22]
+active_success_xy_tolerance: 0.005
+active_success_z_tolerance: 0.045
+active_success_rot_tolerance: 0.2
+success_min_contact_force: 0.5
+final_lateral: 0.0046655913 m
+final_axial:   0.0418793261 m
+final_rot:     0.1909276992 rad
+best_lateral:  0.0003210883 m @ step 1045
+best_axial:    0.0383484066 m @ step 1430
+best_rot:      0.0494016446 rad @ step 899
+max_contact:   3.6930987835 @ step 1315
+```
+
+Cleanup:
+
+```text
+brev ls instances --all:       No instances in org NCA-57cf-29515
+brev ls instances --json --all: { "workspaces": null }
+```
+
+Interpretation:
+
+- This is the first reproducible Phase 2 true-contact success milestone.
+- It is not final strict peg-in-hole success, because the final axial tolerance is relaxed from `0.008 m` to `0.045 m`.
+- The contact shell is now validated: physical peg, socket guide, contact sensing, fixed-seed scripted controller, artifact pullback, and guarded cleanup all work.
+- The remaining technical problem is tightening the gate from shallow contact to strict insertion.
+
+Next tightening order:
+
+1. Keep `socket_pos=0.22,0.04,0.22`, `xy < 0.005`, `contact >= 0.5`.
+2. Tighten rotation from `0.20` back to `0.18` while keeping `z < 0.045`.
+3. Tighten axial depth gradually from `0.045 -> 0.035 -> 0.025 -> 0.015 -> 0.008`.
+4. Only after strict scripted success exists, move to RL/IL on the contact environment.
