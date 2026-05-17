@@ -1238,3 +1238,112 @@ Decision:
 - Do not count this as the one allowed force-aware validation, because the eval never started.
 - Do not immediately retry while Brev is showing intermittent `unexpected EOF` behavior.
 - If the balance moves after cleanup, send this run id, instance id, and gate log to Brev support as another ghost-create case.
+
+## Force-Aware Contact-Retention Gate Attempt 2
+
+Run:
+
+```bash
+RCA_GATE_PROFILE=balanced \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-force-aware-contact-retention-l4-r2 \
+scripts/run_phase2_force_aware_contact_retention_gate.sh
+```
+
+Selected instance after live price comparison:
+
+```text
+name: isaac-phase2-force-aware-contact-retention-l4-r2
+id:   g3d27ghid
+type: g2-standard-4:nvidia-l4:1
+rate: $0.85/hr
+```
+
+Price rationale:
+
+- cheapest visible 24GB+ candidate: `g2-standard-4:nvidia-l4:1` at `$0.85/hr`
+- cheapest visible 32GB+ candidate: dual T4 at about `$0.90/hr`
+- cheapest visible 40GB+ candidate: L40S at `$1.86/hr+`
+- L4 was selected because this was a single-env scripted validation and did not need the L40S price tier.
+
+Artifacts:
+
+- `artifacts/gpu_gate/2026-05-17T23-15-57Z_isaac-phase2-force-aware-contact-retention-l4-r2/gate.log`
+- `artifacts/gpu_gate/2026-05-17T23-15-57Z_isaac-phase2-force-aware-contact-retention-l4-r2/gate_metadata.env`
+- `artifacts/evaluations/scripted/2026-05-17T23-32-18Z/seed_42.json`
+- `artifacts/evaluations/scripted/2026-05-17T23-32-18Z/seed_42.log`
+- `artifacts/evaluations/scripted/2026-05-17T23-32-18Z/seed_42_trace.json`
+
+Result:
+
+```text
+success_step: None
+final_success_rate: 0.0
+final_lateral: 0.0010562055 m
+final_axial:   0.0634115040 m
+final_rot:     0.2219856381 rad
+best_lateral:  0.0003210883 m @ step 1045
+best_axial:    0.0383484066 m @ step 1430
+best_rot:      0.0494016446 rad @ step 899
+max_contact:   3.6930987835 @ step 1315
+```
+
+Strict gate:
+
+```text
+xy < 0.005
+z < 0.045
+rot < 0.18
+contact >= 0.5
+passing steps: 0
+```
+
+Closest strict-contact step:
+
+```text
+step: 1543
+phase: contact-retention
+lateral: 0.0051994668 m
+axial:   0.0412640572 m
+rot:     0.1812102050 rad
+contact: 0.5298229456
+miss:    lateral by 0.0001994668 m and rotation by 0.0012102050 rad
+```
+
+Force-aware contact-retention behavior:
+
+```text
+active steps: 10
+first active: step 1539, lateral 0.0041277874, axial 0.0416817367, rot 0.1900086701, contact 0.6166338325
+last active:  step 1548, lateral 0.0083977534, axial 0.0411408246, rot 0.1680557877, contact 0.1855998188
+
+first force-aware socket force: [0.4243827462, 0.4806072116, 0.0153878387]
+first force-aware world offset: [-0.0012731482, 0.0014418217, ~0.0]
+last force-aware socket force:  [0.1670205146, 0.1812838018, 0.0128824813]
+last force-aware world offset:  [-0.0005010616, 0.0005438514, ~0.0]
+```
+
+Cleanup:
+
+```text
+guarded cleanup re-issued delete by name and by id while Brev reported DELETING.
+brev ls instances --all:       No instances in org NCA-57cf-29515
+brev ls instances --json --all: { "workspaces": null }
+```
+
+Interpretation:
+
+- The force-aware implementation worked mechanically: the trace contains socket-frame force, bounded XY offsets, and contact-retention activation.
+- The hypothesis is rejected: the simple force-derived XY offset did not solve the coupled contact-control problem.
+- At the first active retention step, the rollout still missed strict rotation by about `0.0100 rad`.
+- As rotation improved below the strict threshold, lateral error drifted above `5 mm` and contact force decayed below `0.5`.
+- The closest step was extremely near the strict gate, but still failed both lateral and rotation, so it should not be reported as strict success.
+
+Decision:
+
+- Stop paid GPU runs on scripted contact-retention heuristics.
+- Keep `2026-05-17T19-47-06Z` as the Phase 2 shallow true-contact success milestone.
+- Treat `2026-05-17T23-32-18Z` as the final scripted near-success diagnostic for this branch.
+- Next useful work should be structural, not another threshold tweak:
+  - prepare imitation-learning demonstrations for the true-contact environment, or
+  - train a learned contact policy initialized around the successful shallow-contact controller, or
+  - package the current result honestly for portfolio/CV as shallow true-contact success plus strict-gate failure analysis.
