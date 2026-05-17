@@ -5336,3 +5336,90 @@ Decision:
 - Treat this as a Brev provisioning abort, not a controller result.
 - Do not mark `scripts/run_phase2_preseat_polish_gate.sh` as validated.
 - Given repeated Brev `unexpected EOF -> ghost workspace` behavior, do not keep retrying create loops blindly. The next compute attempt should either use a different provisioning route or start with an explicit support escalation before a longer run.
+
+## Attempt 61: pre-seat live-IK polish gate
+
+Date: 2026-05-17
+
+Command:
+
+```bash
+RCA_GATE_PROFILE=cheap \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-preseat-polish-l4-r2 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_BUILD_STUCK_SECONDS=600 \
+RCA_GATE_DELETE_TIMEOUT_SECONDS=900 \
+RCA_GATE_CREATE_TIMEOUT=600 \
+scripts/run_phase2_preseat_polish_gate.sh
+```
+
+Instance:
+
+- Type: `g2-standard-4:nvidia-l4:1`
+- Live price: `$0.85/hr`
+- Instance id: `m9fieygv3`
+
+Output:
+
+- Gate log: `artifacts/gpu_gate/2026-05-17T16-03-22Z_isaac-phase2-preseat-polish-l4-r2/gate.log`
+- Summary: `artifacts/evaluations/scripted/2026-05-17T16-19-10Z/seed_42.json`
+- Trace: `artifacts/evaluations/scripted/2026-05-17T16-19-10Z/seed_42_trace.json`
+
+Result:
+
+```json
+{
+  "success_step": null,
+  "final_success_rate": 0.0,
+  "final_lateral": 0.0005378754576668143,
+  "final_axial": 0.15058284997940063,
+  "final_rot": 3.1394870281219482,
+  "best_lateral": 0.00010433992429170758,
+  "best_lateral_step": 2142,
+  "best_axial": 0.04934975504875183,
+  "best_axial_step": 1317,
+  "best_rot": 0.06304673850536346,
+  "best_rot_step": 907,
+  "max_contact_force_magnitude": 3.346665382385254,
+  "max_contact_force_magnitude_step": 174
+}
+```
+
+Trace highlights:
+
+```text
+step  phase    lat      ax      rot     polish  jcache  contact  jlim    note
+1230  insert   0.0041   0.0634  0.2838  false   true    0.396    0.0063  near socket, still in joint-cache descent
+1240  insert   0.0076   0.0552  0.3179  false   true    0.402    0.0049  about to enter pre-seat polish
+1250  polish   0.0030   0.0548  0.3859  true    false   0.340    0.0467  live-polish triggered
+1300  polish   0.0036   0.0508  0.7587  true    false   0.106    0.0717  XY good, rotation diverging
+1317  polish   0.0075   0.0493  0.8695  true    false   0.734    0.0916  best axial, no success
+1700  polish   0.0014   0.1248  3.1407  true    false   0.290    -       XY excellent, axial/rotation regressed
+2199  polish   0.0005   0.1506  3.1395  true    false   0.320    -       final state, no success
+```
+
+Interpretation:
+
+- The provisioning path succeeded after `brev refresh`; no `unexpected EOF` occurred.
+- Pre-seat polish did trigger at step `1242`, so the new gate is executable.
+- The change did not produce success. It improved XY dramatically, but it made orientation diverge toward roughly `pi` radians and axial depth regressed after the polish phase.
+- This falsifies the current live-polish design:
+  - holding Z while commanding the full target orientation is not stable in this geometry;
+  - the controller leaves the useful insertion manifold and ends up centered above the socket but flipped/misaligned.
+- The best axial value, `0.0493m`, is worse than Attempt 59's `0.0380m`.
+
+Cleanup verification:
+
+- Artifacts were pulled locally.
+- The instance remained visible in `DELETING` for several delete cycles, then disappeared.
+- Final independent confirmation:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Decision:
+
+- Do not continue tuning pre-seat live-polish in its current form.
+- Revert the control idea conceptually: the useful part of Attempt 59 was insertion descent, not free live orientation polish.
+- The next controller attempt, if any, should either:
+  - keep insertion orientation frozen and only polish XY at current depth, or
+  - stop scripted controller tuning and run a small socket-pose/workspace sweep to find a physically reachable successful configuration.
