@@ -1176,3 +1176,65 @@ Decision rule:
 - Run this gate at most once.
 - Pass condition: `success_step != null` under the strict shallow-contact gate.
 - If it fails with lateral/contact/rotation still trading off, stop scripted-controller work and move to IL or learned contact policy.
+
+## Force-Aware Contact-Retention Gate Attempt 1
+
+Run:
+
+```bash
+RCA_GATE_PROFILE=balanced scripts/run_phase2_force_aware_contact_retention_gate.sh
+```
+
+Selected instance after live price comparison:
+
+```text
+requested name: isaac-phase2-force-aware-contact-retention-l4
+created id:     yrhqvlpai
+type:           g2-standard-4:nvidia-l4:1
+rate:           $0.85/hr
+```
+
+Price rationale:
+
+- cheapest visible 24GB+ candidate: `g2-standard-4:nvidia-l4:1` at `$0.85/hr`
+- cheapest visible 32GB+ candidate: dual T4 at about `$0.90/hr`
+- cheapest visible 40GB+ candidate: L40S at `$1.86/hr+`
+
+Result:
+
+```text
+eval status: not run
+reason:      Brev create returned unexpected EOF before a usable workspace was available
+```
+
+Important Brev behavior:
+
+```text
+The CLI reported create failure, but the backend still produced a visible workspace:
+name:   isaac-phase2-force-aware-contact-retention-l4
+id:     yrhqvlpai
+status: RUNNING, then DELETING
+shell:  NOT READY
+```
+
+Cleanup:
+
+```text
+guarded cleanup re-issued delete by name and by id.
+brev ls instances --all:       No instances in org NCA-57cf-29515
+brev ls instances --json --all: { "workspaces": null }
+```
+
+Artifacts:
+
+- `artifacts/gpu_gate/2026-05-17T22-55-37Z_isaac-phase2-force-aware-contact-retention-l4/gate.log`
+- `artifacts/gpu_gate/2026-05-17T22-55-37Z_isaac-phase2-force-aware-contact-retention-l4/gate_metadata.env`
+- `artifacts/gpu_gate/2026-05-17T22-55-37Z_isaac-phase2-force-aware-contact-retention-l4/brev_search_24gb.txt`
+- `artifacts/gpu_gate/2026-05-17T22-55-37Z_isaac-phase2-force-aware-contact-retention-l4/brev_search_32gb.txt`
+- `artifacts/gpu_gate/2026-05-17T22-55-37Z_isaac-phase2-force-aware-contact-retention-l4/brev_search_40gb.txt`
+
+Decision:
+
+- Do not count this as the one allowed force-aware validation, because the eval never started.
+- Do not immediately retry while Brev is showing intermittent `unexpected EOF` behavior.
+- If the balance moves after cleanup, send this run id, instance id, and gate log to Brev support as another ghost-create case.
