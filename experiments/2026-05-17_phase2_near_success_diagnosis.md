@@ -806,3 +806,97 @@ Fail condition:
 
 - If geometry remains good but contact still stays below `0.5`, the next fix should move from Cartesian preload to force-aware/action-space contact control.
 - If contact is retained but lateral/rotation exits the gate, the preload is too aggressive or the contact-retention exit window is too loose.
+
+## Contact-Retention Gate Result
+
+Run:
+
+```bash
+scripts/run_phase2_contact_retention_gate.sh
+```
+
+Selected instance after live price comparison:
+
+```text
+name: isaac-phase2-contact-retention-l4
+id:   nxe4vsi03
+type: g2-standard-4:nvidia-l4:1
+rate: $0.85/hr
+```
+
+Artifacts:
+
+- `artifacts/gpu_gate/2026-05-17T21-18-12Z_isaac-phase2-contact-retention-l4/gate.log`
+- `artifacts/gpu_gate/2026-05-17T21-18-12Z_isaac-phase2-contact-retention-l4/gate_metadata.env`
+- `artifacts/evaluations/scripted/2026-05-17T21-33-46Z/seed_42.json`
+- `artifacts/evaluations/scripted/2026-05-17T21-33-46Z/seed_42.log`
+- `artifacts/evaluations/scripted/2026-05-17T21-33-46Z/seed_42_trace.json`
+
+Result:
+
+```text
+success_step: None
+final_success_rate: 0.0
+final_lateral: 0.0010658705 m
+final_axial:   0.0628007948 m
+final_rot:     0.2190350294 rad
+best_lateral:  0.0003210883 m @ step 1045
+best_axial:    0.0383484066 m @ step 1430
+best_rot:      0.0494016446 rad @ step 899
+max_contact:   3.6930987835 @ step 1315
+```
+
+Strict gate:
+
+```text
+xy < 0.005
+z < 0.045
+rot < 0.18
+contact >= 0.5
+passing steps: 0
+```
+
+Closest strict-contact step:
+
+```text
+step: 1539
+phase: polish
+lateral: 0.0039 m
+axial:   0.0421 m
+rot:     0.1899 rad
+contact: 0.5728
+```
+
+Contact-retention behavior:
+
+```text
+active steps: 12
+first active: step 1581, phase settle, lateral 0.0018, axial 0.0435, rot 0.1786, contact 0.0033
+last active:  step 1592, phase contact-retention, lateral 0.0080, axial 0.0410, rot 0.1541, contact 0.0313
+```
+
+Cleanup:
+
+```text
+brev ls instances --all:       No instances in org NCA-57cf-29515
+brev ls instances --json --all: { "workspaces": null }
+```
+
+Interpretation:
+
+- The implementation works mechanically: contact-retention latched and the trace records the new phase.
+- The hypothesis was too late. It waited for strict rotation (`rot < 0.18`) and low contact before latching, so the first active step happened after contact had already collapsed from `~0.57-0.69` to `0.0033`.
+- Once contact was lost, a small Cartesian downward preload did not restore it.
+- The useful window is earlier: step `1538` already satisfies `xy<0.005`, `z<0.045`, `rot<0.20`, and `contact>=0.5`.
+
+Next technical direction:
+
+1. Do not rerun the same contact-retention gate.
+2. Try an early-retention gate that latches at `rot<0.20` and ignores contact force for entry, while keeping the strict success gate unchanged.
+3. If early retention still cannot keep contact, move away from scripted Cartesian preload and implement force-aware/action-space contact control.
+
+Prepared script:
+
+```bash
+scripts/run_phase2_early_contact_retention_gate.sh
+```
