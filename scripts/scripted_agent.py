@@ -366,18 +366,37 @@ parser.add_argument(
 )
 parser.add_argument(
     "--insert-descent-mode",
-    choices=("pose-target", "vertical"),
+    choices=("pose-target", "vertical", "joint-cache"),
     default="pose-target",
     help=(
         "Final insertion target strategy. 'pose-target' sends the socket pose as before; 'vertical' commands a "
-        "bounded world-Z descent while keeping XY aimed at the socket."
+        "bounded world-Z descent while keeping XY aimed at the socket; 'joint-cache' seeds one local IK "
+        "joint-space insertion direction at insertion entry and replays it with joint-space bounds."
     ),
 )
 parser.add_argument(
     "--insert-vertical-step",
     type=float,
     default=None,
-    help="World-Z step for --insert-descent-mode vertical. Defaults to insert-pos-step, then abs-pos-step.",
+    help="World-Z step for --insert-descent-mode vertical or joint-cache seeding. Defaults to insert-pos-step, then abs-pos-step.",
+)
+parser.add_argument(
+    "--joint-cache-step",
+    type=float,
+    default=None,
+    help="Maximum absolute per-joint cached insertion delta. Defaults to --joint-ik-step.",
+)
+parser.add_argument(
+    "--joint-cache-step-scale",
+    type=float,
+    default=1.0,
+    help="Scale applied to the seed IK joint delta before replaying the cached insertion direction.",
+)
+parser.add_argument(
+    "--joint-cache-total-limit",
+    type=float,
+    default=0.75,
+    help="Maximum absolute per-joint deviation from the cached insertion-entry joint posture.",
 )
 parser.add_argument(
     "--stop-on-branch-jump",
@@ -742,6 +761,10 @@ def main():
         rotate_command_valid = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         insert_hold_quat_w = torch.zeros((env_unwrapped.num_envs, 4), dtype=torch.float32, device=env_unwrapped.device)
         insert_hold_valid = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
+        insert_joint_cache_valid = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
+        insert_joint_cache_anchor = torch.zeros((env_unwrapped.num_envs, 7), dtype=torch.float32, device=env_unwrapped.device)
+        insert_joint_cache_direction = torch.zeros((env_unwrapped.num_envs, 7), dtype=torch.float32, device=env_unwrapped.device)
+        insert_joint_cache_step_counts = torch.zeros(env_unwrapped.num_envs, dtype=torch.long, device=env_unwrapped.device)
         polish_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         settle_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         branch_jump_step = None
@@ -895,15 +918,20 @@ def main():
             insert_state[insert_abort_mask] = False
             insert_abort_counts[insert_abort_mask] = 0
             insert_hold_valid[insert_abort_mask] = False
+            insert_joint_cache_valid[insert_abort_mask] = False
+            insert_joint_cache_step_counts[insert_abort_mask] = 0
             insert_hold_valid &= insert_state
+            insert_joint_cache_valid &= insert_state
             insert_new_active_mask = insert_new_entry_mask & insert_state
             if insert_new_active_mask.any():
                 insert_hold_quat_w[insert_new_active_mask] = action_quat_w[insert_new_active_mask]
                 insert_hold_valid[insert_new_active_mask] = True
+                insert_joint_cache_valid[insert_new_active_mask] = False
+                insert_joint_cache_step_counts[insert_new_active_mask] = 0
             insert_mask = insert_state
 
             if insert_mask.any():
-                if args_cli.insert_descent_mode == "vertical":
+                if args_cli.insert_descent_mode in ("vertical", "joint-cache"):
                     insert_vertical_step = (
                         args_cli.insert_vertical_step
                         if args_cli.insert_vertical_step is not None
@@ -966,6 +994,10 @@ def main():
             post_joint_pos = None
             post_joint_vel = None
             post_joint_limit_margin = None
+            joint_cache_active_mask = torch.zeros_like(insert_mask)
+            joint_cache_seed_mask = torch.zeros_like(insert_mask)
+            joint_cache_step = args_cli.joint_cache_step if args_cli.joint_cache_step is not None else args_cli.joint_ik_step
+            joint_cache_step = max(0.0, joint_cache_step)
             abs_pos_step_limit = torch.full_like(pos_error, args_cli.abs_pos_step)
             if args_cli.insert_pos_step is not None and insert_mask.any():
                 abs_pos_step_limit[insert_mask] = args_cli.insert_pos_step
@@ -1064,6 +1096,46 @@ def main():
                     args_cli.joint_ik_step,
                     args_cli.joint_limit_margin,
                 )
+                if args_cli.insert_descent_mode == "joint-cache" and insert_mask.any():
+                    joint_cache_active_mask = insert_mask
+                    joint_cache_seed_mask = joint_cache_active_mask & ~insert_joint_cache_valid
+                    if joint_cache_seed_mask.any():
+                        seed_target = _clamp_joint_targets(
+                            robot,
+                            joint_ids,
+                            joint_pos,
+                            joint_pos_des_raw,
+                            args_cli.joint_ik_step,
+                            args_cli.joint_limit_margin,
+                        )
+                        seed_direction = (seed_target - joint_pos) * args_cli.joint_cache_step_scale
+                        seed_direction = torch.clamp(seed_direction, min=-joint_cache_step, max=joint_cache_step)
+                        insert_joint_cache_anchor[joint_cache_seed_mask] = joint_pos[joint_cache_seed_mask]
+                        insert_joint_cache_direction[joint_cache_seed_mask] = seed_direction[joint_cache_seed_mask]
+                        insert_joint_cache_step_counts[joint_cache_seed_mask] = 0
+                        insert_joint_cache_valid[joint_cache_seed_mask] = True
+
+                    joint_cache_valid_mask = joint_cache_active_mask & insert_joint_cache_valid
+                    if joint_cache_valid_mask.any():
+                        cached_joint_pos_des_raw = joint_pos + insert_joint_cache_direction
+                        total_limit = max(0.0, args_cli.joint_cache_total_limit)
+                        cached_joint_pos_des_raw = torch.minimum(
+                            torch.maximum(
+                                cached_joint_pos_des_raw,
+                                insert_joint_cache_anchor - total_limit,
+                            ),
+                            insert_joint_cache_anchor + total_limit,
+                        )
+                        cached_joint_pos_des = _clamp_joint_targets(
+                            robot,
+                            joint_ids,
+                            joint_pos,
+                            cached_joint_pos_des_raw,
+                            args_cli.joint_ik_step,
+                            args_cli.joint_limit_margin,
+                        )
+                        joint_pos_des[joint_cache_valid_mask] = cached_joint_pos_des[joint_cache_valid_mask]
+                        insert_joint_cache_step_counts[joint_cache_valid_mask] += 1
                 actions[:, :7] = joint_pos_des
                 selected_candidate_idxs = None
             elif action_dim == 7:
@@ -1168,7 +1240,11 @@ def main():
                     f"raw_action={actions[0].tolist()} "
                     f"hand_target_pos={hand_target_pos_w[0].tolist() if hand_target_pos_w is not None else None} "
                     f"joint_pos_des_raw={joint_pos_des_raw[0].tolist() if joint_pos_des_raw is not None else None} "
-                    f"joint_pos_des={joint_pos_des[0].tolist() if joint_pos_des is not None else None}",
+                    f"joint_pos_des={joint_pos_des[0].tolist() if joint_pos_des is not None else None} "
+                    f"joint_cache_active={bool(joint_cache_active_mask[0].item())} "
+                    f"joint_cache_valid={bool(insert_joint_cache_valid[0].item())} "
+                    f"joint_cache_direction={insert_joint_cache_direction[0].tolist()} "
+                    f"joint_cache_steps={int(insert_joint_cache_step_counts[0].item())}",
                     flush=True,
                 )
 
@@ -1396,6 +1472,15 @@ def main():
                             if args_cli.insert_pos_step is not None
                             else args_cli.abs_pos_step
                         ),
+                        "joint_cache_active": bool(joint_cache_active_mask[0].item()),
+                        "joint_cache_seed": bool(joint_cache_seed_mask[0].item()),
+                        "joint_cache_valid": bool(insert_joint_cache_valid[0].item()),
+                        "joint_cache_step": joint_cache_step,
+                        "joint_cache_step_scale": args_cli.joint_cache_step_scale,
+                        "joint_cache_total_limit": args_cli.joint_cache_total_limit,
+                        "joint_cache_step_count": int(insert_joint_cache_step_counts[0].item()),
+                        "joint_cache_anchor": insert_joint_cache_anchor[0].detach().cpu().tolist(),
+                        "joint_cache_direction": insert_joint_cache_direction[0].detach().cpu().tolist(),
                         "hold_orientation_during_insert": args_cli.hold_orientation_during_insert,
                         "insert_hold_valid": bool(insert_hold_valid[0].item()),
                         "insert_hold_quat_w": insert_hold_quat_w[0].detach().cpu().tolist(),
@@ -1505,6 +1590,9 @@ def main():
                 if args_cli.insert_pos_step is not None
                 else args_cli.abs_pos_step
             ),
+            "joint_cache_step": args_cli.joint_cache_step if args_cli.joint_cache_step is not None else args_cli.joint_ik_step,
+            "joint_cache_step_scale": args_cli.joint_cache_step_scale,
+            "joint_cache_total_limit": args_cli.joint_cache_total_limit,
             "stop_on_branch_jump": args_cli.stop_on_branch_jump,
             "branch_jump_step": branch_jump_step,
             "branch_jump_reason": branch_jump_reason,

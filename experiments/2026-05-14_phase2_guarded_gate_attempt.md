@@ -4986,3 +4986,72 @@ Cleanup verification:
 - Independent cleanup confirmation:
   - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
   - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+## Prepared next controller: cached joint-space insertion
+
+Date: 2026-05-17
+
+Local change:
+
+- Added `--insert-descent-mode joint-cache` to `scripts/scripted_agent.py`.
+- Added a new guarded wrapper:
+  - `scripts/run_phase2_jointcache_gate.sh`
+- Extended trace summaries with joint-cache columns:
+  - `jcache`
+  - `jcache_seed`
+  - `jcache_steps`
+
+Why:
+
+- Attempts 56 and 57 showed that repeated Cartesian target generation during final insertion is the wrong layer to keep tuning.
+- Attempt 56 got close in axial depth (`best_axial=0.0389m`) but lost orientation/XY stability near contact.
+- Attempt 57 showed that stricter insert entry can satisfy XY and rotation together, but the final Cartesian IK insertion still diverges.
+- The branch-jump forensics did not point to joint-limit saturation as the primary cause.
+
+Controller design:
+
+- Before insertion, behavior is unchanged:
+  - staged XY alignment
+  - stateful orientation waypointing
+  - optional orientation hold during descent
+- At insertion entry, `joint-cache` still uses one local IK solve to seed the insertion direction.
+- After that, final insertion is driven by a cached joint-space delta:
+  - per-step joint delta bounded by `--joint-cache-step`
+  - total deviation from insertion-entry posture bounded by `--joint-cache-total-limit`
+  - final command still passes through `--joint-ik-step` and joint-limit margin clamping
+- The point is to avoid frame-by-frame Cartesian IK target regeneration while the peg is constrained by contact.
+
+Default next gate:
+
+```bash
+RCA_GATE_PROFILE=cheap \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-jointcache-l4 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_BUILD_STUCK_SECONDS=600 \
+RCA_GATE_DELETE_TIMEOUT_SECONDS=900 \
+RCA_GATE_CREATE_TIMEOUT=600 \
+scripts/run_phase2_jointcache_gate.sh
+```
+
+Default controller args:
+
+```text
+--insert-descent-mode joint-cache
+--insert-vertical-step 0.030
+--joint-cache-step 0.035
+--joint-cache-step-scale 1.0
+--joint-cache-total-limit 1.0
+--insert-abort-grace-steps 30
+--insert-abort-xy-tol 0.06
+--insert-abort-rot-tol 0.65
+```
+
+Expected outcome:
+
+- Useful if it avoids the immediate post-insert orientation divergence seen in Attempt 57.
+- Successful if `success_step != null`.
+- Failed but informative if axial still stalls above `0.03m`, because that would suggest the next blocker is task geometry/contact rather than IK branch switching.
+
+Local verification:
+
+- `python3 -m py_compile scripts/scripted_agent.py scripts/summarize_scripted_trace.py` passed.
