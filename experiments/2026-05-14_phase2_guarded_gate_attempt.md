@@ -5521,3 +5521,101 @@ Decision:
   - switch `polish_rotation_mode` back to `target`;
   - reduce `polish_rot_gain` and `polish_rot_clamp` so the final rotation correction is small instead of aggressive;
   - relax `settle_rot_tol` slightly to allow final seating while the small rotation correction continues.
+
+## Attempt 63: late target-orientation polish still branch-jumps
+
+Date: 2026-05-17
+
+Goal:
+
+- Test whether a gentler late target-orientation polish can reduce the final orientation error without the aggressive `pi`-flip seen in Attempt 61.
+- Reuse the late polish entry gate from Attempt 62, but change `polish_rotation_mode=current` to `target`.
+
+Command:
+
+```bash
+RCA_GATE_PROFILE=cheap \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-late-target-polish-l4-r1 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_BUILD_STUCK_SECONDS=600 \
+RCA_GATE_DELETE_TIMEOUT_SECONDS=900 \
+RCA_GATE_CREATE_TIMEOUT=600 \
+scripts/run_phase2_late_target_polish_gate.sh
+```
+
+Instance:
+
+- Type: `g2-standard-4:nvidia-l4:1`
+- Live price: `$0.85/hr`
+- Instance id: `9bysi9v5s`
+
+Output:
+
+- Gate log: `artifacts/gpu_gate/2026-05-17T17-05-38Z_isaac-phase2-late-target-polish-l4-r1/gate.log`
+- Summary: `artifacts/evaluations/scripted/2026-05-17T17-21-50Z/seed_42.json`
+- Trace: `artifacts/evaluations/scripted/2026-05-17T17-21-50Z/seed_42_trace.json`
+
+Result:
+
+```json
+{
+  "success_step": null,
+  "final_success_rate": 0.0,
+  "final_lateral": 0.14271032810211182,
+  "final_axial": 0.2430260181427002,
+  "final_rot": 2.6925857067108154,
+  "best_lateral": 0.0003210882714483887,
+  "best_lateral_step": 1045,
+  "best_axial": 0.03731882572174072,
+  "best_axial_step": 1271,
+  "best_rot": 0.04940164461731911,
+  "best_rot_step": 899,
+  "max_contact_force_magnitude": 20.667659759521484,
+  "max_contact_force_magnitude_step": 1273,
+  "polish_rot_tolerance": 0.24,
+  "polish_rotation_mode": "target",
+  "settle_xy_tolerance": 0.0045,
+  "settle_rot_tolerance": 0.2
+}
+```
+
+Trace highlights:
+
+```text
+step  phase   lat      ax      rot     polish  jcache  contact  jlim    note
+0925  insert  0.0014   0.2512  0.0558  false   true    0.800    0.0054  excellent XY/rot but still high above socket
+1200  insert  0.0102   0.0829  0.2562  false   true    0.346    0.0151  descending but rotation outside success
+1271  insert  0.0097   0.0373  0.2389  false   true    13.044   0.0126  best axial before polish
+1273  polish  0.0074   0.0377  0.2520  true    false   20.668   0.0214  polish begins near contact spike
+1275  polish  0.0020   0.0428  0.2405  true    false   1.433    0.0244  XY succeeds but axial/rot do not
+1300  polish  0.0022   0.0480  0.5685  true    false   0.189    0.0061  target polish starts increasing rotation error
+1317  polish  0.0054   0.0595  0.7541  true    false   0.216    0.0036  branch jump detected
+1450  polish  0.0303   0.2189  1.6959  true    false   1.071    0.0015  axial regresses after branch jump
+1600  polish  0.0080   0.4006  2.2279  true    false   0.013    0.0019  continued orientation divergence
+1799  polish  0.1427   0.2430  2.6926  true    false   0.212    0.1675  final failure
+```
+
+Interpretation:
+
+- The hypothesis failed.
+- Late target-orientation polish still triggers a branch jump once the controller is close to contact.
+- Attempt 62 proved that freezing orientation can hold XY below `1mm`, but cannot finish seating.
+- Attempt 63 proves that target-orientation correction can reduce neither the last orientation error nor seating reliably; instead it destabilizes the arm and causes axial regression.
+- The scripted controller is now at a diminishing-returns point: the remaining failure is not a missing threshold tweak, but a coupling problem between joint-limit margin, contact, orientation correction, and vertical seating.
+
+Cleanup verification:
+
+- Artifacts were pulled locally.
+- The instance stayed visible in `DELETING` for several cleanup cycles. Repeated deletes by name/id were issued until Brev stopped reporting the instance.
+- Final independent confirmation:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Decision:
+
+- Stop burning GPU on the current scripted-controller branch.
+- Do not run another target-polish variant without first changing the problem structure.
+- The next useful work should be local-first:
+  - add a concise Phase 2 status section to README/docs showing that true contact geometry exists but scripted insertion still has zero-success gates;
+  - archive Attempts 59, 62, and 63 as the strongest diagnostic evidence;
+  - either move to a small offline geometry/workspace sweep or start policy-learning/IL on the real contact environment rather than continuing hand-coded polish gates.
