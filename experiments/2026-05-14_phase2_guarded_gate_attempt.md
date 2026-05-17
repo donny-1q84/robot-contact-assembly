@@ -5289,3 +5289,50 @@ Decision rule:
 - If `success_step != null`, stop scripted-controller work and preserve the result.
 - If it reaches polish but still stalls around `axial ~= 0.04m`, stop burning GPU on controller tuning and change the task geometry/workspace or move to policy learning.
 - If it cannot enter polish, revert to a small socket-pose sweep before running more controller attempts.
+
+## Attempt 60: pre-seat live-IK polish gate aborted during Brev create
+
+Date: 2026-05-17
+
+Command:
+
+```bash
+RCA_GATE_PROFILE=cheap \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-preseat-polish-l4 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_BUILD_STUCK_SECONDS=600 \
+RCA_GATE_DELETE_TIMEOUT_SECONDS=900 \
+RCA_GATE_CREATE_TIMEOUT=600 \
+scripts/run_phase2_preseat_polish_gate.sh
+```
+
+Price check:
+
+- The guarded preflight recorded live 24GB/32GB/40GB price tables.
+- The selected instance was `g2-standard-4:nvidia-l4:1` at `$0.85/hr`.
+- Cheaper non-stoppable Shadeform A6000 rows were visible in manual search, but this guarded path intentionally stayed on the previously validated stoppable GCP L4 route to reduce runtime and cleanup risk.
+
+Result:
+
+- No Isaac runtime was reached.
+- No scripted eval ran.
+- No `success_step` was measured.
+- Brev returned `unexpected EOF` during `create`.
+- Despite the create failure, Brev briefly materialized a backend workspace:
+  - Name: `isaac-phase2-preseat-polish-l4`
+  - ID: `iitajrx7m`
+  - State observed by independent query: `STARTING`, then `DELETING`
+
+Cleanup verification:
+
+- The guarded cleanup deleted by name and id.
+- Manual cleanup also deleted by id and name while the workspace remained visible.
+- Final independent confirmation:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Decision:
+
+- Treat this as a Brev provisioning abort, not a controller result.
+- Do not mark `scripts/run_phase2_preseat_polish_gate.sh` as validated.
+- Given repeated Brev `unexpected EOF -> ghost workspace` behavior, do not keep retrying create loops blindly. The next compute attempt should either use a different provisioning route or start with an explicit support escalation before a longer run.
