@@ -690,3 +690,89 @@ Hypothesis:
 - The previous shallow-contact success terminated immediately at `rot=0.1909` because the active success gate was `rot < 0.20`.
 - Reusing the stable `current` orientation-hold controller, tightening only `success_rot_tol` to `0.18`, and extending the horizon to `1900` steps tests whether passive/contact dynamics can remove the last `0.0109 rad` without the target-rotation branch jump.
 - This is intentionally a one-variable validation, not a new gain sweep.
+
+## Passive Strict-Rotation Gate Result
+
+Run:
+
+```bash
+scripts/run_phase2_rotation_strict_passive_contact_gate.sh
+```
+
+Selected instance after live price comparison:
+
+```text
+name: isaac-phase2-rotation-strict-passive-l4
+id:   2hiuugdh2
+type: g2-standard-4:nvidia-l4:1
+rate: $0.85/hr
+```
+
+Artifacts:
+
+- `artifacts/gpu_gate/2026-05-17T20-37-24Z_isaac-phase2-rotation-strict-passive-l4/gate.log`
+- `artifacts/gpu_gate/2026-05-17T20-37-24Z_isaac-phase2-rotation-strict-passive-l4/gate_metadata.env`
+- `artifacts/evaluations/scripted/2026-05-17T20-54-06Z/seed_42.json`
+- `artifacts/evaluations/scripted/2026-05-17T20-54-06Z/seed_42.log`
+- `artifacts/evaluations/scripted/2026-05-17T20-54-06Z/seed_42_trace.json`
+
+Result:
+
+```text
+success_step: None
+final_success_rate: 0.0
+socket_pos_override: [0.22, 0.04, 0.22]
+active_success_xy_tolerance: 0.005
+active_success_z_tolerance: 0.045
+active_success_rot_tolerance: 0.18
+success_min_contact_force: 0.5
+final_lateral: 0.0010634502 m
+final_axial:   0.0627473295 m
+final_rot:     0.2161971629 rad
+best_lateral:  0.0003210883 m @ step 1045
+best_axial:    0.0383484066 m @ step 1430
+best_rot:      0.0494016446 rad @ step 899
+```
+
+Closest strict-contact step:
+
+```text
+step: 1539
+phase: polish
+lateral: 0.0039 m
+axial:   0.0421 m
+rot:     0.1899 rad
+contact: 0.5728
+```
+
+Best geometric strict-rotation step:
+
+```text
+step: 1585
+phase: settle
+lateral: 0.0045 m
+axial:   0.0421 m
+rot:     0.1696 rad
+contact: 0.0401
+```
+
+Cleanup:
+
+```text
+brev ls instances --all:       No instances in org NCA-57cf-29515
+brev ls instances --json --all: { "workspaces": null }
+```
+
+Interpretation:
+
+- Passive continuation avoided branch jumps, unlike the target-rotation run.
+- It did reduce rotation below `0.18 rad`, but only after losing contact force.
+- With contact retained (`contact >= 0.5`), the best step was still `rot=0.1899`, missing by `0.0099 rad`.
+- The remaining issue is therefore not rotation alone. It is contact retention during the settle/polish transition.
+
+Next technical direction:
+
+1. Stop running paid GPU gates around pure rotation tolerance.
+2. Implement a contact-retention settle mode that keeps a small downward/axial preload when `xy/z/rot` are geometrically ready but contact force drops below threshold.
+3. Keep branch-jump prevention from the passive run: no target-rotation polish in contact.
+4. The next GPU run should validate only the new contact-retention settle behavior.
