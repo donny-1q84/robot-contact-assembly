@@ -4750,3 +4750,31 @@ Next diagnostic pass condition:
 - Useful if it identifies whether the step-472 jump coincides with near-zero joint-limit margin, large joint velocity, or contact force spike.
 - If the joint-limit margin is the root cause, move the socket pose or reset posture before another controller experiment.
 - If the joint limits are not implicated, switch to a planned/cached final joint trajectory or lower-level action smoothing.
+
+## Prepared next gate: timeout-safe success attempt
+
+Date: 2026-05-17
+
+Local change:
+
+- Fixed scripted episode horizon calculation in `scripts/scripted_agent.py`.
+- The horizon now includes `warmup_steps + steps + episode_buffer_steps` instead of only `steps + 2`.
+- Added summary fields:
+  - `warmup_steps`
+  - `episode_buffer_steps`
+  - `scripted_required_steps`
+  - `scripted_episode_length_s`
+  - `effective_episode_length_s`
+- Increased `scripts/run_phase2_jointik_gate.sh` default evaluation length from `500` to `800` steps and timeout from `240` to `420` seconds.
+
+Why:
+
+- Attempts 53 and 54 both stopped at step `472` after a 30-step warmup.
+- With the old horizon calculation, the environment could reach timeout/reset around the same point even though the scripted loop requested 500 steps.
+- This means the repeated step-472 "branch jump" may be a timeout/reset artifact rather than an IK branch jump.
+
+Next pass condition:
+
+- Successful if `success_step != null`.
+- Better than Attempt 54 if the rollout passes step `500` without the reset-like branch jump and keeps reducing axial error.
+- Failed but useful if no reset occurs and axial still plateaus, because that would confirm final insertion depth is a real controller/contact problem.

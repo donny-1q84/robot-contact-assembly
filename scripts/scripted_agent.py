@@ -304,6 +304,12 @@ parser.add_argument(
     help="Zero-action settling steps after reset before measuring and applying the scripted controller.",
 )
 parser.add_argument(
+    "--episode-buffer-steps",
+    type=int,
+    default=20,
+    help="Extra environment steps added to the scripted episode horizon after warmup and evaluation steps.",
+)
+parser.add_argument(
     "--deterministic-reset",
     action="store_true",
     default=False,
@@ -605,7 +611,9 @@ def main():
         if args_cli.disable_fabric:
             env_cfg.sim.use_fabric = False
         step_dt = env_cfg.sim.dt * env_cfg.decimation
-        env_cfg.episode_length_s = max(env_cfg.episode_length_s, (args_cli.steps + 2) * step_dt)
+        scripted_required_steps = args_cli.warmup_steps + args_cli.steps + args_cli.episode_buffer_steps
+        scripted_episode_length_s = scripted_required_steps * step_dt
+        env_cfg.episode_length_s = max(env_cfg.episode_length_s, scripted_episode_length_s)
         # Keep a fixed target for the scripted baseline so convergence is measured against one command.
         env_cfg.commands.socket_pose.resampling_time_range = (1.0e6, 1.0e6)
         if args_cli.deterministic_reset:
@@ -1452,6 +1460,11 @@ def main():
             "task": args_cli.task,
             "seed": args_cli.seed,
             "steps_requested": args_cli.steps,
+            "warmup_steps": args_cli.warmup_steps,
+            "episode_buffer_steps": args_cli.episode_buffer_steps,
+            "scripted_required_steps": scripted_required_steps,
+            "scripted_episode_length_s": scripted_episode_length_s,
+            "effective_episode_length_s": env_cfg.episode_length_s,
             "success_step": success_step,
             "initial_lateral": initial_lateral,
             "final_lateral": final_lateral,
