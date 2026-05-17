@@ -680,3 +680,13 @@ Next technical direction:
 2. Keep the successful shallow-contact script as the baseline.
 3. Before the next paid run, change the controller structure so rotation correction happens before axial seating, or change the socket pose / approach pose to recover joint margin.
 4. The next GPU run should only happen after local trace analysis identifies a single concrete controller change, not another broad parameter sweep.
+
+Added follow-up gate:
+
+- `scripts/run_phase2_rotation_strict_passive_contact_gate.sh`
+
+Hypothesis:
+
+- The previous shallow-contact success terminated immediately at `rot=0.1909` because the active success gate was `rot < 0.20`.
+- Reusing the stable `current` orientation-hold controller, tightening only `success_rot_tol` to `0.18`, and extending the horizon to `1900` steps tests whether passive/contact dynamics can remove the last `0.0109 rad` without the target-rotation branch jump.
+- This is intentionally a one-variable validation, not a new gain sweep.
