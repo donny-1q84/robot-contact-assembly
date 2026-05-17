@@ -399,6 +399,14 @@ parser.add_argument(
     help="Maximum absolute per-joint deviation from the cached insertion-entry joint posture.",
 )
 parser.add_argument(
+    "--joint-cache-live-polish",
+    action="store_true",
+    help=(
+        "For joint-cache insertion, switch back to live IK once near-contact polish starts. "
+        "This lets the controller correct XY/orientation drift instead of replaying the same cached descent."
+    ),
+)
+parser.add_argument(
     "--stop-on-branch-jump",
     action="store_true",
     default=False,
@@ -962,6 +970,7 @@ def main():
 
             polish_only = polish_state & ~settle_state
             target_pos_w[polish_only, 2] = action_pos_w[polish_only, 2]
+            target_quat_w[polish_state] = target_action_quat_w[polish_state]
 
             pos_error, axis_angle_error = compute_pose_error(
                 action_pos_w, action_quat_w, target_pos_w, target_quat_w, rot_error_type="axis_angle"
@@ -1098,6 +1107,8 @@ def main():
                 )
                 if args_cli.insert_descent_mode == "joint-cache" and insert_mask.any():
                     joint_cache_active_mask = insert_mask
+                    if args_cli.joint_cache_live_polish:
+                        joint_cache_active_mask &= ~polish_state
                     joint_cache_seed_mask = joint_cache_active_mask & ~insert_joint_cache_valid
                     if joint_cache_seed_mask.any():
                         seed_target = _clamp_joint_targets(
@@ -1478,6 +1489,7 @@ def main():
                         "joint_cache_step": joint_cache_step,
                         "joint_cache_step_scale": args_cli.joint_cache_step_scale,
                         "joint_cache_total_limit": args_cli.joint_cache_total_limit,
+                        "joint_cache_live_polish": args_cli.joint_cache_live_polish,
                         "joint_cache_step_count": int(insert_joint_cache_step_counts[0].item()),
                         "joint_cache_anchor": insert_joint_cache_anchor[0].detach().cpu().tolist(),
                         "joint_cache_direction": insert_joint_cache_direction[0].detach().cpu().tolist(),
@@ -1593,6 +1605,7 @@ def main():
             "joint_cache_step": args_cli.joint_cache_step if args_cli.joint_cache_step is not None else args_cli.joint_ik_step,
             "joint_cache_step_scale": args_cli.joint_cache_step_scale,
             "joint_cache_total_limit": args_cli.joint_cache_total_limit,
+            "joint_cache_live_polish": args_cli.joint_cache_live_polish,
             "stop_on_branch_jump": args_cli.stop_on_branch_jump,
             "branch_jump_step": branch_jump_step,
             "branch_jump_reason": branch_jump_reason,

@@ -5176,3 +5176,116 @@ Decision rule:
 - If `success_step != null`, stop controller work and preserve the result.
 - If axial improves but no success, keep the recovery design and tune only corridor/step values.
 - If axial still stalls far above success, stop scripted controller work and move to policy learning or lower-level operational-space control.
+
+## Attempt 59: cached insertion with drift recovery
+
+Date: 2026-05-17
+
+Command:
+
+```bash
+RCA_GATE_PROFILE=cheap \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-jointcache-recovery-l4 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_BUILD_STUCK_SECONDS=600 \
+RCA_GATE_DELETE_TIMEOUT_SECONDS=900 \
+RCA_GATE_CREATE_TIMEOUT=600 \
+scripts/run_phase2_jointcache_recovery_gate.sh
+```
+
+Instance:
+
+- Type: `g2-standard-4:nvidia-l4:1`
+- Live price: `$0.85/hr`
+- Instance id: `adkcns9fa`
+
+Output:
+
+- Gate log: `artifacts/gpu_gate/2026-05-17T05-54-56Z_isaac-phase2-jointcache-recovery-l4/gate.log`
+- Summary: `artifacts/evaluations/scripted/2026-05-17T06-08-13Z/seed_42.json`
+- Trace: `artifacts/evaluations/scripted/2026-05-17T06-08-13Z/seed_42_trace.json`
+
+Result:
+
+```json
+{
+  "success_step": null,
+  "final_success_rate": 0.0,
+  "final_lateral": 0.012324226088821888,
+  "final_axial": 0.04038706421852112,
+  "final_rot": 0.2508377134799957,
+  "best_lateral": 0.000303548586089164,
+  "best_lateral_step": 1034,
+  "best_axial": 0.03803670406341553,
+  "best_axial_step": 1701,
+  "best_rot": 0.05771917477250099,
+  "best_rot_step": 896,
+  "max_contact_force_magnitude": 13.828883171081543,
+  "max_contact_force_magnitude_step": 1534
+}
+```
+
+Trace highlights:
+
+```text
+step  phase   lat      ax      rot     contact  jlim    note
+1252  insert  0.0047   0.0460  0.2625  0.34     0.0103  XY inside success tolerance, rotation still high
+1325  insert  0.0011   0.0419  0.2519  1.78     0.0000  very good XY, near joint limit
+1432  insert  0.0117   0.0394  0.1796  0.20     0.0000  rotation inside tolerance, XY outside
+1457  insert  0.0153   0.0389  0.1718  0.18     0.0000  best combined near-success window, still too high and off-center
+1534  insert  0.0138   0.0420  0.1742  13.83    0.0002  contact spike while joint limit margin is exhausted
+1701  align   0.0205   0.0380  0.2478  0.65     0.0129  best axial value, no simultaneous success
+```
+
+Interpretation:
+
+- Recovery fixed the Attempt 58 failure mode. The controller no longer branch-jumped immediately after first alignment.
+- Axial error improved from `0.2846m` in Attempt 58 to `0.0380m`, so the next blocker is not the same controller jump.
+- No success occurred because the three success gates were never true at the same step:
+  `lateral < 0.005`, `axial < 0.008`, `rot < 0.18`.
+- The controller repeatedly reached good XY and good rotation separately, but near `axial ~= 0.04m` it hit contact and joint-limit constraints.
+- `polish_state` never triggered because the previous polish threshold required `axial < 0.012m`; the rollout never got below `0.038m`.
+
+Cleanup verification:
+
+- Guarded cleanup deleted the instance, then an extra manual delete by id was issued because Brev briefly reported a nonterminal state.
+- Final independent confirmation:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+## Prepared next controller: pre-seat live-IK polish
+
+Date: 2026-05-17
+
+Local change:
+
+- Added `--joint-cache-live-polish` to `scripts/scripted_agent.py`.
+- Added `scripts/run_phase2_preseat_polish_gate.sh`.
+- Added the new trace column to `scripts/summarize_scripted_trace.py`.
+
+Why:
+
+- Attempt 59 showed that long joint-cache replay can bring the peg to the near-contact region, but it cannot recover alignment once contact and joint limits appear.
+- The next gate keeps joint-cache for the early insertion segment, then switches back to live IK when the pre-seat polish window is reached.
+- The polish window is intentionally earlier than the old setting:
+  - old: `polish-z-tol=0.012`
+  - next: `polish-z-tol=0.055`
+- During polish, the controller holds current Z while correcting socket XY and target orientation. If lateral and rotation both enter success tolerances, it resumes final seating.
+
+Next gate:
+
+```bash
+RCA_GATE_PROFILE=cheap \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-preseat-polish-l4 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_BUILD_STUCK_SECONDS=600 \
+RCA_GATE_DELETE_TIMEOUT_SECONDS=900 \
+RCA_GATE_CREATE_TIMEOUT=600 \
+scripts/run_phase2_preseat_polish_gate.sh
+```
+
+Decision rule:
+
+- If `success_step != null`, stop scripted-controller work and preserve the result.
+- If it reaches polish but still stalls around `axial ~= 0.04m`, stop burning GPU on controller tuning and change the task geometry/workspace or move to policy learning.
+- If it cannot enter polish, revert to a small socket-pose sweep before running more controller attempts.
