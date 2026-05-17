@@ -10,7 +10,7 @@ Robot assembly project built around a narrow Isaac Lab `peg-in-hole` workflow. P
 - Control: relative differential IK
 - Policy: PPO (`rsl_rl`)
 - Execution model: local planning and artifact archive + remote Brev GPU runtime
-- Latest measured results: stable near-insertion alignment under the archived Phase 1 proxy task
+- Latest measured results: Phase 2 contact-shell scripted gates reach near-contact but still have `success=0.000`
 - Current runtime shell: explicit peg geometry, fixed guide-socket contact walls, and physical socket-frame success logic
 
 ## Phase 1 Scope
@@ -239,6 +239,40 @@ The frame bug is fixed. The remaining Phase 2 work is controller/reach/insertion
 
 See [experiments/2026-04-26_phase2_contact_frame_fix.md](experiments/2026-04-26_phase2_contact_frame_fix.md) for the diagnosis, local checks, and next GPU gate.
 
+## Latest Phase 2 Scripted Gate Status
+
+The latest guarded L4 scripted gates were completed on `2026-05-17` against the real contact shell. They did not produce a successful insertion, but they narrowed the blocker to final seating under contact:
+
+- Attempt 59, cached joint-space insertion with drift recovery:
+  - `best_lateral=0.0003`
+  - `best_axial=0.0380`
+  - `best_rot=0.0577`
+  - `success_step=null`
+- Attempt 62, late XY-only polish:
+  - held final lateral error under `1mm`
+  - stalled around `axial=0.042m`
+  - rotation drifted above the success threshold
+  - `success_step=null`
+- Attempt 63, late target-orientation polish:
+  - reached `best_axial=0.0373`
+  - triggered a near-contact branch jump after polish started
+  - regressed to `final_rot=2.6926`
+  - `success_step=null`
+
+Interpretation:
+
+- The contact task, socket-frame metrics, force observations, guarded Brev runtime, artifact pullback, and cleanup checks are all working.
+- The scripted controller can independently reach good XY alignment, good rotation, and near-contact depth, but not all three at the same step.
+- Continuing to tune polish thresholds is now low-value; the remaining failure is the coupling between joint-limit margin, contact, orientation correction, and vertical seating.
+
+Current decision:
+
+- Stop burning GPU on this scripted-controller branch.
+- Preserve Attempts 59, 62, and 63 as diagnostic evidence.
+- Next useful work is local-first: run a small workspace/geometry diagnosis, then either simplify the socket geometry for a first successful contact insertion or move to IL/RL on the contact environment.
+
+See [experiments/2026-05-14_phase2_guarded_gate_attempt.md](experiments/2026-05-14_phase2_guarded_gate_attempt.md) for the full guarded-gate sequence and artifact paths.
+
 ## First Contact Validation
 
 The first useful validation sequence for the new contact shell is:
@@ -413,11 +447,12 @@ For the concise CV-facing summary and interview framing, see [phase1_cv_summary.
 
 ## What comes next
 
-The next meaningful technical step is not another PPO retune on the same proxy shell. It is to replace the current proxy setup with:
+The proxy-to-contact migration is now done. The next meaningful technical step is not another GPU burn on the same hand-coded polish controller. It is to make the first successful real-contact insertion achievable by changing the problem structure:
 
-- explicit peg/socket geometry
-- contact-driven success logic
-- late-stage curriculum or imitation-style polishing on top of that more realistic task
+- run a local workspace and socket-pose diagnosis around the best near-contact traces
+- simplify or relax the guide-socket geometry if the current clearance/contact setup is over-constraining final seating
+- add a short scripted success demo once the geometry is physically reachable
+- then start contact-policy learning or imitation learning on the reachable version
 
 ## Phase-1 reproducibility additions
 
