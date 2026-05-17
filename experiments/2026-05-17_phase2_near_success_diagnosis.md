@@ -900,3 +900,211 @@ Prepared script:
 ```bash
 scripts/run_phase2_early_contact_retention_gate.sh
 ```
+
+## Early Contact-Retention Gate Result
+
+Run:
+
+```bash
+scripts/run_phase2_early_contact_retention_gate.sh
+```
+
+Selected instance after live price comparison:
+
+```text
+name: isaac-phase2-early-contact-retention-l4
+id:   4ryv83025
+type: g2-standard-4:nvidia-l4:1
+rate: $0.85/hr
+```
+
+Artifacts:
+
+- `artifacts/gpu_gate/2026-05-17T21-44-57Z_isaac-phase2-early-contact-retention-l4/gate.log`
+- `artifacts/gpu_gate/2026-05-17T21-44-57Z_isaac-phase2-early-contact-retention-l4/gate_metadata.env`
+- `artifacts/evaluations/scripted/2026-05-17T22-00-19Z/seed_42.json`
+- `artifacts/evaluations/scripted/2026-05-17T22-00-19Z/seed_42.log`
+- `artifacts/evaluations/scripted/2026-05-17T22-00-19Z/seed_42_trace.json`
+
+Result:
+
+```text
+success_step: None
+final_success_rate: 0.0
+final_lateral: 0.0010569229 m
+final_axial:   0.0632584393 m
+final_rot:     0.2212175727 rad
+best_lateral:  0.0003210883 m @ step 1045
+best_axial:    0.0383484066 m @ step 1430
+best_rot:      0.0494016446 rad @ step 899
+```
+
+Strict gate:
+
+```text
+xy < 0.005
+z < 0.045
+rot < 0.18
+contact >= 0.5
+passing steps: 0
+```
+
+Closest strict-contact step:
+
+```text
+step: 1541
+phase: contact-retention
+lateral: 0.0043399124 m
+axial:   0.0412314534 m
+rot:     0.1842063814 rad
+contact: 0.5263139606
+miss:    rotation only, by 0.0042063814 rad
+```
+
+Relaxed shallow-contact window:
+
+```text
+xy < 0.005, z < 0.045, rot < 0.20, contact >= 0.5
+passing steps: 4
+first: step 1538, phase polish, lateral 0.0046655913, axial 0.0418793261, rot 0.1909276992, contact 0.6926814318
+last:  step 1541, phase contact-retention, lateral 0.0043399124, axial 0.0412314534, rot 0.1842063814, contact 0.5263139606
+```
+
+Contact-retention behavior:
+
+```text
+active steps: 10
+first active: step 1539, lateral 0.0042243954, axial 0.0416219234, rot 0.1892352104, contact 0.5600659251
+last active:  step 1548, lateral 0.0081470711, axial 0.0407155454, rot 0.1660207212, contact 0.1900817305
+```
+
+Cleanup:
+
+```text
+brev ls instances --all:       No instances in org NCA-57cf-29515
+brev ls instances --json --all: { "workspaces": null }
+```
+
+Interpretation:
+
+- Early retention was the closest strict run so far: only `0.0042 rad` of rotation separated it from strict success at step `1541`.
+- The run also showed why this branch still fails: after retention activates, rotation improves, but contact and lateral stability degrade a few steps later.
+- This is a controller coupling issue, not a missing success-threshold override. The scripted controller cannot simultaneously preserve contact, lateral alignment, and final rotation through the retention transition.
+
+Prepared follow-up:
+
+```bash
+scripts/run_phase2_xy_hold_contact_retention_gate.sh
+```
+
+Hypothesis:
+
+- The early-retention run lost lateral alignment during the retention phase.
+- Holding XY at the contact-entry anchor might keep the peg centered while retention improves rotation.
+- The strict success gate remains unchanged.
+
+## XY-Hold Contact-Retention Gate Result
+
+Run:
+
+```bash
+scripts/run_phase2_xy_hold_contact_retention_gate.sh
+```
+
+Selected instance after live price comparison:
+
+```text
+name: isaac-phase2-xy-hold-contact-retention-l4
+id:   ucxkmxspw
+type: g2-standard-4:nvidia-l4:1
+rate: $0.85/hr
+```
+
+Price rationale:
+
+- cheapest visible 24GB+ candidate: `g2-standard-4:nvidia-l4:1` at `$0.85/hr`
+- cheapest visible 32GB+ candidate: dual T4 at about `$0.90/hr`
+- cheapest visible 40GB+ candidate: L40S at `$1.86/hr+`
+
+Artifacts:
+
+- `artifacts/gpu_gate/2026-05-17T22-14-21Z_isaac-phase2-xy-hold-contact-retention-l4/gate.log`
+- `artifacts/gpu_gate/2026-05-17T22-14-21Z_isaac-phase2-xy-hold-contact-retention-l4/gate_metadata.env`
+- `artifacts/evaluations/scripted/2026-05-17T22-30-33Z/seed_42.json`
+- `artifacts/evaluations/scripted/2026-05-17T22-30-33Z/seed_42.log`
+- `artifacts/evaluations/scripted/2026-05-17T22-30-33Z/seed_42_trace.json`
+
+Result:
+
+```text
+success_step: None
+final_success_rate: 0.0
+final_lateral: 0.0010449889 m
+final_axial:   0.0633893311 m
+final_rot:     0.2204059660 rad
+best_lateral:  0.0003210883 m @ step 1045
+best_axial:    0.0383484066 m @ step 1430
+best_rot:      0.0494016446 rad @ step 899
+```
+
+Strict gate:
+
+```text
+xy < 0.005
+z < 0.045
+rot < 0.18
+contact >= 0.5
+passing steps: 0
+```
+
+Closest strict-contact step:
+
+```text
+step: 1543
+phase: contact-retention
+lateral: 0.0060701752 m
+axial:   0.0402641296 m
+rot:     0.1787213236 rad
+contact: 1.7956478596
+miss:    lateral only, by 0.0010701752 m
+```
+
+Relaxed shallow-contact window:
+
+```text
+xy < 0.005, z < 0.045, rot < 0.20, contact >= 0.5
+passing steps: 1
+step 1538: lateral 0.0046655913, axial 0.0418793261, rot 0.1909276992, contact 0.6926814318
+```
+
+Contact-retention behavior:
+
+```text
+active steps: 11
+first active: step 1539, lateral 0.0046853521, axial 0.0414703488, rot 0.1887449771, contact 0.1555328667
+last active:  step 1549, lateral 0.0082911188, axial 0.0408283472, rot 0.1638978571, contact 1.8244687319
+xy anchor:    [0.2237199247, 0.0371839926, 0.2618793249]
+```
+
+Cleanup:
+
+```text
+brev ls instances --all:       No instances in org NCA-57cf-29515
+brev ls instances --json --all: { "workspaces": null }
+```
+
+Interpretation:
+
+- The XY-hold implementation worked mechanically and the run confirmed the trace fields.
+- The hypothesis is rejected: holding XY at the contact-entry anchor did not center the peg. It preserved an off-center contact pose and the closest strict step missed only the lateral gate by about `1.07 mm`.
+- Compared with early retention, XY-hold improved strict rotation and contact at the closest step, but made lateral alignment worse.
+- Continuing to add scripted retention heuristics is now low-value. The remaining failure is a coupled contact-control problem: the controller needs to regulate contact force and lateral centering together, not latch a fixed Cartesian XY target.
+
+Decision:
+
+- Keep the shallow true-contact success as the Phase 2 milestone.
+- Stop paid runs on the current scripted-retention branch.
+- Next useful work should be local-first and structural:
+  - implement a force-aware/contact-aware final insertion controller, or
+  - prepare imitation-learning demonstrations for the true-contact environment, or
+  - present the current milestone honestly as shallow true-contact success plus failed strict-gate diagnosis.
