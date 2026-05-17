@@ -538,6 +538,12 @@ parser.add_argument(
     help="World-Z preload target below the current action-frame position while contact-retention is active.",
 )
 parser.add_argument(
+    "--settle-contact-hold-xy",
+    action="store_true",
+    default=False,
+    help="Hold the action-frame XY position captured on retention entry while applying contact preload.",
+)
+parser.add_argument(
     "--settle-contact-xy-tol",
     type=float,
     default=None,
@@ -875,6 +881,9 @@ def main():
         insert_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         aligned_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
         contact_retention_state = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
+        contact_retention_anchor_pos_w = torch.zeros(
+            (env_unwrapped.num_envs, 3), dtype=torch.float32, device=env_unwrapped.device
+        )
         insert_abort_counts = torch.zeros(env_unwrapped.num_envs, dtype=torch.long, device=env_unwrapped.device)
         rotate_hold_pos_w = torch.zeros((env_unwrapped.num_envs, 3), dtype=torch.float32, device=env_unwrapped.device)
         rotate_hold_valid = torch.zeros(env_unwrapped.num_envs, dtype=torch.bool, device=env_unwrapped.device)
@@ -1114,6 +1123,9 @@ def main():
                     contact_retention_ready &= pre_contact_force_magnitude.squeeze(-1) < retention_min_force
                 elif retention_min_force > 0.0:
                     contact_retention_ready &= torch.zeros_like(contact_retention_ready)
+                contact_retention_entry = contact_retention_ready & ~contact_retention_state
+                if args_cli.settle_contact_hold_xy and contact_retention_entry.any():
+                    contact_retention_anchor_pos_w[contact_retention_entry] = action_pos_w[contact_retention_entry]
                 contact_retention_state |= contact_retention_ready
                 contact_retention_exit = (
                     (lateral_error > args_cli.settle_contact_exit_xy_tol)
@@ -1139,6 +1151,10 @@ def main():
                 else:
                     target_quat_w[polish_state] = target_action_quat_w[polish_state]
             if contact_retention_state.any():
+                if args_cli.settle_contact_hold_xy:
+                    target_pos_w[contact_retention_state, :2] = contact_retention_anchor_pos_w[
+                        contact_retention_state, :2
+                    ]
                 preload_step = max(0.0, args_cli.settle_contact_preload_step)
                 if preload_step > 0.0:
                     preload_z = action_pos_w[:, 2] - preload_step
@@ -1677,6 +1693,12 @@ def main():
                         "settle_rot_tolerance": args_cli.settle_rot_tol,
                         "settle_contact_retention": args_cli.settle_contact_retention,
                         "settle_contact_retention_state": bool(contact_retention_state[0].item()),
+                        "settle_contact_hold_xy": args_cli.settle_contact_hold_xy,
+                        "settle_contact_anchor_pos_w": (
+                            contact_retention_anchor_pos_w[0].detach().cpu().tolist()
+                            if args_cli.settle_contact_hold_xy
+                            else None
+                        ),
                         "settle_contact_preload_step": args_cli.settle_contact_preload_step,
                         "settle_contact_min_force": (
                             success_min_contact_force
@@ -1821,6 +1843,7 @@ def main():
             "settle_xy_tolerance": args_cli.settle_xy_tol,
             "settle_rot_tolerance": args_cli.settle_rot_tol,
             "settle_contact_retention": args_cli.settle_contact_retention,
+            "settle_contact_hold_xy": args_cli.settle_contact_hold_xy,
             "settle_contact_preload_step": args_cli.settle_contact_preload_step,
             "settle_contact_min_force": (
                 success_min_contact_force
