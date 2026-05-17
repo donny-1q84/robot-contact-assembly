@@ -599,3 +599,84 @@ polish_rot_clamp: 0.012
 
 This is a single-hypothesis run: mild target-orientation polish should remove the final
 rotation residual without reopening a broad parameter sweep.
+
+## Rotation Tightening Gate Result
+
+Run:
+
+```bash
+scripts/run_phase2_rotation_tight_contact_gate.sh
+```
+
+Selected instance after live price comparison:
+
+```text
+name: isaac-phase2-rotation-tight-contact-l4
+id:   x544blsp0
+type: g2-standard-4:nvidia-l4:1
+rate: $0.85/hr
+```
+
+Artifacts:
+
+- `artifacts/gpu_gate/2026-05-17T20-02-23Z_isaac-phase2-rotation-tight-contact-l4/gate.log`
+- `artifacts/gpu_gate/2026-05-17T20-02-23Z_isaac-phase2-rotation-tight-contact-l4/gate_metadata.env`
+- `artifacts/evaluations/scripted/2026-05-17T20-18-33Z/seed_42.json`
+- `artifacts/evaluations/scripted/2026-05-17T20-18-33Z/seed_42.log`
+- `artifacts/evaluations/scripted/2026-05-17T20-18-33Z/seed_42_trace.json`
+
+Result:
+
+```text
+success_step: None
+final_success_rate: 0.0
+socket_pos_override: [0.22, 0.04, 0.22]
+active_success_xy_tolerance: 0.005
+active_success_z_tolerance: 0.045
+active_success_rot_tolerance: 0.18
+success_min_contact_force: 0.5
+final_lateral: 0.0039495630 m
+final_axial:   0.3297291100 m
+final_rot:     2.1501812935 rad
+best_lateral:  0.0003210883 m @ step 1045
+best_axial:    0.0390089452 m @ step 1416
+best_rot:      0.0494016446 rad @ step 899
+```
+
+Closest strict-rotation shallow-contact step:
+
+```text
+step: 1251
+phase: insert
+lateral: 0.0050 m
+axial:   0.0421 m
+rot:     0.2597 rad
+contact: 2.1943
+```
+
+Failure mode:
+
+- The run reached shallow axial depth and maintained real contact, but the best near-seat orientation was worse than the previous `current`-rotation shallow success.
+- `--polish-rotation-mode target` did not remove the last residual; it drove the controller into a joint-limit-constrained near-contact region.
+- A branch jump started at step `1468` with lateral `0.0053 m`, axial `0.0614 m`, rotation `0.7587 rad`, contact `0.2171`, and joint margin `0.0033 rad`.
+- After the branch jump, the controller backed out axially and rotation diverged, so this configuration is a dead end for tightening the success gate.
+
+Cleanup:
+
+```text
+brev ls instances --all:       No instances in org NCA-57cf-29515
+brev ls instances --json --all: { "workspaces": null }
+```
+
+Interpretation:
+
+- The previous shallow true-contact milestone remains valid.
+- Rotation-tightening by simply switching near-contact polish from `current` orientation hold to `target` orientation correction is rejected.
+- The bottleneck is not a missing threshold tweak; the controller is operating at very low joint margin near the socket, so extra rotation correction can trigger branch jumps.
+
+Next technical direction:
+
+1. Do not keep sweeping `polish_rot_gain` / `polish_rot_clamp` around this same target-rotation setup.
+2. Keep the successful shallow-contact script as the baseline.
+3. Before the next paid run, change the controller structure so rotation correction happens before axial seating, or change the socket pose / approach pose to recover joint margin.
+4. The next GPU run should only happen after local trace analysis identifies a single concrete controller change, not another broad parameter sweep.
