@@ -10,7 +10,7 @@ Robot assembly project built around a narrow Isaac Lab `peg-in-hole` workflow. P
 - Control: relative differential IK
 - Policy: PPO (`rsl_rl`)
 - Execution model: local planning and artifact archive + remote Brev GPU runtime
-- Latest measured results: Phase 2 contact-shell scripted gates reach near-contact but still have `success=0.000`
+- Latest measured results: Phase 2 now has one shallow true-contact scripted success; strict contact-retention gates remain near-miss failures
 - Current runtime shell: explicit peg geometry, fixed guide-socket contact walls, and physical socket-frame success logic
 
 ## Phase 1 Scope
@@ -28,7 +28,7 @@ Those limitations are important context for every Phase 1 metric in this repo. T
 - Custom Isaac Lab external task package that started as a proxy insertion task and now includes a contact-guided peg/socket shell
 - Reproducible remote experiment workflow on Brev for training, evaluation, checkpoint sweep, and artifact pullback
 - Structured failure analysis across multiple reward and curriculum variants instead of one-off PPO runs
-- CV-ready Phase 1 summary with concrete best-run metrics and next-step technical direction
+- CV-ready Phase 1 and Phase 2 summaries with concrete metrics, limitations, and next-step technical direction
 
 ## Best results so far
 
@@ -52,6 +52,33 @@ Interpretation:
 - under the proxy task design, late-stage reward retuning showed diminishing returns
 
 See [experiments/2026-04-05_phase1_rl_baseline.md](experiments/2026-04-05_phase1_rl_baseline.md) for the full run history and [docs/phase1_cv_summary.md](docs/phase1_cv_summary.md) for the concise CV/interview framing.
+
+The strongest Phase 2 scripted contact result so far is the shallow true-contact milestone:
+
+- Run `2026-05-17T19-47-06Z`
+  - `success_step=1538`
+  - `lateral=0.0047`
+  - `axial=0.0419`
+  - `rot=0.1909`
+  - `contact=0.6927`
+
+This is a real peg/socket contact-shell success under a deliberately shallow gate:
+
+- `xy < 0.005 m`
+- `z < 0.045 m`
+- `rot < 0.20 rad`
+- `contact >= 0.5`
+
+The strict scripted gate still has no success. The closest force-aware retention run reached:
+
+- Run `2026-05-17T23-32-18Z`
+  - `step=1543`
+  - `lateral=0.0052`
+  - `axial=0.0413`
+  - `rot=0.1812`
+  - `contact=0.5298`
+
+It missed the strict gate by about `0.20 mm` lateral error and `0.0012 rad` rotation error. See [experiments/2026-05-17_phase2_near_success_diagnosis.md](experiments/2026-05-17_phase2_near_success_diagnosis.md) and [docs/phase2_cv_summary.md](docs/phase2_cv_summary.md).
 
 ## V1 scope
 
@@ -111,13 +138,13 @@ For the next Phase 2 contact-shell gate, use `scripts/run_guarded_phase2_gate.sh
 
 ## Current milestone
 
-Phase 1 is to finish the `peg-in-hole` baseline contract:
+Phase 1 is closed. The current milestone is Phase 2 contact-shell validation:
 
-1. Freeze task spec
-2. Freeze observation and action interfaces
-3. Add scripted baseline
-4. Add RL environment shell
-5. Add evaluation and artifact export flow
+1. Keep the physical peg/socket/contact task reproducible.
+2. Preserve the shallow true-contact success as the first demonstrable result.
+3. Stop adding scripted retention heuristics after the force-aware near miss.
+4. Move the next technical step to imitation learning or a learned contact policy.
+5. Keep all reported metrics explicit about whether they use the shallow gate or strict gate.
 
 ## Current Runtime Scaffold
 
@@ -241,37 +268,37 @@ See [experiments/2026-04-26_phase2_contact_frame_fix.md](experiments/2026-04-26_
 
 ## Latest Phase 2 Scripted Gate Status
 
-The latest guarded L4 scripted gates were completed on `2026-05-17` against the real contact shell. They did not produce a successful insertion, but they narrowed the blocker to final seating under contact:
+The latest guarded L4 scripted gates were completed on `2026-05-17` against the real contact shell. They produced one shallow true-contact success and several strict-gate near misses:
 
-- Attempt 59, cached joint-space insertion with drift recovery:
-  - `best_lateral=0.0003`
-  - `best_axial=0.0380`
-  - `best_rot=0.0577`
-  - `success_step=null`
-- Attempt 62, late XY-only polish:
-  - held final lateral error under `1mm`
-  - stalled around `axial=0.042m`
-  - rotation drifted above the success threshold
-  - `success_step=null`
-- Attempt 63, late target-orientation polish:
-  - reached `best_axial=0.0373`
-  - triggered a near-contact branch jump after polish started
-  - regressed to `final_rot=2.6926`
-  - `success_step=null`
+- Shallow contact success:
+  - run `2026-05-17T19-47-06Z`
+  - `success_step=1538`
+  - gate: `xy<5mm`, `z<45mm`, `rot<0.20rad`, `contact>=0.5`
+- Early contact-retention strict gate:
+  - closest step missed strict rotation by `0.0042 rad`
+  - lateral, axial, and contact were inside gate at that step
+- XY-hold contact-retention strict gate:
+  - closest step passed axial, rotation, and contact
+  - missed lateral by about `1.07 mm`
+- Force-aware contact-retention strict gate:
+  - closest step passed axial and contact
+  - missed lateral by about `0.20 mm` and rotation by `0.0012 rad`
 
 Interpretation:
 
-- The contact task, socket-frame metrics, force observations, guarded Brev runtime, artifact pullback, and cleanup checks are all working.
-- The scripted controller can independently reach good XY alignment, good rotation, and near-contact depth, but not all three at the same step.
-- Continuing to tune polish thresholds is now low-value; the remaining failure is the coupling between joint-limit margin, contact, orientation correction, and vertical seating.
+- The contact task, socket-frame metrics, force observations, guarded Brev runtime, artifact pullback, and cleanup checks are working.
+- The scripted controller can reach a physically contacting near-seat state reproducibly.
+- Strict success is still not achieved because lateral centering, contact retention, and final rotation trade off during the last contact-retention phase.
+- Continuing to add scripted retention heuristics is now low-value; the next useful step is a learned contact policy or imitation-learning dataset on the validated contact shell.
 
 Current decision:
 
-- Stop burning GPU on this scripted-controller branch.
-- Preserve Attempts 59, 62, and 63 as diagnostic evidence.
-- Next useful work is local-first: run a small workspace/geometry diagnosis, then either simplify the socket geometry for a first successful contact insertion or move to IL/RL on the contact environment.
+- Stop paid GPU runs on the scripted-controller branch.
+- Preserve the shallow success as the Phase 2 demonstration milestone.
+- Preserve the strict-gate failures as diagnosis evidence.
+- Move the next implementation step to local-first IL/RL preparation, not another one-off heuristic.
 
-See [experiments/2026-05-14_phase2_guarded_gate_attempt.md](experiments/2026-05-14_phase2_guarded_gate_attempt.md) for the full guarded-gate sequence and artifact paths. See [experiments/2026-05-17_phase2_near_success_diagnosis.md](experiments/2026-05-17_phase2_near_success_diagnosis.md) for the offline trace diagnosis that motivates the next socket-pose / geometry change.
+See [experiments/2026-05-14_phase2_guarded_gate_attempt.md](experiments/2026-05-14_phase2_guarded_gate_attempt.md) for the guarded-gate sequence and artifact paths. See [experiments/2026-05-17_phase2_near_success_diagnosis.md](experiments/2026-05-17_phase2_near_success_diagnosis.md) for the final scripted near-success diagnosis.
 
 ## First Contact Validation
 
@@ -451,12 +478,15 @@ For the concise CV-facing summary and interview framing, see [phase1_cv_summary.
 
 ## What comes next
 
-The proxy-to-contact migration is now done. The next meaningful technical step is not another GPU burn on the same hand-coded polish controller. It is to make the first successful real-contact insertion achievable by changing the problem structure:
+The proxy-to-contact migration is done, and the first shallow true-contact success is recorded. The next meaningful technical step is not another GPU burn on the same hand-coded polish controller.
 
-- run a local workspace and socket-pose diagnosis around the best near-contact traces
-- simplify or relax the guide-socket geometry if the current clearance/contact setup is over-constraining final seating
-- add a short scripted success demo once the geometry is physically reachable
-- then start contact-policy learning or imitation learning on the reachable version
+The recommended next phase is:
+
+- generate a small demonstration dataset around the validated contact shell
+- train a learned final-contact policy or imitation policy for the last `5-6 cm`
+- use the shallow scripted success as a reset/initialization curriculum
+- evaluate against both the shallow gate and the strict gate
+- only reopen paid GPU runs when the next experiment has a single measurable pass/fail condition
 
 ## Phase-1 reproducibility additions
 
