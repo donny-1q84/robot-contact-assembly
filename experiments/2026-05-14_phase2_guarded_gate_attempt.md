@@ -5055,3 +5055,124 @@ Expected outcome:
 Local verification:
 
 - `python3 -m py_compile scripts/scripted_agent.py scripts/summarize_scripted_trace.py` passed.
+
+## Attempt 58: cached joint-space insertion
+
+Date: 2026-05-17
+
+Command:
+
+```bash
+RCA_GATE_PROFILE=cheap \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-jointcache-l4-r2 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_BUILD_STUCK_SECONDS=600 \
+RCA_GATE_DELETE_TIMEOUT_SECONDS=900 \
+RCA_GATE_CREATE_TIMEOUT=600 \
+scripts/run_phase2_jointcache_gate.sh
+```
+
+Instance:
+
+- Type: `g2-standard-4:nvidia-l4:1`
+- Live price: `$0.85/hr`
+- Instance id: `yaw5b4ha3`
+
+Output:
+
+- Gate log: `artifacts/gpu_gate/2026-05-17T05-30-22Z_isaac-phase2-jointcache-l4-r2/gate.log`
+- Summary: `artifacts/evaluations/scripted/2026-05-17T05-43-13Z/seed_42.json`
+- Trace: `artifacts/evaluations/scripted/2026-05-17T05-43-13Z/seed_42_trace.json`
+
+Result:
+
+```json
+{
+  "success_step": null,
+  "final_success_rate": 0.0,
+  "final_lateral": 0.05056338012218475,
+  "final_axial": 0.28460294008255005,
+  "final_rot": 0.19571426510810852,
+  "best_lateral": 0.0013305959291756153,
+  "best_lateral_step": 424,
+  "best_axial": 0.28460294008255005,
+  "best_axial_step": 459,
+  "best_rot": 0.19571426510810852,
+  "best_rot_step": 459,
+  "branch_jump_step": 459
+}
+```
+
+Trace highlights:
+
+```text
+step  phase    lat      ax      rot     jcache  jcache_steps  contact  jlim    note
+416   insert   0.0131   0.3575  0.2416  1       1             0.8824   0.1406  joint-cache seeded
+422   insert   0.0037   0.3473  0.2439  1       7             0.8648   0.1165  success XY reached
+424   insert   0.0013   0.3439  0.2445  1       9             0.8617   0.1084  best lateral
+440   insert   0.0234   0.3158  0.2483  1       25            0.8329   0.0440  cached joint direction drifting laterally
+459   insert   0.0506   0.2846  0.1957  1       44            0.9990   0.0209  branch jump, stopped
+```
+
+Interpretation:
+
+- The cache worked mechanically: `joint_cache_active=True` from insertion entry onward.
+- It did not solve the task because the cached joint delta included a lateral component.
+- The first few insertion steps improved XY, but replaying the same joint direction carried the tip past the socket center.
+- After step 424, lateral error grew from `1.3mm` to `50.6mm` while axial improved only to `0.2846m`.
+- This falsifies "one cached joint direction can be replayed through the full insertion" for the current posture.
+
+Cleanup verification:
+
+- Guarded cleanup needed repeated delete retries while Brev reported `DELETING`, `STOPPING`, then briefly `DEPLOYING`.
+- Final independent confirmation:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+## Prepared next controller: cached insertion with drift recovery
+
+Date: 2026-05-17
+
+Local change:
+
+- Added `scripts/run_phase2_jointcache_recovery_gate.sh`.
+
+Why:
+
+- Attempt 58 showed the useful part of joint-cache is early stable insertion, not long open-loop replay.
+- The next gate uses short cached insertion segments and recovers when lateral drift exceeds a tight corridor.
+
+Controller changes relative to Attempt 58:
+
+- Lower per-step joint command:
+  - `--joint-ik-step 0.035`
+  - `--joint-cache-step 0.020`
+  - `--joint-cache-step-scale 0.55`
+- Allow deeper motion before joint-limit clamping:
+  - `--joint-limit-margin 0.005`
+- Reduce vertical insertion step:
+  - `--insert-vertical-step 0.020`
+- Abort/re-align quickly when insertion drifts laterally:
+  - `--insert-abort-xy-tol 0.012`
+  - `--insert-abort-grace-steps 2`
+- Do not stop immediately on the first branch-jump diagnostic:
+  - no `--stop-on-branch-jump`
+  - `--branch-jump-xy-tol 0.08`
+
+Next gate:
+
+```bash
+RCA_GATE_PROFILE=cheap \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-jointcache-recovery-l4 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_BUILD_STUCK_SECONDS=600 \
+RCA_GATE_DELETE_TIMEOUT_SECONDS=900 \
+RCA_GATE_CREATE_TIMEOUT=600 \
+scripts/run_phase2_jointcache_recovery_gate.sh
+```
+
+Decision rule:
+
+- If `success_step != null`, stop controller work and preserve the result.
+- If axial improves but no success, keep the recovery design and tune only corridor/step values.
+- If axial still stalls far above success, stop scripted controller work and move to policy learning or lower-level operational-space control.
