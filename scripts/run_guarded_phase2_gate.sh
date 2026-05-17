@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  echo "Do not source this script; execute it as a command." >&2
+  return 2
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
@@ -105,7 +110,7 @@ run_brev_search() {
 }
 
 org_is_empty() {
-  local json json_status all all_status
+  local json json_status json_parse_status json_state all all_status all_state
   set +e
   json="$(run_brev_json_all 2>/dev/null)"
   json_status=$?
@@ -113,12 +118,9 @@ org_is_empty() {
   all_status=$?
   set -e
 
-  if [[ "${json_status}" -ne 0 ]]; then
-    log "Brev JSON instance query failed; treating org as not empty"
-    return 1
-  fi
-
-  if ! BREV_INSTANCES_JSON="${json}" python3 - <<'PY'
+  json_state="invalid"
+  set +e
+  BREV_INSTANCES_JSON="${json}" python3 - <<'PY'
 import json
 import os
 import sys
@@ -127,29 +129,67 @@ raw = os.environ.get("BREV_INSTANCES_JSON", "").strip()
 try:
     data = json.loads(raw) if raw else None
 except json.JSONDecodeError:
-    sys.exit(1)
+    sys.exit(20)
 
 if data in (None, []):
     sys.exit(0)
 if isinstance(data, dict) and not data.get("workspaces"):
     sys.exit(0)
-sys.exit(1)
+sys.exit(10)
 PY
-  then
-    log "Brev JSON instance query is not empty; treating org as not empty"
+  json_parse_status=$?
+  set -e
+  case "${json_parse_status}" in
+    0) json_state="empty" ;;
+    10) json_state="nonempty" ;;
+    *) json_state="invalid" ;;
+  esac
+
+  all_state="invalid"
+  if [[ "${all_status}" -eq 0 ]]; then
+    if [[ "${all}" == *"No instances in org"* ]]; then
+      all_state="empty"
+    else
+      all_state="nonempty"
+    fi
+  fi
+
+  if [[ "${json_state}" == "nonempty" || "${all_state}" == "nonempty" ]]; then
+    log "Brev instance query is not empty; treating org as not empty"
     return 1
   fi
 
+  if [[ "${json_state}" == "empty" || "${all_state}" == "empty" ]]; then
+    return 0
+  fi
+
+  if [[ "${json_status}" -ne 0 ]]; then
+    log "Brev JSON instance query failed and plain query did not prove emptiness; treating org as not empty"
+  else
+    log "Brev instance query did not prove emptiness; treating org as not empty"
+  fi
   if [[ "${all_status}" -ne 0 ]]; then
-    log "Brev plain instance query failed; treating org as not empty"
-    return 1
+    log "Brev plain instance query also failed"
   fi
-  if [[ "${all}" != *"No instances in org"* ]]; then
-    log "Brev plain instance query is not empty; treating org as not empty"
-    return 1
-  fi
+  return 1
+}
 
-  return 0
+org_has_target_instance() {
+  local output
+  output="$(run_brev_ls_all || true)"
+  printf '%s\n' "${output}" | awk -v name="${INSTANCE_NAME}" '$1 == name { found = 1 } END { exit found ? 0 : 1 }'
+}
+
+refuse_if_instance_would_conflict() {
+  if org_is_empty; then
+    return 0
+  fi
+  if org_has_target_instance; then
+    log "target instance ${INSTANCE_NAME} already exists; refusing to create another"
+    return 1
+  fi
+  log "org has a non-target instance; refusing to create a new instance"
+  return 1
 }
 
 target_instance_ids() {
@@ -346,7 +386,7 @@ main() {
 
   log "preflight: current Brev instances"
   run_brev_ls_all || true
-  if ! org_is_empty; then
+  if ! refuse_if_instance_would_conflict; then
     echo "[guarded-gate] refusing to create a new instance because the org is not empty" >&2
     run_brev_json_all || true
     return 2
