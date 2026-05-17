@@ -5423,3 +5423,101 @@ Decision:
 - The next controller attempt, if any, should either:
   - keep insertion orientation frozen and only polish XY at current depth, or
   - stop scripted controller tuning and run a small socket-pose/workspace sweep to find a physically reachable successful configuration.
+
+## Attempt 62: late XY-only polish gate
+
+Date: 2026-05-17
+
+Code change:
+
+- Added `--polish-rot-tol` to require the orientation error to be inside a configurable gate before entering polish.
+- Added `--polish-rotation-mode` with `target`, `current`, and `insert-hold` options.
+- Added `scripts/run_phase2_late_xy_polish_gate.sh`.
+- The new gate uses `--polish-rotation-mode current`, so polish fixes XY at current depth without chasing the socket target orientation.
+
+Command:
+
+```bash
+RCA_GATE_PROFILE=cheap \
+RCA_GATE_INSTANCE_NAME=isaac-phase2-late-xy-polish-l4-r1 \
+RCA_GATE_READY_TIMEOUT_SECONDS=900 \
+RCA_GATE_BUILD_STUCK_SECONDS=600 \
+RCA_GATE_DELETE_TIMEOUT_SECONDS=900 \
+RCA_GATE_CREATE_TIMEOUT=600 \
+scripts/run_phase2_late_xy_polish_gate.sh
+```
+
+Instance:
+
+- Type: `g2-standard-4:nvidia-l4:1`
+- Live price: `$0.85/hr`
+- Instance id: `f23z1l451`
+
+Output:
+
+- Gate log: `artifacts/gpu_gate/2026-05-17T16-35-14Z_isaac-phase2-late-xy-polish-l4-r1/gate.log`
+- Summary: `artifacts/evaluations/scripted/2026-05-17T16-51-25Z/seed_42.json`
+- Trace: `artifacts/evaluations/scripted/2026-05-17T16-51-25Z/seed_42_trace.json`
+
+Result:
+
+```json
+{
+  "success_step": null,
+  "final_success_rate": 0.0,
+  "final_lateral": 0.0008129182388074696,
+  "final_axial": 0.04261237382888794,
+  "final_rot": 0.33524274826049805,
+  "best_lateral": 0.0003210882714483887,
+  "best_lateral_step": 1045,
+  "best_axial": 0.03722146153450012,
+  "best_axial_step": 1273,
+  "best_rot": 0.04940164461731911,
+  "best_rot_step": 899,
+  "max_contact_force_magnitude": 21.230880737304688,
+  "max_contact_force_magnitude_step": 1273,
+  "polish_rot_tolerance": 0.2,
+  "polish_rotation_mode": "current",
+  "settle_xy_tolerance": 0.0045,
+  "settle_rot_tolerance": 0.18
+}
+```
+
+Trace highlights:
+
+```text
+step  phase   lat      ax      rot     polish  jcache  contact  jlim    note
+0925  insert  0.0014   0.2512  0.0558  false   true    0.800    0.0054  excellent XY/rot but still high above socket
+1250  align   0.0236   0.0440  0.3767  false   false   2.108    0.0046  close in axial, but rotation too high
+1273  insert  0.0064   0.0372  0.2327  false   true    21.231   0.0168  best axial, contact spike, XY just outside success
+1275  polish  0.0041   0.0423  0.1914  true    false   1.724    0.0134  entered late XY-only polish
+1300  polish  0.0009   0.0425  0.1893  true    false   0.042    0.0047  XY excellent, rot still just above settle threshold
+1450  polish  0.0007   0.0423  0.1868  true    false   0.049    0.0051  closest stable polish window, still no axial seating
+1600  polish  0.0007   0.0422  0.1984  true    false   0.056    0.0084  rotation starts drifting upward
+2199  polish  0.0008   0.0426  0.3352  true    false   0.449    0.0230  final state, no success
+```
+
+Interpretation:
+
+- This was a cleaner failure than Attempt 61.
+- XY-only polish prevented the `pi`-radian flip from the target-orientation polish and held lateral error under `1mm`.
+- It still did not succeed because the controller held current Z during polish and never entered final seating.
+- The run was very close to the settle gate around steps `1300-1450`: lateral was excellent and rotation hovered around `0.186-0.189`, just above the `0.18` threshold.
+- Freezing orientation is too conservative. It avoids the flip, but it cannot reduce the last few degrees of orientation error needed to unlock final seating.
+
+Cleanup verification:
+
+- Artifacts were pulled locally.
+- The instance remained visible in `DELETING`/`STOPPING` for several delete cycles, then disappeared.
+- Final independent confirmation:
+  - `brev ls instances --all`: `No instances in org NCA-57cf-29515`
+  - `brev ls instances --json --all`: `{ "workspaces": null }`
+
+Decision:
+
+- Do not repeat pure XY-only polish.
+- The next cheapest meaningful gate is a late target-polish variant:
+  - keep the new late entry gate so polish starts only after `rot` is already near success;
+  - switch `polish_rotation_mode` back to `target`;
+  - reduce `polish_rot_gain` and `polish_rot_clamp` so the final rotation correction is small instead of aggressive;
+  - relax `settle_rot_tol` slightly to allow final seating while the small rotation correction continues.
