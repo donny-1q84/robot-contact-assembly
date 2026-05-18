@@ -124,6 +124,25 @@ def _tensor_list(tensor: torch.Tensor) -> list[float]:
     return [float(x) for x in tensor.detach().cpu().tolist()]
 
 
+def _strict_miss_score(
+    lateral: torch.Tensor,
+    axial: torch.Tensor,
+    rot: torch.Tensor,
+    contact_force: torch.Tensor,
+    *,
+    xy_tol: float,
+    z_tol: float,
+    rot_tol: float,
+    min_contact: float,
+) -> torch.Tensor:
+    return (
+        torch.clamp(lateral - xy_tol, min=0.0) * 100.0
+        + torch.clamp(axial - z_tol, min=0.0) * 100.0
+        + torch.clamp(rot - rot_tol, min=0.0) * 10.0
+        + torch.clamp(min_contact - contact_force, min=0.0)
+    )
+
+
 def _make_observation(
     env_unwrapped,
     body_idx: int,
@@ -293,6 +312,8 @@ def main() -> None:
         final_lateral = final_axial = final_rot = final_success_rate = None
         best_lateral = best_axial = best_rot = float("inf")
         best_lateral_step = best_axial_step = best_rot_step = None
+        best_strict_miss_score = float("inf")
+        best_strict_miss_score_step = None
         max_contact_force = 0.0
         max_contact_force_step = None
 
@@ -339,6 +360,17 @@ def main() -> None:
             rot_mean = rot.mean().item()
             success_rate = success.float().mean().item()
             contact_mean = contact_force.mean().item()
+            strict_miss = _strict_miss_score(
+                lateral,
+                axial,
+                rot,
+                contact_force,
+                xy_tol=args_cli.success_xy_tol,
+                z_tol=args_cli.success_z_tol,
+                rot_tol=args_cli.success_rot_tol,
+                min_contact=args_cli.success_min_contact_force,
+            )
+            strict_miss_mean = strict_miss.mean().item()
 
             if step == 0:
                 initial_lateral = lateral_mean
@@ -357,6 +389,9 @@ def main() -> None:
             if rot_mean < best_rot:
                 best_rot = rot_mean
                 best_rot_step = step
+            if strict_miss_mean < best_strict_miss_score:
+                best_strict_miss_score = strict_miss_mean
+                best_strict_miss_score_step = step
             if contact_mean > max_contact_force:
                 max_contact_force = contact_mean
                 max_contact_force_step = step
@@ -366,7 +401,8 @@ def main() -> None:
             if step % 25 == 0 or step == args_cli.steps - 1 or success_step == step:
                 print(
                     f"[BC-EVAL] step={step:04d} lateral={lateral_mean:.4f} axial={axial_mean:.4f} "
-                    f"rot={rot_mean:.4f} contact={contact_mean:.3f} success_rate={success_rate:.3f}",
+                    f"rot={rot_mean:.4f} contact={contact_mean:.3f} miss={strict_miss_mean:.4f} "
+                    f"success_rate={success_rate:.3f}",
                     flush=True,
                 )
 
@@ -378,6 +414,7 @@ def main() -> None:
                         "axial": axial[0].item(),
                         "rot": rot[0].item(),
                         "contact_force_magnitude": contact_force[0].item(),
+                        "strict_miss_score": strict_miss[0].item(),
                         "success": bool(success[0].item()),
                         "raw_action": _tensor_list(actions[0]),
                         "observation": _tensor_list(obs[0]),
@@ -413,6 +450,8 @@ def main() -> None:
             "best_axial_step": best_axial_step,
             "best_rot": best_rot,
             "best_rot_step": best_rot_step,
+            "best_strict_miss_score": best_strict_miss_score,
+            "best_strict_miss_score_step": best_strict_miss_score_step,
             "max_contact_force_magnitude": max_contact_force,
             "max_contact_force_magnitude_step": max_contact_force_step,
             "active_success_xy_tolerance": args_cli.success_xy_tol,
@@ -430,6 +469,7 @@ def main() -> None:
             "[BC-EVAL] summary "
             f"final_lateral={summary['final_lateral']:.4f} final_axial={summary['final_axial']:.4f} "
             f"final_rot={summary['final_rot']:.4f} max_contact={summary['max_contact_force_magnitude']:.3f} "
+            f"best_miss={summary['best_strict_miss_score']:.4f} "
             f"success_step={summary['success_step']}",
             flush=True,
         )

@@ -30,6 +30,7 @@ OBS_FIELDS: tuple[tuple[str, int], ...] = (
 
 @dataclass(frozen=True)
 class FilterCfg:
+    profile: str
     phases: set[str]
     task_contains: str | None
     action_dim: int | None
@@ -41,6 +42,8 @@ class FilterCfg:
     strict_z_tol: float
     strict_rot_tol: float
     strict_min_contact: float
+    window_radius: int
+    max_windows: int
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -115,6 +118,53 @@ def _passes_filter(step: dict[str, Any], summary: dict[str, Any], cfg: FilterCfg
     return True
 
 
+def _select_best_windows(paths: list[Path], cfg: FilterCfg) -> tuple[dict[Path, set[int]], list[dict[str, Any]]]:
+    windows: list[dict[str, Any]] = []
+    for path in paths:
+        trace = _load_json(path)
+        summary = trace.get("summary") or {}
+        steps = trace.get("steps") or []
+        scored_steps: list[tuple[float, int, dict[str, Any]]] = []
+        for index, step in enumerate(steps):
+            if not isinstance(step, dict) or not _passes_filter(step, summary, cfg):
+                continue
+            if _obs_vector(step) is None:
+                continue
+            scored_steps.append((_strict_miss_score(step, cfg), index, step))
+        if not scored_steps:
+            continue
+        score, center_index, center_step = min(scored_steps, key=lambda item: item[0])
+        windows.append(
+            {
+                "trace": str(path),
+                "run_id": path.parent.name,
+                "task": summary.get("task"),
+                "scripted_control_mode": summary.get("scripted_control_mode"),
+                "summary_success_step": summary.get("success_step"),
+                "center_index": center_index,
+                "center_step": int(center_step.get("step") or -1),
+                "center_strict_miss_score": score,
+                "center_lateral": float(center_step.get("lateral") or 0.0),
+                "center_axial": float(center_step.get("axial") or 0.0),
+                "center_rot": float(center_step.get("rot") or 0.0),
+                "center_contact": float(center_step.get("contact_force_magnitude") or 0.0),
+            }
+        )
+
+    windows.sort(key=lambda item: item["center_strict_miss_score"])
+    if cfg.max_windows > 0:
+        windows = windows[: cfg.max_windows]
+
+    allowed: dict[Path, set[int]] = {}
+    for window in windows:
+        path = Path(window["trace"])
+        center_index = int(window["center_index"])
+        start = max(0, center_index - cfg.window_radius)
+        stop = center_index + cfg.window_radius
+        allowed.setdefault(path, set()).update(range(start, stop + 1))
+    return allowed, windows
+
+
 def _sample_weight(strict_miss: float, active_success: bool, strict_success: bool) -> float:
     weight = 1.0 / (1.0 + strict_miss)
     if active_success:
@@ -134,16 +184,24 @@ def _strict_success(step: dict[str, Any], cfg: FilterCfg) -> bool:
 
 
 def _extract(paths: Iterable[Path], cfg: FilterCfg) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    paths = list(paths)
     samples: list[dict[str, Any]] = []
     per_trace: list[dict[str, Any]] = []
     skipped_missing_obs = 0
+    selected_windows: list[dict[str, Any]] = []
+    allowed_indices_by_path: dict[Path, set[int]] | None = None
+
+    if cfg.profile == "best-window":
+        allowed_indices_by_path, selected_windows = _select_best_windows(paths, cfg)
 
     for path in paths:
         trace = _load_json(path)
         summary = trace.get("summary") or {}
         steps = trace.get("steps") or []
         before = len(samples)
-        for step in steps:
+        for index, step in enumerate(steps):
+            if allowed_indices_by_path is not None and index not in allowed_indices_by_path.get(path, set()):
+                continue
             if not isinstance(step, dict) or not _passes_filter(step, summary, cfg):
                 continue
             obs = _obs_vector(step)
@@ -189,6 +247,7 @@ def _extract(paths: Iterable[Path], cfg: FilterCfg) -> tuple[list[dict[str, Any]
         "action_dim": len(samples[0]["action"]) if samples else 0,
         "observation_fields": [{"name": name, "size": size} for name, size in OBS_FIELDS],
         "filter": {
+            "profile": cfg.profile,
             "phases": sorted(cfg.phases),
             "task_contains": cfg.task_contains,
             "action_dim": cfg.action_dim,
@@ -200,10 +259,13 @@ def _extract(paths: Iterable[Path], cfg: FilterCfg) -> tuple[list[dict[str, Any]
             "strict_z_tol": cfg.strict_z_tol,
             "strict_rot_tol": cfg.strict_rot_tol,
             "strict_min_contact": cfg.strict_min_contact,
+            "window_radius": cfg.window_radius,
+            "max_windows": cfg.max_windows,
         },
         "active_success_samples": sum(1 for sample in samples if sample["active_success"]),
         "strict_success_samples": sum(1 for sample in samples if sample["strict_success"]),
         "skipped_missing_obs": skipped_missing_obs,
+        "selected_windows": selected_windows,
         "traces": per_trace,
     }
     return samples, metadata
@@ -244,7 +306,15 @@ def main() -> int:
     parser.add_argument("traces", nargs="*", type=Path, help="Trace JSON files. Defaults to scanning --root.")
     parser.add_argument("--root", type=Path, default=DEFAULT_TRACE_ROOT, help="Trace root used when no paths are given.")
     parser.add_argument("--since", type=str, default="2026-05-17T19-00-00Z", help="Minimum run directory timestamp.")
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="Output .npz path.")
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="Output dataset path. Use .npz for NumPy output.")
+    parser.add_argument(
+        "--profile",
+        choices=("all-traces", "best-window"),
+        default="all-traces",
+        help="Dataset profile. best-window keeps only windows around the lowest strict-miss traces.",
+    )
+    parser.add_argument("--window-radius", type=int, default=80, help="Step radius around each selected best-window center.")
+    parser.add_argument("--max-windows", type=int, default=2, help="Maximum best windows to keep. Use 0 to keep all.")
     parser.add_argument(
         "--phases",
         type=str,
@@ -265,6 +335,7 @@ def main() -> int:
 
     phases = {p.strip() for p in args.phases.split(",") if p.strip()}
     cfg = FilterCfg(
+        profile=args.profile,
         phases=phases,
         task_contains=args.task_contains or None,
         action_dim=args.action_dim if args.action_dim > 0 else None,
@@ -276,6 +347,8 @@ def main() -> int:
         strict_z_tol=args.strict_z_tol,
         strict_rot_tol=args.strict_rot_tol,
         strict_min_contact=args.strict_min_contact,
+        window_radius=args.window_radius,
+        max_windows=args.max_windows,
     )
 
     paths = args.traces or _trace_paths(args.root, args.since)

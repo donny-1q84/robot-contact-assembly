@@ -118,6 +118,22 @@ This one guarded GPU session does:
 4. evaluate the checkpoint under the strict shallow-contact gate
 5. pull artifacts through the normal guarded cleanup flow
 
+Completed remote smoke:
+
+```text
+run dir: artifacts/gpu_gate/2026-05-18T21-17-31Z_isaac-phase2-contact-bc-smoke-l4
+checkpoint: artifacts/policies/phase2_contact_bc/bc_mlp.pt
+eval: artifacts/evaluations/bc_policy/2026-05-18T21-34-10Z/summary.json
+success_step: null
+final_success_rate: 0.0
+best_lateral: 0.00636 m
+best_axial: 0.14536 m
+best_rot: 0.52066 rad
+best_strict_miss_score: 21.06919
+```
+
+Interpretation: the learned-policy pipeline works, but the naive all-trace BC policy is not a successful contact controller. It briefly reaches near-lateral alignment, then drifts instead of stabilizing insertion.
+
 ## Important Limitation
 
 The current dataset is not enough for a strong final policy:
@@ -131,7 +147,42 @@ Therefore this dataset is a bootstrap / smoke dataset, not the final demonstrati
 
 ## Next Data Collection
 
-After the BC smoke is validated, collect more demonstrations by varying:
+The BC smoke is validated. Do not re-run the same all-trace BC setup unchanged.
+
+Before collecting more paid demonstrations, add a local `best-window` dataset profile that filters around the strongest shallow-success and closest near-miss windows. The next GPU comparison should be:
+
+```text
+all-traces BC vs best-window BC
+```
+
+Local `best-window` extraction:
+
+```bash
+python3 scripts/extract_contact_demo_dataset.py \
+  --profile best-window \
+  --output artifacts/datasets/phase2_contact_bc_best_window/phase2_contact_bc_best_window_dataset.jsonl
+```
+
+Current local result:
+
+```text
+samples: 314
+selected windows:
+- 2026-05-17T23-32-18Z step 1543, strict_miss_score 0.03205
+- 2026-05-17T22-00-19Z step 1541, strict_miss_score 0.04206
+```
+
+Important: this profile is a contact-refinement dataset. It should be evaluated with either a scripted approach stage or a staged initialization near the selected contact window, not as a full reset-to-insertion policy.
+
+Prepared guarded remote wrapper:
+
+```bash
+scripts/run_phase2_contact_bc_best_window_smoke_gate.sh
+```
+
+Do not run it until the evaluation mode is changed to include an approach stage or near-contact initialization.
+
+Then collect more demonstrations by varying:
 
 - seed
 - socket pose around `[0.22, 0.04, 0.22]`
