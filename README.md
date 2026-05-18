@@ -496,6 +496,12 @@ Before committing to a learned policy action space, run the one-at-a-time contro
 
 The comparison should answer whether Cartesian end-effector control actually improves the final contact phase, or whether the blocker is policy learning rather than action-space expression.
 
+The main next implementation track is documented in [phase2_il_contact_policy_plan.md](docs/phase2_il_contact_policy_plan.md). The local-first flow is:
+
+- extract contact-phase samples from existing scripted traces with `scripts/extract_contact_demo_dataset.py`
+- train a small BC smoke policy with `scripts/train_contact_bc_policy.py`
+- only then open GPU for a short learned-policy evaluation or additional demonstration collection
+
 ## Phase-1 reproducibility additions
 
 - `scripts/capture_remote_runtime_manifest.sh`
