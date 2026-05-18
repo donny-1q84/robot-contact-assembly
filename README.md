@@ -488,6 +488,14 @@ The recommended next phase is:
 - evaluate against both the shallow gate and the strict gate
 - only reopen paid GPU runs when the next experiment has a single measurable pass/fail condition
 
+Before committing to a learned policy action space, run the one-at-a-time control-mode comparison in [phase2_control_mode_comparison_plan.md](docs/phase2_control_mode_comparison_plan.md):
+
+- current `JointPos + standalone joint-IK` baseline
+- native relative Cartesian IK action
+- native absolute Cartesian IK action
+
+The comparison should answer whether Cartesian end-effector control actually improves the final contact phase, or whether the blocker is policy learning rather than action-space expression.
+
 ## Phase-1 reproducibility additions
 
 - `scripts/capture_remote_runtime_manifest.sh`
