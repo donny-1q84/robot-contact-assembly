@@ -22,7 +22,12 @@ fi
 
 "${SCRIPT_DIR}/sync_to_brev.sh" "${RCA_ENV_NAME}" "${RCA_REMOTE_ROOT}"
 
-REMOTE_DATASET_HOST_PATH="${RCA_REMOTE_ROOT}/artifacts/datasets/phase2_contact_bc/$(basename "${REMOTE_DATASET}")"
+if [[ "${REMOTE_DATASET}" != /workspace/artifacts/* ]]; then
+  echo "[train-bc] REMOTE_DATASET must live under /workspace/artifacts: ${REMOTE_DATASET}" >&2
+  exit 2
+fi
+REMOTE_DATASET_RELATIVE_PATH="${REMOTE_DATASET#/workspace/artifacts/}"
+REMOTE_DATASET_HOST_PATH="${RCA_REMOTE_ROOT}/artifacts/${REMOTE_DATASET_RELATIVE_PATH}"
 REMOTE_DATASET_HOST_DIR="$(dirname "${REMOTE_DATASET_HOST_PATH}")"
 REMOTE_OUTPUT_DIR="$(dirname "${REMOTE_OUTPUT}")"
 REMOTE_LOG_PATH="${REMOTE_OUTPUT_DIR}/train.log"
@@ -34,8 +39,9 @@ echo "[train-bc] remote_dataset=${REMOTE_DATASET}"
 echo "[train-bc] remote_output=${REMOTE_OUTPUT}"
 echo "[train-bc] epochs=${EPOCHS} timeout_seconds=${TIMEOUT_SECONDS}"
 
-ssh "${RCA_ENV_NAME}" "mkdir -p '${REMOTE_DATASET_HOST_DIR}'"
-rsync -az "${LOCAL_DATASET}" "${RCA_ENV_NAME}:${REMOTE_DATASET_HOST_PATH}"
+ssh "${RCA_ENV_NAME}" "sudo mkdir -p '${REMOTE_DATASET_HOST_DIR}'"
+rsync -az --rsync-path="sudo rsync" "${LOCAL_DATASET}" "${RCA_ENV_NAME}:${REMOTE_DATASET_HOST_PATH}"
+ssh "${RCA_ENV_NAME}" "sudo chmod 0644 '${REMOTE_DATASET_HOST_PATH}'"
 
 rca_remote_container_exec "mkdir -p '${REMOTE_OUTPUT_DIR}'"
 rca_remote_container_exec "cat > '${REMOTE_COMMAND_PATH}' <<'EOF'
