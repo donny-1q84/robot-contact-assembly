@@ -37,6 +37,12 @@ USE_CALIBRATED_SCRIPTED="${RCA_GATE_USE_CALIBRATED_SCRIPTED:-0}"
 GATE_COMMAND="${RCA_GATE_COMMAND:-scripted_eval}"
 CALIBRATION_STEPS="${RCA_GATE_CALIBRATION_STEPS:-${STEPS}}"
 SCRIPTED_STEPS="${RCA_GATE_SCRIPTED_STEPS:-${STEPS}}"
+BC_LOCAL_DATASET="${RCA_BC_LOCAL_DATASET:-${REPO_ROOT}/artifacts/datasets/phase2_contact_bc/phase2_contact_bc_dataset.jsonl}"
+BC_REMOTE_DATASET="${RCA_BC_REMOTE_DATASET:-/workspace/artifacts/datasets/phase2_contact_bc/phase2_contact_bc_dataset.jsonl}"
+BC_CHECKPOINT="${RCA_BC_CHECKPOINT:-/workspace/artifacts/policies/phase2_contact_bc/bc_mlp.pt}"
+BC_EPOCHS="${RCA_BC_EPOCHS:-250}"
+BC_TRAIN_EXTRA_ARGS="${RCA_BC_TRAIN_EXTRA_ARGS:-}"
+BC_EVAL_EXTRA_ARGS="${RCA_BC_EVAL_EXTRA_ARGS:-}"
 
 RUN_ID="$(date -u +"%Y-%m-%dT%H-%M-%SZ")"
 LOCAL_RUN_DIR="${REPO_ROOT}/artifacts/gpu_gate/${RUN_ID}_${INSTANCE_NAME}"
@@ -509,8 +515,59 @@ main() {
         "${RCA_SOCKET_SWEEP_POSITIONS:-}" \
         "${EXTRA_AGENT_ARGS}"
       ;;
+    contact_bc_train)
+      log "running contact BC training"
+      bash "${SCRIPT_DIR}/run_remote_train_contact_bc_policy.sh" \
+        "${INSTANCE_NAME}" \
+        "${REMOTE_ROOT}" \
+        "${REMOTE_COMPOSE_ROOT}" \
+        "${BC_LOCAL_DATASET}" \
+        "${BC_REMOTE_DATASET}" \
+        "${BC_CHECKPOINT}" \
+        "${BC_EPOCHS}" \
+        "${EVAL_TIMEOUT_SECONDS}" \
+        "${BC_TRAIN_EXTRA_ARGS}"
+      ;;
+    contact_bc_eval)
+      log "running contact BC evaluation"
+      bash "${SCRIPT_DIR}/run_remote_eval_contact_bc_policy.sh" \
+        "${INSTANCE_NAME}" \
+        "${REMOTE_ROOT}" \
+        "${REMOTE_COMPOSE_ROOT}" \
+        "${TASK_NAME}" \
+        "${NUM_ENVS}" \
+        "${STEPS}" \
+        "${SEEDS%%,*}" \
+        "${BC_CHECKPOINT}" \
+        "${EVAL_TIMEOUT_SECONDS}" \
+        "${BC_EVAL_EXTRA_ARGS}"
+      ;;
+    contact_bc_smoke)
+      log "running contact BC train+eval smoke"
+      bash "${SCRIPT_DIR}/run_remote_train_contact_bc_policy.sh" \
+        "${INSTANCE_NAME}" \
+        "${REMOTE_ROOT}" \
+        "${REMOTE_COMPOSE_ROOT}" \
+        "${BC_LOCAL_DATASET}" \
+        "${BC_REMOTE_DATASET}" \
+        "${BC_CHECKPOINT}" \
+        "${BC_EPOCHS}" \
+        "${EVAL_TIMEOUT_SECONDS}" \
+        "${BC_TRAIN_EXTRA_ARGS}"
+      bash "${SCRIPT_DIR}/run_remote_eval_contact_bc_policy.sh" \
+        "${INSTANCE_NAME}" \
+        "${REMOTE_ROOT}" \
+        "${REMOTE_COMPOSE_ROOT}" \
+        "${TASK_NAME}" \
+        "${NUM_ENVS}" \
+        "${STEPS}" \
+        "${SEEDS%%,*}" \
+        "${BC_CHECKPOINT}" \
+        "${EVAL_TIMEOUT_SECONDS}" \
+        "${BC_EVAL_EXTRA_ARGS}"
+      ;;
     *)
-      echo "[guarded-gate] unknown RCA_GATE_COMMAND=${GATE_COMMAND}; use scripted_eval, scripted_socket_sweep, scripted_reach_sweep, action_calibration, or calibration_then_scripted_eval" >&2
+      echo "[guarded-gate] unknown RCA_GATE_COMMAND=${GATE_COMMAND}; use scripted_eval, scripted_socket_sweep, scripted_reach_sweep, action_calibration, calibration_then_scripted_eval, contact_bc_train, contact_bc_eval, or contact_bc_smoke" >&2
       return 2
       ;;
   esac

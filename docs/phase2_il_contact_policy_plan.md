@@ -80,6 +80,44 @@ This is intentionally a small MLP behavior-cloning baseline. It is not expected 
 - a checkpoint with observation/action normalization is produced
 - the project has a clean handoff from scripted traces to a learned contact-policy artifact
 
+## First BC Eval Smoke
+
+Evaluation script:
+
+```bash
+python3 scripts/evaluate_contact_bc_policy.py \
+  --task RCA-PegInHole-Franka-JointPos-Contact-Play-v0 \
+  --headless \
+  --num_envs 1 \
+  --steps 400 \
+  --seed 42 \
+  --checkpoint artifacts/policies/phase2_contact_bc/bc_mlp.pt \
+  --deterministic-reset \
+  --socket-pos 0.22,0.04,0.22 \
+  --success-xy-tol 0.005 \
+  --success-z-tol 0.045 \
+  --success-rot-tol 0.18 \
+  --success-min-contact-force 0.5 \
+  --summary-json artifacts/evaluations/bc_policy/local_smoke/summary.json \
+  --trace-json artifacts/evaluations/bc_policy/local_smoke/trace.json
+```
+
+This eval wrapper reconstructs the same `37D` observation vector used by the dataset extractor, runs the MLP policy, unnormalizes the predicted `7D` joint-position action, clamps it around the current joint state, and reports the same contact success metrics as the scripted gates.
+
+Remote guarded smoke:
+
+```bash
+scripts/run_phase2_contact_bc_smoke_gate.sh
+```
+
+This one guarded GPU session does:
+
+1. sync source code
+2. upload the local JSONL dataset to `/workspace/artifacts/datasets/phase2_contact_bc/`
+3. train `bc_mlp.pt`
+4. evaluate the checkpoint under the strict shallow-contact gate
+5. pull artifacts through the normal guarded cleanup flow
+
 ## Important Limitation
 
 The current dataset is not enough for a strong final policy:

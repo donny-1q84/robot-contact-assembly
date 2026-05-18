@@ -500,6 +500,7 @@ The main next implementation track is documented in [phase2_il_contact_policy_pl
 
 - extract contact-phase samples from existing scripted traces with `scripts/extract_contact_demo_dataset.py`
 - train a small BC smoke policy with `scripts/train_contact_bc_policy.py`
+- evaluate the BC checkpoint with `scripts/evaluate_contact_bc_policy.py`
 - only then open GPU for a short learned-policy evaluation or additional demonstration collection
 
 ## Phase-1 reproducibility additions
