@@ -1,0 +1,159 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1250" viewBox="0 0 1800 1250">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#07111f"/>
+      <stop offset="48%" stop-color="#102a43"/>
+      <stop offset="100%" stop-color="#0b1324"/>
+    </linearGradient>
+    <linearGradient id="phase1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2dd4bf"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+    <linearGradient id="phase2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#84cc16"/>
+      <stop offset="100%" stop-color="#16a34a"/>
+    </linearGradient>
+    <linearGradient id="gpu" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#f97316"/>
+    </linearGradient>
+    <linearGradient id="tune" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#c084fc"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="result" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fb7185"/>
+      <stop offset="100%" stop-color="#e11d48"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000000" flood-opacity="0.38"/>
+    </filter>
+    <marker id="arrow" markerWidth="14" markerHeight="14" refX="10" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#dbeafe"/>
+    </marker>
+    <style>
+      .title { font: 800 48px -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans CJK SC", sans-serif; fill: #f8fafc; }
+      .subtitle { font: 500 24px -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans CJK SC", sans-serif; fill: #cbd5e1; }
+      .card-title { font: 800 30px -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans CJK SC", sans-serif; fill: #ffffff; }
+      .card-text { font: 500 22px -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans CJK SC", sans-serif; fill: #eef2ff; }
+      .small { font: 500 18px -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans CJK SC", sans-serif; fill: #e2e8f0; }
+      .tiny { font: 600 15px -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans CJK SC", sans-serif; fill: #dbeafe; }
+      .metric { font: 800 28px "SF Mono", ui-monospace, Menlo, Consolas, monospace; fill: #fef08a; }
+      .box { rx: 28; filter: url(#shadow); }
+      .mini { rx: 18; filter: url(#shadow); }
+      .arrow { stroke: #dbeafe; stroke-width: 5; fill: none; marker-end: url(#arrow); opacity: 0.92; }
+      .soft-arrow { stroke: #93c5fd; stroke-width: 4; fill: none; marker-end: url(#arrow); opacity: 0.65; stroke-dasharray: 10 10; }
+      .white-line { stroke: rgba(255,255,255,0.5); stroke-width: 2; }
+    </style>
+  </defs>
+
+  <rect width="1800" height="1250" fill="url(#bg)"/>
+  <circle cx="150" cy="120" r="230" fill="#1d4ed8" opacity="0.18"/>
+  <circle cx="1640" cy="1040" r="300" fill="#22c55e" opacity="0.13"/>
+  <circle cx="1460" cy="170" r="210" fill="#f97316" opacity="0.16"/>
+
+  <text x="90" y="82" class="title">Robot Contact Assembly：我们到底做到了哪一步？</text>
+  <text x="92" y="124" class="subtitle">从 Phase 1 代理任务，到 Phase 2 真实接触壳，再到 strict gate 近成功诊断</text>
+
+  <rect x="70" y="175" width="380" height="250" fill="url(#phase1)" class="box"/>
+  <text x="105" y="225" class="card-title">1. Phase 1：先闭环</text>
+  <text x="105" y="270" class="card-text">目标不是一开始就插进去</text>
+  <text x="105" y="305" class="card-text">而是先把工程闭环跑通：</text>
+  <text x="125" y="345" class="small">• 自定义 Isaac Lab 任务</text>
+  <text x="125" y="375" class="small">• scripted baseline + PPO</text>
+  <text x="125" y="405" class="small">• 固定评估、日志、checkpoint</text>
+
+  <rect x="510" y="175" width="380" height="250" fill="url(#phase2)" class="box"/>
+  <text x="545" y="225" class="card-title">2. Phase 2：变成真接触</text>
+  <text x="545" y="270" class="card-text">把“位姿追踪”升级成：</text>
+  <text x="565" y="310" class="small">• 真实 peg 几何</text>
+  <text x="565" y="340" class="small">• guide-socket 碰撞墙</text>
+  <text x="565" y="370" class="small">• socket-frame success</text>
+  <text x="565" y="400" class="small">• contact force 观测</text>
+
+  <rect x="950" y="175" width="380" height="250" fill="url(#gpu)" class="box"/>
+  <text x="985" y="225" class="card-title">3. GPU gate：受控烧钱</text>
+  <text x="985" y="270" class="card-text">每次云端只做一件事：</text>
+  <text x="1005" y="310" class="small">• 对比 L4 / T4 / L40S 价格</text>
+  <text x="1005" y="340" class="small">• 开机、安装、运行、拉回 artifact</text>
+  <text x="1005" y="370" class="small">• 删除实例</text>
+  <text x="1005" y="400" class="small">• 双重确认 Brev 为空</text>
+
+  <rect x="1390" y="175" width="340" height="250" fill="url(#result)" class="box"/>
+  <text x="1425" y="225" class="card-title">4. 现在的结果</text>
+  <text x="1425" y="275" class="card-text">浅层真实接触：成功</text>
+  <text x="1425" y="315" class="metric">success_step=1538</text>
+  <text x="1425" y="360" class="card-text">strict gate：还没成功</text>
+  <text x="1425" y="398" class="small">最近只差 0.20mm + 0.0012rad</text>
+
+  <path d="M450 300 C470 300 490 300 510 300" class="arrow"/>
+  <path d="M890 300 C910 300 930 300 950 300" class="arrow"/>
+  <path d="M1330 300 C1350 300 1370 300 1390 300" class="arrow"/>
+
+  <rect x="95" y="505" width="1610" height="500" rx="34" fill="#0f172a" opacity="0.94" filter="url(#shadow)"/>
+  <text x="130" y="560" class="card-title">一直在调的核心：最后接触阶段的“四个灯”要同时变绿</text>
+  <text x="130" y="600" class="subtitle">strict gate 要求同一时刻满足：横向对中、插入深度、旋转误差、接触力。问题是它们会互相拉扯。</text>
+
+  <rect x="145" y="650" width="260" height="120" fill="#164e63" class="mini"/>
+  <text x="175" y="695" class="card-title">XY 对中</text>
+  <text x="175" y="735" class="metric">&lt; 5 mm</text>
+
+  <rect x="450" y="650" width="260" height="120" fill="#365314" class="mini"/>
+  <text x="480" y="695" class="card-title">轴向深度</text>
+  <text x="480" y="735" class="metric">&lt; 45 mm</text>
+
+  <rect x="755" y="650" width="260" height="120" fill="#581c87" class="mini"/>
+  <text x="785" y="695" class="card-title">旋转误差</text>
+  <text x="785" y="735" class="metric">&lt; 0.18 rad</text>
+
+  <rect x="1060" y="650" width="260" height="120" fill="#7f1d1d" class="mini"/>
+  <text x="1090" y="695" class="card-title">接触力</text>
+  <text x="1090" y="735" class="metric">&gt;= 0.5</text>
+
+  <rect x="1365" y="650" width="260" height="120" fill="#78350f" class="mini"/>
+  <text x="1395" y="695" class="card-title">同一时刻</text>
+  <text x="1395" y="735" class="metric">全部满足</text>
+
+  <path d="M405 710 L450 710" class="arrow"/>
+  <path d="M710 710 L755 710" class="arrow"/>
+  <path d="M1015 710 L1060 710" class="arrow"/>
+  <path d="M1320 710 L1365 710" class="arrow"/>
+
+  <rect x="145" y="830" width="310" height="120" fill="#312e81" class="mini"/>
+  <text x="175" y="875" class="card-title">rotation polish</text>
+  <text x="175" y="913" class="small">想把角度压到 0.18rad</text>
+  <text x="175" y="940" class="tiny">结果：容易 branch jump</text>
+
+  <rect x="505" y="830" width="310" height="120" fill="#064e3b" class="mini"/>
+  <text x="535" y="875" class="card-title">passive settle</text>
+  <text x="535" y="913" class="small">不强拧角度，让接触自己收敛</text>
+  <text x="535" y="940" class="tiny">结果：角度好了，但接触丢了</text>
+
+  <rect x="865" y="830" width="310" height="120" fill="#7c2d12" class="mini"/>
+  <text x="895" y="875" class="card-title">contact retention</text>
+  <text x="895" y="913" class="small">接触要掉时加一点预压</text>
+  <text x="895" y="940" class="tiny">结果：太晚，救不回接触</text>
+
+  <rect x="1225" y="830" width="400" height="120" fill="#701a75" class="mini"/>
+  <text x="1255" y="875" class="card-title">XY-hold / force-aware XY</text>
+  <text x="1255" y="913" class="small">试图边压住接触，边保持横向居中</text>
+  <text x="1255" y="940" class="tiny">结果：极近，但 strict 仍未过线</text>
+
+  <path d="M300 830 C350 795 395 790 470 800" class="soft-arrow"/>
+  <path d="M660 830 C705 795 770 795 855 815" class="soft-arrow"/>
+  <path d="M1020 830 C1080 795 1145 795 1225 825" class="soft-arrow"/>
+
+  <rect x="110" y="1060" width="500" height="120" fill="#052e16" class="box"/>
+  <text x="145" y="1107" class="card-title">能展示的成功</text>
+  <text x="145" y="1147" class="card-text">真实 peg/socket 接触壳 + 浅层 contact success</text>
+
+  <rect x="650" y="1060" width="500" height="120" fill="#713f12" class="box"/>
+  <text x="685" y="1107" class="card-title">不能夸大的地方</text>
+  <text x="685" y="1147" class="card-text">还不是最终 strict peg-in-hole 插入策略</text>
+
+  <rect x="1190" y="1060" width="500" height="120" fill="#1e1b4b" class="box"/>
+  <text x="1225" y="1107" class="card-title">下一步应该做</text>
+  <text x="1225" y="1147" class="card-text">停止 heuristic，转 IL/demo 或 learned contact policy</text>
+
+  <text x="90" y="1225" class="tiny">Artifacts: 2026-05-17T19-47-06Z shallow success, 2026-05-17T23-32-18Z closest strict near miss. Updated in docs/phase2_cv_summary.md and experiments/2026-05-17_phase2_near_success_diagnosis.md</text>
+</svg>
