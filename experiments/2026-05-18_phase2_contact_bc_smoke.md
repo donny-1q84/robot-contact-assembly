@@ -415,3 +415,39 @@ Next work should change the data/control problem, not just re-run this training:
 2. Add a residual policy formulation where the scripted controller remains the stabilizing base action and the learned policy predicts a small correction.
 3. Add temporal context or action history beyond the current one-step MLP.
 4. Only then run another paid BC/IL smoke.
+
+## Local Follow-Up: Residual-Current Action Mode
+
+Implemented a first residual action representation:
+
+```text
+action_mode: residual-current
+target: raw_action - current_joint_pos
+```
+
+This is a smaller local step toward residual contact control. It does not yet use the full scripted controller as a base action, but it changes the learned target from an absolute joint-position command into a bounded correction around the current robot state.
+
+Generation command:
+
+```bash
+python3 scripts/extract_contact_demo_dataset.py \
+  --profile best-window \
+  --action-mode residual-current \
+  --output artifacts/datasets/phase2_contact_bc_best_window_residual_current/phase2_contact_bc_best_window_residual_current_dataset.jsonl
+```
+
+Local result:
+
+```text
+samples: 314
+observation_dim: 37
+action_dim: 7
+active_success_samples: 0
+strict_success_samples: 0
+```
+
+Training could not be run locally because this machine's active Python does not have PyTorch installed. The next guarded remote wrapper is prepared:
+
+```bash
+scripts/run_phase2_contact_bc_residual_current_smoke_gate.sh
+```

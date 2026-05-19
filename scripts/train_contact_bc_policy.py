@@ -48,6 +48,10 @@ def main() -> int:
     samples = _load_jsonl(args.dataset)
     if not samples:
         raise SystemExit(f"dataset is empty: {args.dataset}")
+    action_modes = {str(sample.get("action_mode", "absolute")) for sample in samples}
+    if len(action_modes) != 1:
+        raise SystemExit(f"dataset mixes action modes: {sorted(action_modes)}")
+    action_mode = next(iter(action_modes))
 
     obs = torch.tensor([sample["observation"] for sample in samples], dtype=torch.float32)
     act = torch.tensor([sample["action"] for sample in samples], dtype=torch.float32)
@@ -139,6 +143,7 @@ def main() -> int:
         "val_samples": int(val_idx.numel()),
         "best_val_loss": best_val,
         "dataset": str(args.dataset),
+        "action_mode": action_mode,
     }
     torch.save(checkpoint, args.output)
     metadata_path = args.output.with_suffix(".metadata.json")
@@ -152,6 +157,7 @@ def main() -> int:
                 "val_samples": int(val_idx.numel()),
                 "obs_dim": int(obs.shape[1]),
                 "action_dim": int(act.shape[1]),
+                "action_mode": action_mode,
                 "hidden_dim": args.hidden_dim,
                 "layers": args.layers,
                 "best_val_loss": best_val,

@@ -31,6 +31,7 @@ OBS_FIELDS: tuple[tuple[str, int], ...] = (
 @dataclass(frozen=True)
 class FilterCfg:
     profile: str
+    action_mode: str
     phases: set[str]
     task_contains: str | None
     action_dim: int | None
@@ -174,6 +175,26 @@ def _sample_weight(strict_miss: float, active_success: bool, strict_success: boo
     return weight
 
 
+def _action_vector(step: dict[str, Any], cfg: FilterCfg) -> list[float] | None:
+    raw_action = step.get("raw_action")
+    if not isinstance(raw_action, list):
+        return None
+    if cfg.action_dim is not None and len(raw_action) != cfg.action_dim:
+        return None
+    try:
+        action = [float(x) for x in raw_action]
+    except (TypeError, ValueError):
+        return None
+    if cfg.action_mode == "absolute":
+        return action
+    if cfg.action_mode == "residual-current":
+        joint_pos = _as_float_list(step.get("joint_pos"), len(action))
+        if joint_pos is None:
+            return None
+        return [target - current for target, current in zip(action, joint_pos, strict=True)]
+    raise ValueError(f"unsupported action_mode={cfg.action_mode!r}")
+
+
 def _strict_success(step: dict[str, Any], cfg: FilterCfg) -> bool:
     return (
         float(step.get("lateral") or 0.0) < cfg.strict_xy_tol
@@ -208,7 +229,9 @@ def _extract(paths: Iterable[Path], cfg: FilterCfg) -> tuple[list[dict[str, Any]
             if obs is None:
                 skipped_missing_obs += 1
                 continue
-            action = [float(x) for x in step["raw_action"]]
+            action = _action_vector(step, cfg)
+            if action is None:
+                continue
             miss = _strict_miss_score(step, cfg)
             is_active_success = bool(step.get("success"))
             is_strict_success = _strict_success(step, cfg)
@@ -216,6 +239,7 @@ def _extract(paths: Iterable[Path], cfg: FilterCfg) -> tuple[list[dict[str, Any]
                 {
                     "observation": obs,
                     "action": action,
+                    "action_mode": cfg.action_mode,
                     "sample_weight": _sample_weight(miss, is_active_success, is_strict_success),
                     "strict_miss_score": miss,
                     "active_success": is_active_success,
@@ -248,6 +272,7 @@ def _extract(paths: Iterable[Path], cfg: FilterCfg) -> tuple[list[dict[str, Any]
         "observation_fields": [{"name": name, "size": size} for name, size in OBS_FIELDS],
         "filter": {
             "profile": cfg.profile,
+            "action_mode": cfg.action_mode,
             "phases": sorted(cfg.phases),
             "task_contains": cfg.task_contains,
             "action_dim": cfg.action_dim,
@@ -293,6 +318,7 @@ def _save_npz(path: Path, samples: list[dict[str, Any]]) -> None:
         "strict_miss_score": np.asarray([sample["strict_miss_score"] for sample in samples], dtype=np.float32),
         "active_success": np.asarray([sample["active_success"] for sample in samples], dtype=np.bool_),
         "strict_success": np.asarray([sample["strict_success"] for sample in samples], dtype=np.bool_),
+        "action_mode": np.asarray([sample.get("action_mode", "absolute") for sample in samples]),
         "step": np.asarray([sample["step"] for sample in samples], dtype=np.int32),
         "run_id": np.asarray([sample["run_id"] for sample in samples]),
         "trace_path": np.asarray([sample["trace_path"] for sample in samples]),
@@ -312,6 +338,12 @@ def main() -> int:
         choices=("all-traces", "best-window"),
         default="all-traces",
         help="Dataset profile. best-window keeps only windows around the lowest strict-miss traces.",
+    )
+    parser.add_argument(
+        "--action-mode",
+        choices=("absolute", "residual-current"),
+        default="absolute",
+        help="Target action representation. residual-current stores raw_action - current joint_pos.",
     )
     parser.add_argument("--window-radius", type=int, default=80, help="Step radius around each selected best-window center.")
     parser.add_argument("--max-windows", type=int, default=2, help="Maximum best windows to keep. Use 0 to keep all.")
@@ -336,6 +368,7 @@ def main() -> int:
     phases = {p.strip() for p in args.phases.split(",") if p.strip()}
     cfg = FilterCfg(
         profile=args.profile,
+        action_mode=args.action_mode,
         phases=phases,
         task_contains=args.task_contains or None,
         action_dim=args.action_dim if args.action_dim > 0 else None,

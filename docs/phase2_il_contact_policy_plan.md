@@ -228,6 +228,32 @@ The next learned-policy attempt should change the problem formulation:
 - Prioritize new demonstrations that include several seconds after near-success contact, because the current dataset mostly teaches approach into the window rather than stable insertion after handoff.
 - Keep the shallow success gate as the first learned-policy target before returning to the strict gate.
 
+Local residual-current preparation:
+
+```bash
+python3 scripts/extract_contact_demo_dataset.py \
+  --profile best-window \
+  --action-mode residual-current \
+  --output artifacts/datasets/phase2_contact_bc_best_window_residual_current/phase2_contact_bc_best_window_residual_current_dataset.jsonl
+```
+
+Local result:
+
+```text
+samples: 314
+observation_dim: 37
+action_dim: 7
+action_mode: residual-current
+```
+
+The next paid learned-policy run, if used, should be:
+
+```bash
+scripts/run_phase2_contact_bc_residual_current_smoke_gate.sh
+```
+
+This tests whether predicting small joint corrections from the current state is more stable than predicting absolute joint targets.
+
 ## GPU Policy
 
 Do not open GPU for dataset extraction; it is local.

@@ -300,6 +300,9 @@ def main() -> None:
         obs_std = checkpoint["obs_std"].to(device)
         action_mean = checkpoint["action_mean"].to(device)
         action_std = checkpoint["action_std"].to(device)
+        action_mode = str(checkpoint.get("action_mode", "absolute"))
+        if action_mode not in {"absolute", "residual-current"}:
+            raise RuntimeError(f"unsupported checkpoint action_mode={action_mode!r}")
 
         env = gym.make(args_cli.task, cfg=env_cfg, render_mode=None)
         env_unwrapped = env.unwrapped
@@ -457,14 +460,21 @@ def main() -> None:
             with torch.inference_mode():
                 obs = obs.to(device)
                 pred_norm = model((obs - obs_mean) / obs_std)
-                actions = pred_norm * action_std + action_mean
-                actions = actions.to(env_unwrapped.device)
+                policy_output = (pred_norm * action_std + action_mean).to(env_unwrapped.device)
 
-            if actions.shape[-1] != env.action_space.shape[-1]:
-                raise RuntimeError(f"policy action_dim={actions.shape[-1]} does not match env action_dim={env.action_space.shape[-1]}")
+            if policy_output.shape[-1] != env.action_space.shape[-1]:
+                raise RuntimeError(f"policy action_dim={policy_output.shape[-1]} does not match env action_dim={env.action_space.shape[-1]}")
+            actions = policy_output
+            if action_mode == "residual-current":
+                joint_pos = fields["joint_pos"]
+                if args_cli.max_action_delta > 0.0:
+                    actions = joint_pos + torch.clamp(policy_output, -args_cli.max_action_delta, args_cli.max_action_delta)
+                else:
+                    actions = joint_pos + policy_output
             if actions.shape[-1] == 7 and args_cli.max_action_delta > 0.0:
                 joint_pos = fields["joint_pos"]
-                actions = joint_pos + torch.clamp(actions - joint_pos, -args_cli.max_action_delta, args_cli.max_action_delta)
+                if action_mode == "absolute":
+                    actions = joint_pos + torch.clamp(actions - joint_pos, -args_cli.max_action_delta, args_cli.max_action_delta)
                 if joint_limit_lower is not None and joint_limit_upper is not None:
                     actions = torch.minimum(torch.maximum(actions, joint_limit_lower), joint_limit_upper)
 
@@ -541,6 +551,8 @@ def main() -> None:
                         "strict_miss_score": strict_miss[0].item(),
                         "success": bool(success[0].item()),
                         "raw_action": _tensor_list(actions[0]),
+                        "policy_output": _tensor_list(policy_output[0]),
+                        "action_mode": action_mode,
                         "observation": _tensor_list(obs[0]),
                         "physical_tip_rel_socket_pos": _tensor_list(fields["physical_tip_rel_socket_pos"][0]),
                         "pos_error": _tensor_list(fields["pos_error"][0]),
@@ -597,6 +609,7 @@ def main() -> None:
             "success_min_contact_force": args_cli.success_min_contact_force,
             "obs_dim": obs_dim,
             "action_dim": action_dim,
+            "action_mode": action_mode,
             "max_action_delta": args_cli.max_action_delta,
             "deterministic_reset": args_cli.deterministic_reset,
             "socket_pos_override": list(args_cli.socket_pos) if args_cli.socket_pos is not None else None,
