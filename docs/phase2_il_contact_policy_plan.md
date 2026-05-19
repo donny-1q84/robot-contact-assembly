@@ -192,6 +192,24 @@ scripts/run_phase2_contact_bc_best_window_smoke_gate.sh
 
 This wrapper trains the best-window BC checkpoint and evaluates it with scripted trace preload through step `1543`, so it should be the next paid GPU run if we decide to compare learned refinement.
 
+Completed staged best-window smoke:
+
+```text
+run dir: artifacts/gpu_gate/2026-05-19T05-45-11Z_isaac-phase2-contact-bc-best-window-l4
+checkpoint: artifacts/policies/phase2_contact_bc_best_window/bc_mlp.pt
+eval: artifacts/evaluations/bc_policy/2026-05-19T05-59-43Z/summary.json
+success_step: null
+bc_success_step: null
+final_success_rate: 0.0
+handoff_strict_miss_score: 0.03185
+best_strict_miss_score_after_bc: 0.18654
+final_lateral: 0.07267 m
+final_axial: 0.04299 m
+final_rot: 0.34532 rad
+```
+
+Interpretation: the staged learned-policy handoff infrastructure works, but the `314`-sample best-window BC policy is not a reliable final-contact controller. It starts from a near-success handoff and makes the contact state worse. Do not re-run this setup unchanged.
+
 Then collect more demonstrations by varying:
 
 - seed
@@ -200,6 +218,15 @@ Then collect more demonstrations by varying:
 - shallow success gate first, then stricter gates
 
 The goal is not to keep tuning the scripted controller. The goal is to create enough diverse near-contact trajectories for a learned policy to imitate or fine-tune.
+
+## Updated Learned-Policy Direction
+
+The next learned-policy attempt should change the problem formulation:
+
+- Use the scripted controller as a base stabilizer and train a residual policy that predicts small corrections instead of full `7D` joint-position targets.
+- Add temporal context, such as previous action and recent contact-force history, before expecting a one-step MLP to handle contact retention.
+- Prioritize new demonstrations that include several seconds after near-success contact, because the current dataset mostly teaches approach into the window rather than stable insertion after handoff.
+- Keep the shallow success gate as the first learned-policy target before returning to the strict gate.
 
 ## GPU Policy
 
@@ -224,7 +251,7 @@ scripted traces -> JSONL dataset -> BC checkpoint -> fixed-seed eval artifact
 Better milestone:
 
 ```text
-BC policy improves closest strict-gate miss score over scripted baseline
+learned policy improves the post-handoff strict-gate miss score instead of degrading it
 ```
 
 Strong milestone:

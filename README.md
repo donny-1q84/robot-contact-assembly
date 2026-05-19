@@ -10,7 +10,7 @@ Robot assembly project built around a narrow Isaac Lab `peg-in-hole` workflow. P
 - Control: relative differential IK
 - Policy: PPO (`rsl_rl`)
 - Execution model: local planning and artifact archive + remote Brev GPU runtime
-- Latest measured results: Phase 2 now has one shallow true-contact scripted success; strict contact-retention gates remain near-miss failures
+- Latest measured results: Phase 2 now has one shallow true-contact scripted success; strict contact-retention gates remain near-miss failures; first BC and staged BC learned-policy smokes are complete but not successful controllers
 - Current runtime shell: explicit peg geometry, fixed guide-socket contact walls, and physical socket-frame success logic
 
 ## Phase 1 Scope
@@ -79,6 +79,13 @@ The strict scripted gate still has no success. The closest force-aware retention
   - `contact=0.5298`
 
 It missed the strict gate by about `0.20 mm` lateral error and `0.0012 rad` rotation error. See [experiments/2026-05-17_phase2_near_success_diagnosis.md](experiments/2026-05-17_phase2_near_success_diagnosis.md) and [docs/phase2_cv_summary.md](docs/phase2_cv_summary.md).
+
+The first learned-policy contact smokes are also complete:
+
+- All-trace BC reset eval: `success_step=null`, `best_strict_miss_score=21.0692`
+- Best-window staged BC handoff eval: `success_step=null`, `handoff_miss=0.0319`, `best_after_bc=0.1865`
+
+Interpretation: the BC dataset/checkpoint/evaluation path works, but the current one-step MLP BC policy does not stabilize final contact after handoff. The next learned-policy step should be a residual or temporally conditioned final-contact policy with richer post-contact demonstrations, not another unchanged BC rerun. See [experiments/2026-05-18_phase2_contact_bc_smoke.md](experiments/2026-05-18_phase2_contact_bc_smoke.md) and [docs/phase2_il_contact_policy_plan.md](docs/phase2_il_contact_policy_plan.md).
 
 ## V1 scope
 

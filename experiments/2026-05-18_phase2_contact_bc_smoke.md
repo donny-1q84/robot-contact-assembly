@@ -251,3 +251,167 @@ scripts/run_phase2_contact_bc_best_window_smoke_gate.sh
 ```
 
 The next paid run should train the `best-window` BC checkpoint and evaluate it only after the scripted replay handoff. The pass condition is improvement over the naive BC smoke's `best_strict_miss_score=21.06919`, not immediate strict success.
+
+## Attempt 4: Staged Best-Window BC Smoke
+
+Date: 2026-05-19
+
+Goal:
+
+Validate the contact-refinement version of the learned-policy handoff:
+
+```text
+scripted replay to near-success window -> best-window BC policy -> strict shallow-contact eval
+```
+
+This run should not be interpreted as a reset-to-insertion policy test. The best-window dataset only contains local contact-refinement samples around the strongest near-success windows.
+
+### Create Retry
+
+The first create attempt failed during Brev instance creation:
+
+```text
+run dir: artifacts/gpu_gate/2026-05-19T05-42-03Z_isaac-phase2-contact-bc-best-window-l4
+error: unexpected EOF
+backend id observed during cleanup: kp40fi7fm
+```
+
+Cleanup deleted by both instance name and id. Brev then confirmed:
+
+```text
+No instances in org NCA-57cf-29515
+JSON: { "workspaces": null }
+```
+
+Interpretation:
+
+This is the same Brev create-path failure mode previously confirmed by Brev support: the CLI can lose the final response while the backend has partially accepted a workspace create request. The guarded cleanup path handled it correctly.
+
+### Successful Run
+
+Run dir:
+
+```text
+artifacts/gpu_gate/2026-05-19T05-45-11Z_isaac-phase2-contact-bc-best-window-l4
+```
+
+Instance:
+
+```text
+name: isaac-phase2-contact-bc-best-window-l4
+id: yeqmoahzv
+type: g2-standard-4:nvidia-l4:1
+gpu: L4
+listed price: $0.85/hr
+```
+
+Dataset:
+
+```text
+artifacts/datasets/phase2_contact_bc_best_window/phase2_contact_bc_best_window_dataset.jsonl
+samples: 314
+obs_dim: 37
+action_dim: 7
+selected windows:
+- 2026-05-17T23-32-18Z step 1543
+- 2026-05-17T22-00-19Z step 1541
+```
+
+Training artifacts:
+
+```text
+artifacts/policies/phase2_contact_bc_best_window/bc_mlp.pt
+artifacts/policies/phase2_contact_bc_best_window/bc_mlp.metadata.json
+artifacts/policies/phase2_contact_bc_best_window/train.log
+artifacts/policies/phase2_contact_bc_best_window/train_command.txt
+```
+
+BC training result:
+
+```text
+epochs: 300
+train_loss: 0.001471
+val_loss: 0.002569
+best_val_loss: 0.002461758442223072
+```
+
+Evaluation artifacts:
+
+```text
+artifacts/evaluations/bc_policy/2026-05-19T05-59-43Z/summary.json
+artifacts/evaluations/bc_policy/2026-05-19T05-59-43Z/trace.json
+artifacts/evaluations/bc_policy/2026-05-19T05-59-43Z/eval.log
+artifacts/evaluations/bc_policy/2026-05-19T05-59-43Z/eval_command.txt
+```
+
+Staged handoff:
+
+```text
+preload trace: artifacts/evaluations/scripted/2026-05-17T23-32-18Z/seed_42_trace.json
+preload steps executed: 1544
+handoff lateral: 0.005198 m
+handoff axial: 0.041265 m
+handoff rot: 0.181203 rad
+handoff contact: 0.530984
+handoff strict_miss_score: 0.031854
+```
+
+Evaluation result after switching to BC:
+
+```text
+success_step: null
+bc_success_step: null
+final_success_rate: 0.0
+best_lateral: 0.006824 m at step 0
+best_axial: 0.041086 m at step 6
+best_rot: 0.161221 rad at step 13
+best_strict_miss_score: 0.186539 at step 0
+final_lateral: 0.072666 m
+final_axial: 0.042993 m
+final_rot: 0.345323 rad
+max_contact_force_magnitude: 1.209288
+```
+
+Cleanup:
+
+The artifact pullback completed before shutdown. Brev deletion stayed visible as `DELETING` for several polling rounds, then the guarded cleanup confirmed:
+
+```text
+No instances in org NCA-57cf-29515
+JSON: { "workspaces": null }
+```
+
+### Interpretation
+
+What succeeded:
+
+- The `best-window` dataset profile, BC trainer, staged evaluator, preload trace upload, artifact pullback, and guarded deletion path all work end to end.
+- The checkpoint learned the tiny dataset distribution in the supervised sense.
+- The staged evaluator correctly replays a scripted near-success trace before handing control to a learned policy.
+
+What failed:
+
+- The learned BC policy did not achieve strict success.
+- The policy did not improve the handoff state. It started from a near-success `strict_miss_score=0.031854`, but the best score after BC control was `0.186539`.
+- The policy quickly lost lateral/contact stability. By the end of the rollout, lateral error had grown to `72.7 mm`.
+
+Important comparison:
+
+The staged best-window BC score is numerically much better than the naive all-trace reset eval (`0.1865` vs `21.0692`), but this is mostly because the staged eval starts from a preloaded near-success state. The meaningful comparison is against the handoff state itself, and by that measure the BC policy made the state worse.
+
+### Decision
+
+Do not spend another GPU cycle on the same `314`-sample best-window BC setup unchanged.
+
+The current learned-policy conclusion is:
+
+```text
+BC infrastructure works; small-window one-step BC is not yet a reliable final-contact controller.
+```
+
+Next work should change the data/control problem, not just re-run this training:
+
+1. Collect more near-contact demonstrations with actual post-handoff stabilization labels.
+2. Add a residual policy formulation where the scripted controller remains the stabilizing base action and the learned policy predicts a small correction.
+3. Add temporal context or action history beyond the current one-step MLP.
+4. Only then run another paid BC/IL smoke.
