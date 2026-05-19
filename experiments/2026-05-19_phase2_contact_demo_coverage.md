@@ -71,3 +71,38 @@ The next data step should be one of:
 - Collect additional demonstrations from a reset state already close to the best near-contact window, with the explicit goal of producing target-gate passing samples.
 - Relax the first learned-policy target to sustained near-contact and train only a stabilization prior, not a final insertion policy.
 - Switch from direct BC to a residual/temporal policy objective that is evaluated against post-handoff degradation, not just supervised loss.
+
+## Local Follow-Up: Near-Contact Residual Dataset
+
+Prepared a larger residual-current dataset from all current mainline near-contact traces:
+
+```bash
+python3 scripts/extract_contact_demo_dataset.py \
+  --since 2026-05-17T00-00-00Z \
+  --task-contains JointPos \
+  --max-lateral 0.015 \
+  --max-axial 0.060 \
+  --max-rot 0.35 \
+  --min-contact 0.2 \
+  --action-mode residual-current \
+  --output artifacts/datasets/phase2_contact_bc_near_contact_residual_current/phase2_contact_bc_near_contact_residual_current_dataset.jsonl
+```
+
+Result:
+
+```text
+samples: 3187
+traces: 14
+observation_dim: 37
+action_dim: 7
+active_success_samples: 1
+strict_success_samples: 0
+```
+
+Prepared wrapper:
+
+```bash
+scripts/run_phase2_contact_bc_near_contact_residual_current_smoke_gate.sh
+```
+
+This dataset is not a final insertion-success dataset. It is a better candidate for training a stabilization prior than the 314-sample best-window dataset, because it covers more near-contact states and trajectories.

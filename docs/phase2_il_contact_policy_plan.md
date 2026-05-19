@@ -294,6 +294,38 @@ Interpretation:
 
 The available mainline demonstrations are useful for approach and near-contact retention, but they do not contain successful target-gate insertion labels. This explains why one-step BC can fit the dataset and still destabilize after handoff: the data has many near-contact states, but no clean examples of the final successful stabilization behavior under the current target gate.
 
+Prepared a larger near-contact residual-current dataset for a stabilization-prior smoke:
+
+```bash
+python3 scripts/extract_contact_demo_dataset.py \
+  --since 2026-05-17T00-00-00Z \
+  --task-contains JointPos \
+  --max-lateral 0.015 \
+  --max-axial 0.060 \
+  --max-rot 0.35 \
+  --min-contact 0.2 \
+  --action-mode residual-current \
+  --output artifacts/datasets/phase2_contact_bc_near_contact_residual_current/phase2_contact_bc_near_contact_residual_current_dataset.jsonl
+```
+
+Result:
+
+```text
+samples: 3187
+traces: 14
+active_success_samples: 1
+strict_success_samples: 0
+action_mode: residual-current
+```
+
+Remote wrapper:
+
+```bash
+scripts/run_phase2_contact_bc_near_contact_residual_current_smoke_gate.sh
+```
+
+This is the next better learned-policy smoke than the 314-sample best-window run, but its success criterion should be reduced post-handoff degradation or sustained near-contact, not strict insertion success.
+
 ## GPU Policy
 
 Do not open GPU for dataset extraction; it is local.
