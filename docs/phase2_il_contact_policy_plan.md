@@ -260,6 +260,40 @@ The first residual-current remote attempt on 2026-05-19 did not reach training. 
 
 Do not repeatedly retry this run until either the Brev create-path stability improves or the next paid run is explicitly worth the remaining risk.
 
+## Demonstration Coverage Audit
+
+Added:
+
+```bash
+python3 scripts/analyze_contact_demo_coverage.py \
+  --output-md experiments/2026-05-19_phase2_contact_demo_coverage.md \
+  --output-json artifacts/analysis/phase2_contact_demo_coverage.json
+```
+
+Default scope:
+
+```text
+task filter: JointPos
+since: 2026-05-17T00-00-00Z
+target gate: xy<5mm, z<45mm, rot<0.18rad, contact>=0.5
+near gate: xy<15mm, z<60mm, rot<0.35rad, contact>=0.2
+```
+
+Result:
+
+```text
+traces: 18
+steps: 28823
+target-gate passing steps: 0
+traces with target-gate steps: 0
+near-contact steps: 3227
+traces with near-contact steps: 14
+```
+
+Interpretation:
+
+The available mainline demonstrations are useful for approach and near-contact retention, but they do not contain successful target-gate insertion labels. This explains why one-step BC can fit the dataset and still destabilize after handoff: the data has many near-contact states, but no clean examples of the final successful stabilization behavior under the current target gate.
+
 ## GPU Policy
 
 Do not open GPU for dataset extraction; it is local.
