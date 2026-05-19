@@ -87,6 +87,14 @@ The first learned-policy contact smokes are also complete:
 
 Interpretation: the BC dataset/checkpoint/evaluation path works, but the current one-step MLP BC policy does not stabilize final contact after handoff. The next learned-policy step should be a residual or temporally conditioned final-contact policy with richer post-contact demonstrations, not another unchanged BC rerun. See [experiments/2026-05-18_phase2_contact_bc_smoke.md](experiments/2026-05-18_phase2_contact_bc_smoke.md) and [docs/phase2_il_contact_policy_plan.md](docs/phase2_il_contact_policy_plan.md).
 
+The latest local demonstration audit shows why the first BC policy was weak:
+
+- Mainline `JointPos` traces audited: `18`
+- Near-contact steps: `3227`
+- Strict/target gate passing steps: `0`
+
+Interpretation: the archive is useful for learning a near-contact stabilization prior, but it is not yet a successful insertion-demonstration dataset. A larger residual-current near-contact dataset has been prepared locally with `3187` samples. The next learned-policy GPU run, if used, should evaluate sustained near-contact and post-handoff degradation, not only `success_step`.
+
 ## V1 scope
 
 The first version is intentionally narrow:
@@ -505,10 +513,17 @@ The comparison should answer whether Cartesian end-effector control actually imp
 
 The main next implementation track is documented in [phase2_il_contact_policy_plan.md](docs/phase2_il_contact_policy_plan.md). The local-first flow is:
 
+- audit demonstration coverage with `scripts/analyze_contact_demo_coverage.py`
 - extract contact-phase samples from existing scripted traces with `scripts/extract_contact_demo_dataset.py`
 - train a small BC smoke policy with `scripts/train_contact_bc_policy.py`
-- evaluate the BC checkpoint with `scripts/evaluate_contact_bc_policy.py`
+- evaluate the BC checkpoint with `scripts/evaluate_contact_bc_policy.py`, including near-contact fraction and post-handoff degradation
 - only then open GPU for a short learned-policy evaluation or additional demonstration collection
+
+Prepared next learned-policy wrapper:
+
+```bash
+RCA_GATE_PROFILE=cheap scripts/run_phase2_contact_bc_near_contact_residual_current_smoke_gate.sh
+```
 
 ## Phase-1 reproducibility additions
 
