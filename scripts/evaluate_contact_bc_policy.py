@@ -124,6 +124,34 @@ def _tensor_list(tensor: torch.Tensor) -> list[float]:
     return [float(x) for x in tensor.detach().cpu().tolist()]
 
 
+def _load_trace_actions(path: str, *, start_step: int, end_step: int | None, action_dim: int) -> list[dict]:
+    with open(path, "r", encoding="utf-8") as f:
+        trace = json.load(f)
+    actions: list[dict] = []
+    for index, step in enumerate(trace.get("steps") or []):
+        raw_source_step = step.get("step")
+        source_step = int(raw_source_step if raw_source_step is not None else index)
+        if source_step < start_step:
+            continue
+        if end_step is not None and source_step > end_step:
+            continue
+        raw_action = step.get("raw_action")
+        if not isinstance(raw_action, list):
+            continue
+        if len(raw_action) != action_dim:
+            raise RuntimeError(f"trace action_dim={len(raw_action)} does not match env action_dim={action_dim} at step={source_step}")
+        actions.append(
+            {
+                "source_step": source_step,
+                "phase": str(step.get("phase") or ""),
+                "raw_action": [float(x) for x in raw_action],
+            }
+        )
+    if not actions:
+        raise RuntimeError(f"no replayable actions found in {path} for steps [{start_step}, {end_step}]")
+    return actions
+
+
 def _strict_miss_score(
     lateral: torch.Tensor,
     axial: torch.Tensor,
@@ -210,6 +238,9 @@ parser.add_argument("--success-rot-tol", type=float, default=0.18)
 parser.add_argument("--success-min-contact-force", type=float, default=0.5)
 parser.add_argument("--max-action-delta", type=float, default=0.05, help="Clamp 7D joint-position actions around current joints.")
 parser.add_argument("--joint-limit-margin", type=float, default=0.005)
+parser.add_argument("--preload-trace-json", type=str, default=None, help="Optional scripted trace JSON to replay before BC control.")
+parser.add_argument("--preload-trace-start-step", type=int, default=0, help="First source trace step to replay.")
+parser.add_argument("--preload-trace-end-step", type=int, default=None, help="Last source trace step to replay.")
 parser.add_argument("--summary-json", type=str, default=None)
 parser.add_argument("--trace-json", type=str, default=None)
 add_launcher_args(parser)
@@ -306,7 +337,102 @@ def main() -> None:
         except KeyError:
             contact_sensor_cfg = None
 
+        def read_metrics() -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+            lateral_t, axial_t, rot_t = mdp.insertion_metrics(env_unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg)
+            if contact_sensor_cfg is not None:
+                contact_t = mdp.peg_contact_force_magnitude(env_unwrapped, sensor_cfg=contact_sensor_cfg).squeeze(-1)
+            else:
+                contact_t = torch.zeros_like(lateral_t)
+            return lateral_t, axial_t, rot_t, contact_t
+
         trace_rows: list[dict] = []
+        preload_steps_executed = 0
+        preload_success_step = None
+        preload_best_strict_miss_score = None
+        preload_best_strict_miss_score_step = None
+        handoff_lateral = handoff_axial = handoff_rot = handoff_contact_force = handoff_strict_miss_score = None
+
+        if args_cli.preload_trace_json:
+            preload_actions = _load_trace_actions(
+                args_cli.preload_trace_json,
+                start_step=args_cli.preload_trace_start_step,
+                end_step=args_cli.preload_trace_end_step,
+                action_dim=env.action_space.shape[-1],
+            )
+            preload_best_strict_miss_score = float("inf")
+            print(
+                f"[BC-EVAL] replaying preload trace actions={len(preload_actions)} "
+                f"source={args_cli.preload_trace_json}",
+                flush=True,
+            )
+            num_envs = int(getattr(env_unwrapped, "num_envs", args_cli.num_envs or 1))
+            for replay_index, replay in enumerate(preload_actions):
+                action = torch.as_tensor(replay["raw_action"], device=env_unwrapped.device, dtype=torch.float32)
+                action = action.unsqueeze(0).repeat(num_envs, 1)
+                env.step(action)
+                lateral, axial, rot, contact_force = read_metrics()
+                strict_miss = _strict_miss_score(
+                    lateral,
+                    axial,
+                    rot,
+                    contact_force,
+                    xy_tol=args_cli.success_xy_tol,
+                    z_tol=args_cli.success_z_tol,
+                    rot_tol=args_cli.success_rot_tol,
+                    min_contact=args_cli.success_min_contact_force,
+                )
+                success = (
+                    (lateral < args_cli.success_xy_tol)
+                    & (axial < args_cli.success_z_tol)
+                    & (rot < args_cli.success_rot_tol)
+                    & (contact_force >= args_cli.success_min_contact_force)
+                )
+                miss_mean = strict_miss.mean().item()
+                if miss_mean < preload_best_strict_miss_score:
+                    preload_best_strict_miss_score = miss_mean
+                    preload_best_strict_miss_score_step = replay["source_step"]
+                if preload_success_step is None and success.any():
+                    preload_success_step = replay["source_step"]
+                preload_steps_executed += 1
+                if trace_rows is not None and args_cli.trace_json:
+                    trace_rows.append(
+                        {
+                            "stage": "preload",
+                            "eval_step": replay_index,
+                            "source_trace_step": replay["source_step"],
+                            "source_trace_phase": replay["phase"],
+                            "lateral": lateral[0].item(),
+                            "axial": axial[0].item(),
+                            "rot": rot[0].item(),
+                            "contact_force_magnitude": contact_force[0].item(),
+                            "strict_miss_score": strict_miss[0].item(),
+                            "success": bool(success[0].item()),
+                            "raw_action": replay["raw_action"],
+                        }
+                    )
+            lateral, axial, rot, contact_force = read_metrics()
+            handoff_strict_miss = _strict_miss_score(
+                lateral,
+                axial,
+                rot,
+                contact_force,
+                xy_tol=args_cli.success_xy_tol,
+                z_tol=args_cli.success_z_tol,
+                rot_tol=args_cli.success_rot_tol,
+                min_contact=args_cli.success_min_contact_force,
+            )
+            handoff_lateral = lateral.mean().item()
+            handoff_axial = axial.mean().item()
+            handoff_rot = rot.mean().item()
+            handoff_contact_force = contact_force.mean().item()
+            handoff_strict_miss_score = handoff_strict_miss.mean().item()
+            print(
+                f"[BC-EVAL] handoff lateral={handoff_lateral:.4f} axial={handoff_axial:.4f} "
+                f"rot={handoff_rot:.4f} contact={handoff_contact_force:.3f} "
+                f"miss={handoff_strict_miss_score:.4f}",
+                flush=True,
+            )
+
         success_step = None
         initial_lateral = initial_axial = initial_rot = None
         final_lateral = final_axial = final_rot = final_success_rate = None
@@ -344,11 +470,7 @@ def main() -> None:
 
             env.step(actions)
 
-            lateral, axial, rot = mdp.insertion_metrics(env_unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg)
-            if contact_sensor_cfg is not None:
-                contact_force = mdp.peg_contact_force_magnitude(env_unwrapped, sensor_cfg=contact_sensor_cfg).squeeze(-1)
-            else:
-                contact_force = torch.zeros_like(lateral)
+            lateral, axial, rot, contact_force = read_metrics()
             success = (
                 (lateral < args_cli.success_xy_tol)
                 & (axial < args_cli.success_z_tol)
@@ -409,6 +531,8 @@ def main() -> None:
             if args_cli.trace_json:
                 trace_rows.append(
                     {
+                        "stage": "bc",
+                        "eval_step": step,
                         "step": step,
                         "lateral": lateral[0].item(),
                         "axial": axial[0].item(),
@@ -437,6 +561,19 @@ def main() -> None:
             "seed": args_cli.seed,
             "steps_requested": args_cli.steps,
             "success_step": success_step,
+            "bc_success_step": success_step,
+            "preload_success_step": preload_success_step,
+            "preload_trace_json": os.path.abspath(args_cli.preload_trace_json) if args_cli.preload_trace_json else None,
+            "preload_trace_start_step": args_cli.preload_trace_start_step if args_cli.preload_trace_json else None,
+            "preload_trace_end_step": args_cli.preload_trace_end_step if args_cli.preload_trace_json else None,
+            "preload_steps_executed": preload_steps_executed,
+            "preload_best_strict_miss_score": preload_best_strict_miss_score,
+            "preload_best_strict_miss_score_step": preload_best_strict_miss_score_step,
+            "handoff_lateral": handoff_lateral,
+            "handoff_axial": handoff_axial,
+            "handoff_rot": handoff_rot,
+            "handoff_contact_force_magnitude": handoff_contact_force,
+            "handoff_strict_miss_score": handoff_strict_miss_score,
             "initial_lateral": initial_lateral,
             "initial_axial": initial_axial,
             "initial_rot": initial_rot,

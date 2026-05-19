@@ -227,3 +227,27 @@ Selected windows:
 ```
 
 This is intentionally a contact-refinement dataset. It should not be evaluated as a full reset-to-insertion policy without either an approach stage or staged initialization.
+
+Implemented the staged option in `scripts/evaluate_contact_bc_policy.py`:
+
+```text
+--preload-trace-json
+--preload-trace-start-step
+--preload-trace-end-step
+```
+
+Prepared first staged handoff:
+
+```text
+preload trace: artifacts/evaluations/scripted/2026-05-17T23-32-18Z/seed_42_trace.json
+preload end step: 1543
+handoff state from trace: lateral 0.00520, axial 0.04126, rot 0.18121, contact 0.52982
+```
+
+Prepared guarded wrapper:
+
+```bash
+scripts/run_phase2_contact_bc_best_window_smoke_gate.sh
+```
+
+The next paid run should train the `best-window` BC checkpoint and evaluate it only after the scripted replay handoff. The pass condition is improvement over the naive BC smoke's `best_strict_miss_score=21.06919`, not immediate strict success.

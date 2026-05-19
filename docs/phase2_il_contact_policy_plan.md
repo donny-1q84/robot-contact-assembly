@@ -174,13 +174,23 @@ selected windows:
 
 Important: this profile is a contact-refinement dataset. It should be evaluated with either a scripted approach stage or a staged initialization near the selected contact window, not as a full reset-to-insertion policy.
 
+The evaluator now supports the staged version through:
+
+```text
+--preload-trace-json
+--preload-trace-start-step
+--preload-trace-end-step
+```
+
+The first staged handoff should replay `2026-05-17T23-32-18Z/seed_42_trace.json` through step `1543`, then switch from scripted replay to the BC policy.
+
 Prepared guarded remote wrapper:
 
 ```bash
 scripts/run_phase2_contact_bc_best_window_smoke_gate.sh
 ```
 
-Do not run it until the evaluation mode is changed to include an approach stage or near-contact initialization.
+This wrapper trains the best-window BC checkpoint and evaluates it with scripted trace preload through step `1543`, so it should be the next paid GPU run if we decide to compare learned refinement.
 
 Then collect more demonstrations by varying:
 
