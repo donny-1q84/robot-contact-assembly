@@ -451,3 +451,41 @@ Training could not be run locally because this machine's active Python does not 
 ```bash
 scripts/run_phase2_contact_bc_residual_current_smoke_gate.sh
 ```
+
+## Attempt 5: Residual-Current Remote Create Failure
+
+Date: 2026-05-19
+
+Goal:
+
+Run the prepared residual-current BC smoke on the same low-cost L4 instance type.
+
+Run dir:
+
+```text
+artifacts/gpu_gate/2026-05-19T06-14-46Z_isaac-phase2-contact-bc-residual-current-l4
+```
+
+Failure:
+
+```text
+error: unexpected EOF
+backend id observed during cleanup: rx7dirywd
+```
+
+Result:
+
+No BC training or Isaac evaluation ran. The failure occurred during Brev workspace creation.
+
+Cleanup:
+
+The guarded script deleted by both instance name and id. Independent post-run audit confirmed:
+
+```text
+No instances in org NCA-57cf-29515
+JSON: { "workspaces": null }
+```
+
+Decision:
+
+Do not immediately retry the residual-current run in a loop. The code path is prepared, but repeated Brev create-path EOFs are now a cost/risk issue rather than a robotics issue.

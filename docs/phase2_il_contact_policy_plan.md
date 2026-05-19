@@ -254,6 +254,12 @@ scripts/run_phase2_contact_bc_residual_current_smoke_gate.sh
 
 This tests whether predicting small joint corrections from the current state is more stable than predicting absolute joint targets.
 
+Remote status:
+
+The first residual-current remote attempt on 2026-05-19 did not reach training. Brev returned `unexpected EOF` during workspace creation and exposed backend id `rx7dirywd`; guarded cleanup deleted it and independent audit showed `"workspaces": null`.
+
+Do not repeatedly retry this run until either the Brev create-path stability improves or the next paid run is explicitly worth the remaining risk.
+
 ## GPU Policy
 
 Do not open GPU for dataset extraction; it is local.
