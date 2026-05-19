@@ -171,6 +171,20 @@ def _strict_miss_score(
     )
 
 
+def _near_contact_mask(
+    lateral: torch.Tensor,
+    axial: torch.Tensor,
+    rot: torch.Tensor,
+    contact_force: torch.Tensor,
+    *,
+    xy_tol: float,
+    z_tol: float,
+    rot_tol: float,
+    min_contact: float,
+) -> torch.Tensor:
+    return (lateral < xy_tol) & (axial < z_tol) & (rot < rot_tol) & (contact_force >= min_contact)
+
+
 def _make_observation(
     env_unwrapped,
     body_idx: int,
@@ -236,6 +250,10 @@ parser.add_argument("--success-xy-tol", type=float, default=0.005)
 parser.add_argument("--success-z-tol", type=float, default=0.045)
 parser.add_argument("--success-rot-tol", type=float, default=0.18)
 parser.add_argument("--success-min-contact-force", type=float, default=0.5)
+parser.add_argument("--near-contact-xy-tol", type=float, default=0.015)
+parser.add_argument("--near-contact-z-tol", type=float, default=0.060)
+parser.add_argument("--near-contact-rot-tol", type=float, default=0.35)
+parser.add_argument("--near-contact-min-force", type=float, default=0.2)
 parser.add_argument("--max-action-delta", type=float, default=0.05, help="Clamp 7D joint-position actions around current joints.")
 parser.add_argument("--joint-limit-margin", type=float, default=0.005)
 parser.add_argument("--preload-trace-json", type=str, default=None, help="Optional scripted trace JSON to replay before BC control.")
@@ -354,6 +372,7 @@ def main() -> None:
         preload_best_strict_miss_score = None
         preload_best_strict_miss_score_step = None
         handoff_lateral = handoff_axial = handoff_rot = handoff_contact_force = handoff_strict_miss_score = None
+        handoff_near_contact_rate = None
 
         if args_cli.preload_trace_json:
             preload_actions = _load_trace_actions(
@@ -390,6 +409,16 @@ def main() -> None:
                     & (rot < args_cli.success_rot_tol)
                     & (contact_force >= args_cli.success_min_contact_force)
                 )
+                near_contact = _near_contact_mask(
+                    lateral,
+                    axial,
+                    rot,
+                    contact_force,
+                    xy_tol=args_cli.near_contact_xy_tol,
+                    z_tol=args_cli.near_contact_z_tol,
+                    rot_tol=args_cli.near_contact_rot_tol,
+                    min_contact=args_cli.near_contact_min_force,
+                )
                 miss_mean = strict_miss.mean().item()
                 if miss_mean < preload_best_strict_miss_score:
                     preload_best_strict_miss_score = miss_mean
@@ -409,6 +438,7 @@ def main() -> None:
                             "rot": rot[0].item(),
                             "contact_force_magnitude": contact_force[0].item(),
                             "strict_miss_score": strict_miss[0].item(),
+                            "near_contact": bool(near_contact[0].item()),
                             "success": bool(success[0].item()),
                             "raw_action": replay["raw_action"],
                         }
@@ -429,24 +459,43 @@ def main() -> None:
             handoff_rot = rot.mean().item()
             handoff_contact_force = contact_force.mean().item()
             handoff_strict_miss_score = handoff_strict_miss.mean().item()
+            handoff_near_contact = _near_contact_mask(
+                lateral,
+                axial,
+                rot,
+                contact_force,
+                xy_tol=args_cli.near_contact_xy_tol,
+                z_tol=args_cli.near_contact_z_tol,
+                rot_tol=args_cli.near_contact_rot_tol,
+                min_contact=args_cli.near_contact_min_force,
+            )
+            handoff_near_contact_rate = handoff_near_contact.float().mean().item()
             print(
                 f"[BC-EVAL] handoff lateral={handoff_lateral:.4f} axial={handoff_axial:.4f} "
                 f"rot={handoff_rot:.4f} contact={handoff_contact_force:.3f} "
-                f"miss={handoff_strict_miss_score:.4f}",
+                f"miss={handoff_strict_miss_score:.4f} near={handoff_near_contact_rate:.3f}",
                 flush=True,
             )
 
         success_step = None
         initial_lateral = initial_axial = initial_rot = None
-        final_lateral = final_axial = final_rot = final_success_rate = None
+        final_lateral = final_axial = final_rot = final_success_rate = final_strict_miss_score = None
+        final_near_contact_rate = None
         best_lateral = best_axial = best_rot = float("inf")
         best_lateral_step = best_axial_step = best_rot_step = None
         best_strict_miss_score = float("inf")
         best_strict_miss_score_step = None
         max_contact_force = 0.0
         max_contact_force_step = None
+        near_contact_step_count = 0
+        near_contact_rate_sum = 0.0
+        longest_near_contact_streak = 0
+        current_near_contact_streak = 0
+        first_near_contact_step = None
+        bc_steps_executed = 0
 
         for step in range(args_cli.steps):
+            bc_steps_executed = step + 1
             obs, fields = _make_observation(
                 env_unwrapped,
                 body_idx,
@@ -503,6 +552,17 @@ def main() -> None:
                 min_contact=args_cli.success_min_contact_force,
             )
             strict_miss_mean = strict_miss.mean().item()
+            near_contact = _near_contact_mask(
+                lateral,
+                axial,
+                rot,
+                contact_force,
+                xy_tol=args_cli.near_contact_xy_tol,
+                z_tol=args_cli.near_contact_z_tol,
+                rot_tol=args_cli.near_contact_rot_tol,
+                min_contact=args_cli.near_contact_min_force,
+            )
+            near_contact_rate = near_contact.float().mean().item()
 
             if step == 0:
                 initial_lateral = lateral_mean
@@ -512,6 +572,8 @@ def main() -> None:
             final_axial = axial_mean
             final_rot = rot_mean
             final_success_rate = success_rate
+            final_strict_miss_score = strict_miss_mean
+            final_near_contact_rate = near_contact_rate
             if lateral_mean < best_lateral:
                 best_lateral = lateral_mean
                 best_lateral_step = step
@@ -529,11 +591,21 @@ def main() -> None:
                 max_contact_force_step = step
             if success_step is None and success.any():
                 success_step = step
+            if near_contact.any():
+                near_contact_step_count += 1
+                near_contact_rate_sum += near_contact_rate
+                current_near_contact_streak += 1
+                longest_near_contact_streak = max(longest_near_contact_streak, current_near_contact_streak)
+                if first_near_contact_step is None:
+                    first_near_contact_step = step
+            else:
+                current_near_contact_streak = 0
 
             if step % 25 == 0 or step == args_cli.steps - 1 or success_step == step:
                 print(
                     f"[BC-EVAL] step={step:04d} lateral={lateral_mean:.4f} axial={axial_mean:.4f} "
                     f"rot={rot_mean:.4f} contact={contact_mean:.3f} miss={strict_miss_mean:.4f} "
+                    f"near={near_contact_rate:.3f} "
                     f"success_rate={success_rate:.3f}",
                     flush=True,
                 )
@@ -549,6 +621,7 @@ def main() -> None:
                         "rot": rot[0].item(),
                         "contact_force_magnitude": contact_force[0].item(),
                         "strict_miss_score": strict_miss[0].item(),
+                        "near_contact": bool(near_contact[0].item()),
                         "success": bool(success[0].item()),
                         "raw_action": _tensor_list(actions[0]),
                         "policy_output": _tensor_list(policy_output[0]),
@@ -567,11 +640,21 @@ def main() -> None:
                 break
 
         env.close()
+        mean_near_contact_rate_on_near_steps = (
+            near_contact_rate_sum / max(1, near_contact_step_count) if near_contact_step_count else 0.0
+        )
+        best_vs_handoff_strict_miss_delta = None
+        final_vs_handoff_strict_miss_delta = None
+        if handoff_strict_miss_score is not None:
+            best_vs_handoff_strict_miss_delta = best_strict_miss_score - handoff_strict_miss_score
+            if final_strict_miss_score is not None:
+                final_vs_handoff_strict_miss_delta = final_strict_miss_score - handoff_strict_miss_score
         summary = {
             "task": args_cli.task,
             "checkpoint": os.path.abspath(args_cli.checkpoint),
             "seed": args_cli.seed,
             "steps_requested": args_cli.steps,
+            "bc_steps_executed": bc_steps_executed,
             "success_step": success_step,
             "bc_success_step": success_step,
             "preload_success_step": preload_success_step,
@@ -586,6 +669,7 @@ def main() -> None:
             "handoff_rot": handoff_rot,
             "handoff_contact_force_magnitude": handoff_contact_force,
             "handoff_strict_miss_score": handoff_strict_miss_score,
+            "handoff_near_contact_rate": handoff_near_contact_rate,
             "initial_lateral": initial_lateral,
             "initial_axial": initial_axial,
             "initial_rot": initial_rot,
@@ -593,6 +677,8 @@ def main() -> None:
             "final_axial": final_axial,
             "final_rot": final_rot,
             "final_success_rate": final_success_rate,
+            "final_strict_miss_score": final_strict_miss_score,
+            "final_near_contact_rate": final_near_contact_rate,
             "best_lateral": best_lateral,
             "best_lateral_step": best_lateral_step,
             "best_axial": best_axial,
@@ -601,12 +687,23 @@ def main() -> None:
             "best_rot_step": best_rot_step,
             "best_strict_miss_score": best_strict_miss_score,
             "best_strict_miss_score_step": best_strict_miss_score_step,
+            "best_vs_handoff_strict_miss_delta": best_vs_handoff_strict_miss_delta,
+            "final_vs_handoff_strict_miss_delta": final_vs_handoff_strict_miss_delta,
+            "near_contact_step_count": near_contact_step_count,
+            "near_contact_fraction": near_contact_step_count / max(1, bc_steps_executed),
+            "near_contact_rate_mean_on_near_steps": mean_near_contact_rate_on_near_steps,
+            "longest_near_contact_streak": longest_near_contact_streak,
+            "first_near_contact_step": first_near_contact_step,
             "max_contact_force_magnitude": max_contact_force,
             "max_contact_force_magnitude_step": max_contact_force_step,
             "active_success_xy_tolerance": args_cli.success_xy_tol,
             "active_success_z_tolerance": args_cli.success_z_tol,
             "active_success_rot_tolerance": args_cli.success_rot_tol,
             "success_min_contact_force": args_cli.success_min_contact_force,
+            "near_contact_xy_tolerance": args_cli.near_contact_xy_tol,
+            "near_contact_z_tolerance": args_cli.near_contact_z_tol,
+            "near_contact_rot_tolerance": args_cli.near_contact_rot_tol,
+            "near_contact_min_contact_force": args_cli.near_contact_min_force,
             "obs_dim": obs_dim,
             "action_dim": action_dim,
             "action_mode": action_mode,

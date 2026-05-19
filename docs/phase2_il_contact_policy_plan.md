@@ -326,6 +326,27 @@ scripts/run_phase2_contact_bc_near_contact_residual_current_smoke_gate.sh
 
 This is the next better learned-policy smoke than the 314-sample best-window run, but its success criterion should be reduced post-handoff degradation or sustained near-contact, not strict insertion success.
 
+Evaluator update:
+
+`scripts/evaluate_contact_bc_policy.py` now reports near-contact stabilization metrics in addition to strict success:
+
+```text
+handoff_near_contact_rate
+final_near_contact_rate
+near_contact_step_count
+near_contact_fraction
+longest_near_contact_streak
+first_near_contact_step
+best_vs_handoff_strict_miss_delta
+final_vs_handoff_strict_miss_delta
+```
+
+For the next residual-current smoke, a useful result is not necessarily `success_step != null`. A useful result is:
+
+```text
+near_contact_fraction improves and best/final miss does not degrade badly relative to handoff
+```
+
 ## GPU Policy
 
 Do not open GPU for dataset extraction; it is local.
