@@ -679,3 +679,63 @@ scripts/run_phase2_contact_handoff_hold_gate.sh
 Status:
 
 The harness is implemented and syntax-checked, but not yet run on GPU.
+
+## Local Follow-Up: Temporal Residual-Current Dataset
+
+Implemented temporal-context support in the BC dataset, trainer, and evaluator.
+
+Code changes:
+
+```text
+scripts/extract_contact_demo_dataset.py
+scripts/train_contact_bc_policy.py
+scripts/evaluate_contact_bc_policy.py
+scripts/run_phase2_contact_bc_temporal_residual_current_smoke_gate.sh
+```
+
+New dataset option:
+
+```text
+--history-steps 2
+```
+
+Generated local dataset:
+
+```bash
+python3 scripts/extract_contact_demo_dataset.py \
+  --since 2026-05-17T00-00-00Z \
+  --task-contains JointPos \
+  --max-lateral 0.015 \
+  --max-axial 0.060 \
+  --max-rot 0.35 \
+  --min-contact 0.2 \
+  --action-mode residual-current \
+  --history-steps 2 \
+  --output artifacts/datasets/phase2_contact_bc_near_contact_temporal_residual_current/phase2_contact_bc_near_contact_temporal_residual_current_dataset.jsonl
+```
+
+Local result:
+
+```text
+samples: 3187
+observation_dim: 77
+action_dim: 7
+observation_mode: temporal-history
+history_steps: 2
+active_success_samples: 1
+strict_success_samples: 0
+```
+
+Interpretation:
+
+The previous residual-current run used a memoryless `37D` observation and diverged after handoff. This new dataset keeps the same near-contact sample set but adds two previous-step snapshots of action, pose error, contact force, and insertion metrics. It gives the next BC policy a chance to infer drift direction and contact trend instead of reacting only to the instantaneous state.
+
+Prepared guarded command:
+
+```bash
+scripts/run_phase2_contact_bc_temporal_residual_current_smoke_gate.sh
+```
+
+Status:
+
+The dataset and wrapper are prepared and syntax-checked, but not yet run on GPU.

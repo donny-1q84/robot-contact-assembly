@@ -52,6 +52,14 @@ def main() -> int:
     if len(action_modes) != 1:
         raise SystemExit(f"dataset mixes action modes: {sorted(action_modes)}")
     action_mode = next(iter(action_modes))
+    observation_modes = {str(sample.get("observation_mode", "base")) for sample in samples}
+    if len(observation_modes) != 1:
+        raise SystemExit(f"dataset mixes observation modes: {sorted(observation_modes)}")
+    observation_mode = next(iter(observation_modes))
+    history_steps_values = {int(sample.get("history_steps", 0) or 0) for sample in samples}
+    if len(history_steps_values) != 1:
+        raise SystemExit(f"dataset mixes history_steps values: {sorted(history_steps_values)}")
+    history_steps = next(iter(history_steps_values))
 
     obs = torch.tensor([sample["observation"] for sample in samples], dtype=torch.float32)
     act = torch.tensor([sample["action"] for sample in samples], dtype=torch.float32)
@@ -144,6 +152,8 @@ def main() -> int:
         "best_val_loss": best_val,
         "dataset": str(args.dataset),
         "action_mode": action_mode,
+        "observation_mode": observation_mode,
+        "history_steps": history_steps,
     }
     torch.save(checkpoint, args.output)
     metadata_path = args.output.with_suffix(".metadata.json")
@@ -158,6 +168,8 @@ def main() -> int:
                 "obs_dim": int(obs.shape[1]),
                 "action_dim": int(act.shape[1]),
                 "action_mode": action_mode,
+                "observation_mode": observation_mode,
+                "history_steps": history_steps,
                 "hidden_dim": args.hidden_dim,
                 "layers": args.layers,
                 "best_val_loss": best_val,

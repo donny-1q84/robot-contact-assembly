@@ -27,6 +27,17 @@ OBS_FIELDS: tuple[tuple[str, int], ...] = (
     ("joint_limit_margin", 7),
 )
 
+HISTORY_FIELDS: tuple[tuple[str, int], ...] = (
+    ("prev_raw_action", 7),
+    ("prev_pos_error", 3),
+    ("prev_axis_angle_error", 3),
+    ("prev_contact_force_socket", 3),
+    ("prev_contact_force_magnitude", 1),
+    ("prev_lateral", 1),
+    ("prev_axial", 1),
+    ("prev_rot", 1),
+)
+
 
 @dataclass(frozen=True)
 class FilterCfg:
@@ -45,6 +56,7 @@ class FilterCfg:
     strict_min_contact: float
     window_radius: int
     max_windows: int
+    history_steps: int
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -76,7 +88,7 @@ def _as_float_list(value: Any, expected_len: int, *, fill: float = 0.0) -> list[
         return None
 
 
-def _obs_vector(step: dict[str, Any]) -> list[float] | None:
+def _base_obs_vector(step: dict[str, Any]) -> list[float] | None:
     values: list[float] = []
     for field, size in OBS_FIELDS:
         vector = _as_float_list(step.get(field), size)
@@ -84,6 +96,42 @@ def _obs_vector(step: dict[str, Any]) -> list[float] | None:
             return None
         values.extend(vector)
     return values
+
+
+def observation_fields(history_steps: int) -> list[dict[str, int | str]]:
+    fields: list[dict[str, int | str]] = [{"name": name, "size": size} for name, size in OBS_FIELDS]
+    for lag in range(1, max(0, history_steps) + 1):
+        for name, size in HISTORY_FIELDS:
+            fields.append({"name": f"{name}_t-{lag}", "size": size})
+    return fields
+
+
+def _history_vector(steps: list[Any], index: int, cfg: FilterCfg) -> list[float] | None:
+    if cfg.history_steps <= 0:
+        return []
+    action_dim = cfg.action_dim or 7
+    values: list[float] = []
+    for lag in range(1, cfg.history_steps + 1):
+        prev_index = index - lag
+        prev = steps[prev_index] if prev_index >= 0 and isinstance(steps[prev_index], dict) else {}
+        for field, size in HISTORY_FIELDS:
+            source_field = "raw_action" if field == "prev_raw_action" else field.removeprefix("prev_")
+            expected_size = action_dim if source_field == "raw_action" else size
+            vector = _as_float_list(prev.get(source_field), expected_size)
+            if vector is None:
+                return None
+            values.extend(vector)
+    return values
+
+
+def _obs_vector(step: dict[str, Any], *, steps: list[Any], index: int, cfg: FilterCfg) -> list[float] | None:
+    base = _base_obs_vector(step)
+    if base is None:
+        return None
+    history = _history_vector(steps, index, cfg)
+    if history is None:
+        return None
+    return base + history
 
 
 def _strict_miss_score(step: dict[str, Any], cfg: FilterCfg) -> float:
@@ -129,7 +177,7 @@ def _select_best_windows(paths: list[Path], cfg: FilterCfg) -> tuple[dict[Path, 
         for index, step in enumerate(steps):
             if not isinstance(step, dict) or not _passes_filter(step, summary, cfg):
                 continue
-            if _obs_vector(step) is None:
+            if _base_obs_vector(step) is None:
                 continue
             scored_steps.append((_strict_miss_score(step, cfg), index, step))
         if not scored_steps:
@@ -225,7 +273,7 @@ def _extract(paths: Iterable[Path], cfg: FilterCfg) -> tuple[list[dict[str, Any]
                 continue
             if not isinstance(step, dict) or not _passes_filter(step, summary, cfg):
                 continue
-            obs = _obs_vector(step)
+            obs = _obs_vector(step, steps=steps, index=index, cfg=cfg)
             if obs is None:
                 skipped_missing_obs += 1
                 continue
@@ -240,6 +288,8 @@ def _extract(paths: Iterable[Path], cfg: FilterCfg) -> tuple[list[dict[str, Any]
                     "observation": obs,
                     "action": action,
                     "action_mode": cfg.action_mode,
+                    "observation_mode": "base" if cfg.history_steps == 0 else "temporal-history",
+                    "history_steps": cfg.history_steps,
                     "sample_weight": _sample_weight(miss, is_active_success, is_strict_success),
                     "strict_miss_score": miss,
                     "active_success": is_active_success,
@@ -269,7 +319,7 @@ def _extract(paths: Iterable[Path], cfg: FilterCfg) -> tuple[list[dict[str, Any]
         "num_samples": len(samples),
         "observation_dim": len(samples[0]["observation"]) if samples else 0,
         "action_dim": len(samples[0]["action"]) if samples else 0,
-        "observation_fields": [{"name": name, "size": size} for name, size in OBS_FIELDS],
+        "observation_fields": observation_fields(cfg.history_steps),
         "filter": {
             "profile": cfg.profile,
             "action_mode": cfg.action_mode,
@@ -286,7 +336,10 @@ def _extract(paths: Iterable[Path], cfg: FilterCfg) -> tuple[list[dict[str, Any]
             "strict_min_contact": cfg.strict_min_contact,
             "window_radius": cfg.window_radius,
             "max_windows": cfg.max_windows,
+            "history_steps": cfg.history_steps,
         },
+        "observation_mode": "base" if cfg.history_steps == 0 else "temporal-history",
+        "history_steps": cfg.history_steps,
         "active_success_samples": sum(1 for sample in samples if sample["active_success"]),
         "strict_success_samples": sum(1 for sample in samples if sample["strict_success"]),
         "skipped_missing_obs": skipped_missing_obs,
@@ -348,6 +401,12 @@ def main() -> int:
     parser.add_argument("--window-radius", type=int, default=80, help="Step radius around each selected best-window center.")
     parser.add_argument("--max-windows", type=int, default=2, help="Maximum best windows to keep. Use 0 to keep all.")
     parser.add_argument(
+        "--history-steps",
+        type=int,
+        default=0,
+        help="Append this many previous-step action/error/contact snapshots to each observation.",
+    )
+    parser.add_argument(
         "--phases",
         type=str,
         default="polish,settle,contact-retention,insert",
@@ -382,6 +441,7 @@ def main() -> int:
         strict_min_contact=args.strict_min_contact,
         window_radius=args.window_radius,
         max_windows=args.max_windows,
+        history_steps=max(0, args.history_steps),
     )
 
     paths = args.traces or _trace_paths(args.root, args.since)

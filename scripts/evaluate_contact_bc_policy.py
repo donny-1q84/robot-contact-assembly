@@ -14,7 +14,7 @@ import warp as wp
 
 from isaaclab_tasks.utils import add_launcher_args, launch_simulation, resolve_task_config
 
-from extract_contact_demo_dataset import OBS_FIELDS
+from extract_contact_demo_dataset import HISTORY_FIELDS, OBS_FIELDS
 
 
 SceneEntityCfg = None
@@ -122,6 +122,57 @@ def _build_model(obs_dim: int, action_dim: int, hidden_dim: int, layers: int):
 
 def _tensor_list(tensor: torch.Tensor) -> list[float]:
     return [float(x) for x in tensor.detach().cpu().tolist()]
+
+
+def _push_history(
+    action: torch.Tensor,
+    fields: dict[str, torch.Tensor],
+    history_actions: list[torch.Tensor],
+    history_fields: list[dict[str, torch.Tensor]],
+    *,
+    max_history: int,
+) -> None:
+    if max_history <= 0:
+        return
+    history_actions.append(action.detach().clone())
+    history_fields.append({key: value.detach().clone() for key, value in fields.items()})
+    del history_actions[:-max_history]
+    del history_fields[:-max_history]
+
+
+def _append_history(
+    base_obs: torch.Tensor,
+    history_actions: list[torch.Tensor],
+    history_fields: list[dict[str, torch.Tensor]],
+    *,
+    history_steps: int,
+    action_dim: int,
+) -> torch.Tensor:
+    if history_steps <= 0:
+        return base_obs
+    parts = [base_obs]
+    num_envs = base_obs.shape[0]
+    device = base_obs.device
+    dtype = base_obs.dtype
+    for lag in range(1, history_steps + 1):
+        history_index = -lag
+        has_history = len(history_actions) >= lag and len(history_fields) >= lag
+        fields = history_fields[history_index] if has_history else {}
+        for field, size in HISTORY_FIELDS:
+            if field == "prev_raw_action":
+                if has_history:
+                    value = history_actions[history_index]
+                else:
+                    value = torch.zeros((num_envs, action_dim), device=device, dtype=dtype)
+            else:
+                source_field = field.removeprefix("prev_")
+                value = fields.get(source_field)
+                if value is None:
+                    value = torch.zeros((num_envs, size), device=device, dtype=dtype)
+            if value.ndim == 1:
+                value = value.unsqueeze(-1)
+            parts.append(value.to(device=device, dtype=dtype))
+    return torch.cat(parts, dim=-1)
 
 
 def _load_trace_actions(path: str, *, start_step: int, end_step: int | None, action_dim: int) -> list[dict]:
@@ -324,6 +375,8 @@ def main() -> None:
         action_dim = 0
         obs_mean = obs_std = action_mean = action_std = None
         action_mode = args_cli.controller
+        observation_mode = "base"
+        history_steps = 0
         if args_cli.controller == "bc":
             if not args_cli.checkpoint:
                 raise RuntimeError("--checkpoint is required when --controller=bc")
@@ -340,6 +393,10 @@ def main() -> None:
             action_mode = str(checkpoint.get("action_mode", "absolute"))
             if action_mode not in {"absolute", "residual-current"}:
                 raise RuntimeError(f"unsupported checkpoint action_mode={action_mode!r}")
+            observation_mode = str(checkpoint.get("observation_mode", "base"))
+            history_steps = int(checkpoint.get("history_steps", 0) or 0)
+            if observation_mode not in {"base", "temporal-history"}:
+                raise RuntimeError(f"unsupported checkpoint observation_mode={observation_mode!r}")
 
         env = gym.make(args_cli.task, cfg=env_cfg, render_mode=None)
         env_unwrapped = env.unwrapped
@@ -398,6 +455,8 @@ def main() -> None:
         handoff_lateral = handoff_axial = handoff_rot = handoff_contact_force = handoff_strict_miss_score = None
         handoff_near_contact_rate = None
         last_preload_action = None
+        history_actions: list[torch.Tensor] = []
+        history_fields: list[dict[str, torch.Tensor]] = []
 
         if args_cli.preload_trace_json:
             preload_actions = _load_trace_actions(
@@ -418,6 +477,23 @@ def main() -> None:
                 action = action.unsqueeze(0).repeat(num_envs, 1)
                 last_preload_action = action.clone()
                 env.step(action)
+                _, preload_fields = _make_observation(
+                    env_unwrapped,
+                    body_idx,
+                    peg_cfg,
+                    socket_cfg,
+                    contact_sensor_cfg,
+                    joint_ids_t,
+                    joint_limit_lower,
+                    joint_limit_upper,
+                )
+                _push_history(
+                    action,
+                    preload_fields,
+                    history_actions,
+                    history_fields,
+                    max_history=history_steps,
+                )
                 lateral, axial, rot, contact_force = read_metrics()
                 strict_miss = _strict_miss_score(
                     lateral,
@@ -536,6 +612,18 @@ def main() -> None:
             )
             if obs_dim == 0:
                 obs_dim = int(obs.shape[-1])
+            obs = _append_history(
+                obs,
+                history_actions,
+                history_fields,
+                history_steps=history_steps,
+                action_dim=env_action_dim,
+            )
+            if args_cli.controller == "bc" and obs.shape[-1] != obs_dim:
+                raise RuntimeError(
+                    f"constructed observation_dim={obs.shape[-1]} does not match checkpoint obs_dim={obs_dim}; "
+                    f"observation_mode={observation_mode} history_steps={history_steps}"
+                )
             joint_pos = fields["joint_pos"]
             if args_cli.controller == "bc":
                 if model is None or obs_mean is None or obs_std is None or action_mean is None or action_std is None:
@@ -679,6 +767,23 @@ def main() -> None:
                         "joint_limit_margin": _tensor_list(fields["joint_limit_margin"][0]),
                     }
                 )
+            _, post_step_fields = _make_observation(
+                env_unwrapped,
+                body_idx,
+                peg_cfg,
+                socket_cfg,
+                contact_sensor_cfg,
+                joint_ids_t,
+                joint_limit_lower,
+                joint_limit_upper,
+            )
+            _push_history(
+                actions,
+                post_step_fields,
+                history_actions,
+                history_fields,
+                max_history=history_steps,
+            )
             if success_step == step:
                 break
 
@@ -751,6 +856,8 @@ def main() -> None:
             "obs_dim": obs_dim,
             "action_dim": action_dim,
             "action_mode": action_mode,
+            "observation_mode": observation_mode,
+            "history_steps": history_steps,
             "max_action_delta": args_cli.max_action_delta,
             "deterministic_reset": args_cli.deterministic_reset,
             "socket_pos_override": list(args_cli.socket_pos) if args_cli.socket_pos is not None else None,

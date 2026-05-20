@@ -468,3 +468,49 @@ artifacts/evaluations/contact_handoff_baseline/
 ```
 
 Status: implemented and syntax-checked, but not yet run on GPU. Use it only when a paid baseline comparison is worth opening a new instance.
+
+Implemented local harness for step 2:
+
+```bash
+python3 scripts/extract_contact_demo_dataset.py \
+  --since 2026-05-17T00-00-00Z \
+  --task-contains JointPos \
+  --max-lateral 0.015 \
+  --max-axial 0.060 \
+  --max-rot 0.35 \
+  --min-contact 0.2 \
+  --action-mode residual-current \
+  --history-steps 2 \
+  --output artifacts/datasets/phase2_contact_bc_near_contact_temporal_residual_current/phase2_contact_bc_near_contact_temporal_residual_current_dataset.jsonl
+```
+
+Local result:
+
+```text
+samples: 3187
+observation_dim: 77
+action_dim: 7
+observation_mode: temporal-history
+history_steps: 2
+active_success_samples: 1
+strict_success_samples: 0
+```
+
+The additional observation terms are the two most recent snapshots of:
+
+```text
+raw_action
+pos_error
+axis_angle_error
+contact_force_socket
+contact_force_magnitude
+lateral / axial / rot
+```
+
+Prepared guarded wrapper:
+
+```bash
+scripts/run_phase2_contact_bc_temporal_residual_current_smoke_gate.sh
+```
+
+Status: dataset and wrapper are prepared and syntax-checked, but not yet run on GPU. This is a materially different learned-policy hypothesis than the failed one-step `37D` residual-current BC run.

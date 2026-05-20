@@ -110,6 +110,14 @@ scripts/run_phase2_contact_handoff_hold_gate.sh
 
 This will compare learned BC handoff against a non-learning `current-joint` stabilizer before spending more GPU time on new learned-policy variants.
 
+A temporal residual-current BC dataset is also prepared but not yet run:
+
+```bash
+scripts/run_phase2_contact_bc_temporal_residual_current_smoke_gate.sh
+```
+
+It uses the same `3187` near-contact samples as the latest residual-current BC run, but expands the observation from `37D` to `77D` by adding two previous-step snapshots of action, pose error, contact force, and insertion metrics.
+
 ## V1 scope
 
 The first version is intentionally narrow:
@@ -329,6 +337,7 @@ Current decision:
 - Preserve the strict-gate failures as diagnosis evidence.
 - Move the next implementation step to local-first IL/RL preparation, not another one-off heuristic or unchanged one-step BC run.
 - Use `scripts/run_phase2_contact_handoff_hold_gate.sh` as the next paid baseline only if a non-learning handoff comparison is needed.
+- Use `scripts/run_phase2_contact_bc_temporal_residual_current_smoke_gate.sh` only after deciding that the next paid learned-policy run should test temporal context.
 
 See [experiments/2026-05-14_phase2_guarded_gate_attempt.md](experiments/2026-05-14_phase2_guarded_gate_attempt.md) for the guarded-gate sequence and artifact paths. See [experiments/2026-05-17_phase2_near_success_diagnosis.md](experiments/2026-05-17_phase2_near_success_diagnosis.md) for the final scripted near-success diagnosis.
 
