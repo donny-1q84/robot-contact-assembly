@@ -426,6 +426,11 @@ main() {
   log "remote_root=${REMOTE_ROOT}"
   log "remote_compose_root=${REMOTE_COMPOSE_ROOT}"
 
+  if [[ "${GATE_COMMAND}" == "probe_only" ]]; then
+    log "probe-only gate completed"
+    return 0
+  fi
+
   log "bootstrapping workspace"
   bash "${SCRIPT_DIR}/bootstrap_brev_workspace.sh" "${INSTANCE_NAME}" "${REMOTE_ROOT}"
 
@@ -583,7 +588,7 @@ main() {
         "${BASELINE_EVAL_EXTRA_ARGS}"
       ;;
     *)
-      echo "[guarded-gate] unknown RCA_GATE_COMMAND=${GATE_COMMAND}; use scripted_eval, scripted_socket_sweep, scripted_reach_sweep, action_calibration, calibration_then_scripted_eval, contact_bc_train, contact_bc_eval, contact_bc_smoke, or contact_handoff_baseline" >&2
+      echo "[guarded-gate] unknown RCA_GATE_COMMAND=${GATE_COMMAND}; use probe_only, scripted_eval, scripted_socket_sweep, scripted_reach_sweep, action_calibration, calibration_then_scripted_eval, contact_bc_train, contact_bc_eval, contact_bc_smoke, or contact_handoff_baseline" >&2
       return 2
       ;;
   esac

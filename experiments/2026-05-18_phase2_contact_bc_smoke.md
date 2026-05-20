@@ -1048,3 +1048,11 @@ Do not open another Brev GPU instance immediately. The next robotics work should
 2. a different provider / instance path is selected and tested with a tiny non-Isaac smoke first.
 
 The `preload-direction` code path remains the next GPU experiment once the compute backend is reliable enough to use.
+
+Prepared probe-only wrapper:
+
+```bash
+scripts/run_brev_probe_only_gate.sh
+```
+
+This should be the next paid Brev command before any Isaac run. It stops after instance creation, SSH readiness, `nvidia-smi`, and disk probing, then deletes the instance through the same guarded cleanup path.

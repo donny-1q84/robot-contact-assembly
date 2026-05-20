@@ -584,7 +584,14 @@ Updated priority:
 
 1. Do not open another Brev GPU instance immediately.
 2. Keep `preload-direction` as the next robotics eval once the GPU backend is stable.
-3. Before the next paid Isaac run, do a tiny provider smoke that only creates, SSH-probes, and deletes the chosen instance.
+3. Before the next paid Isaac run, do a tiny provider smoke that only creates, SSH-probes, and deletes the chosen instance:
+
+```bash
+scripts/run_brev_probe_only_gate.sh
+```
+
+This uses the same price capture, instance selection, stuck-build guard, delete retries, and empty-org checks as the Isaac gates, but exits immediately after `whoami`, `hostname`, `nvidia-smi`, and disk probing.
+
 4. If `preload-direction` preserves near-contact longer than BC/current-joint, use it to generate post-contact demonstrations.
 5. If it also fails after a valid eval, stop deterministic joint-position baselines and move to richer demonstrations or a Cartesian/IK contact-maintenance controller.
 6. Only run the temporal residual-current BC smoke after the demonstration labels contain sustained near-contact behavior.
