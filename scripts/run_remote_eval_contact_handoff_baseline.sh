@@ -18,9 +18,9 @@ LOCAL_PRELOAD_TRACE="${RCA_BASELINE_LOCAL_PRELOAD_TRACE:-}"
 REMOTE_PRELOAD_TRACE="${RCA_BASELINE_REMOTE_PRELOAD_TRACE:-}"
 
 case "${CONTROLLER}" in
-  current-joint|last-preload-action) ;;
+  current-joint|last-preload-action|preload-direction) ;;
   *)
-    echo "[handoff-baseline] unsupported controller=${CONTROLLER}; use current-joint or last-preload-action" >&2
+    echo "[handoff-baseline] unsupported controller=${CONTROLLER}; use current-joint, last-preload-action, or preload-direction" >&2
     exit 2
     ;;
 esac

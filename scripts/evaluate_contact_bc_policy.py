@@ -296,11 +296,12 @@ parser.add_argument(
     "--controller",
     type=str,
     default="bc",
-    choices=("bc", "current-joint", "last-preload-action"),
+    choices=("bc", "current-joint", "last-preload-action", "preload-direction"),
     help=(
         "Controller used after optional preload. 'bc' runs the learned checkpoint, "
         "'current-joint' commands the measured joints each step, and "
-        "'last-preload-action' repeats the final scripted preload action."
+        "'last-preload-action' repeats the final scripted preload action. "
+        "'preload-direction' follows the final scripted joint-space direction with a bounded stabilizing anchor."
     ),
 )
 parser.add_argument("--checkpoint", type=str, default=None, help="BC checkpoint from scripts/train_contact_bc_policy.py.")
@@ -317,6 +318,18 @@ parser.add_argument("--near-contact-z-tol", type=float, default=0.060)
 parser.add_argument("--near-contact-rot-tol", type=float, default=0.35)
 parser.add_argument("--near-contact-min-force", type=float, default=0.2)
 parser.add_argument("--max-action-delta", type=float, default=0.05, help="Clamp 7D joint-position actions around current joints.")
+parser.add_argument(
+    "--preload-direction-scale",
+    type=float,
+    default=1.0,
+    help="Feed-forward scale for the last scripted joint-space action delta used by --controller=preload-direction.",
+)
+parser.add_argument(
+    "--preload-direction-hold-gain",
+    type=float,
+    default=0.35,
+    help="Proportional anchor gain toward the final scripted preload action for --controller=preload-direction.",
+)
 parser.add_argument("--joint-limit-margin", type=float, default=0.005)
 parser.add_argument("--preload-trace-json", type=str, default=None, help="Optional scripted trace JSON to replay before BC control.")
 parser.add_argument("--preload-trace-start-step", type=int, default=0, help="First source trace step to replay.")
@@ -455,6 +468,7 @@ def main() -> None:
         handoff_lateral = handoff_axial = handoff_rot = handoff_contact_force = handoff_strict_miss_score = None
         handoff_near_contact_rate = None
         last_preload_action = None
+        penultimate_preload_action = None
         history_actions: list[torch.Tensor] = []
         history_fields: list[dict[str, torch.Tensor]] = []
 
@@ -475,6 +489,7 @@ def main() -> None:
             for replay_index, replay in enumerate(preload_actions):
                 action = torch.as_tensor(replay["raw_action"], device=env_unwrapped.device, dtype=torch.float32)
                 action = action.unsqueeze(0).repeat(num_envs, 1)
+                penultimate_preload_action = last_preload_action
                 last_preload_action = action.clone()
                 env.step(action)
                 _, preload_fields = _make_observation(
@@ -595,8 +610,8 @@ def main() -> None:
         current_near_contact_streak = 0
         first_near_contact_step = None
         bc_steps_executed = 0
-        if args_cli.controller == "last-preload-action" and last_preload_action is None:
-            raise RuntimeError("--controller=last-preload-action requires --preload-trace-json")
+        if args_cli.controller in {"last-preload-action", "preload-direction"} and last_preload_action is None:
+            raise RuntimeError(f"--controller={args_cli.controller} requires --preload-trace-json")
 
         for step in range(args_cli.steps):
             bc_steps_executed = step + 1
@@ -649,6 +664,22 @@ def main() -> None:
                     raise RuntimeError("--controller=last-preload-action requires --preload-trace-json")
                 policy_output = last_preload_action.to(env_unwrapped.device)
                 actions = policy_output.clone()
+            elif args_cli.controller == "preload-direction":
+                if last_preload_action is None:
+                    raise RuntimeError("--controller=preload-direction requires --preload-trace-json")
+                last_action = last_preload_action.to(env_unwrapped.device)
+                if penultimate_preload_action is None:
+                    direction = torch.zeros_like(last_action)
+                else:
+                    direction = last_action - penultimate_preload_action.to(env_unwrapped.device)
+                anchor_delta = last_action - joint_pos
+                policy_output = (
+                    args_cli.preload_direction_hold_gain * anchor_delta
+                    + args_cli.preload_direction_scale * direction
+                )
+                if args_cli.max_action_delta > 0.0:
+                    policy_output = torch.clamp(policy_output, -args_cli.max_action_delta, args_cli.max_action_delta)
+                actions = joint_pos + policy_output
             else:
                 raise RuntimeError(f"unsupported controller={args_cli.controller!r}")
             if actions.shape[-1] == 7 and args_cli.max_action_delta > 0.0:
@@ -859,6 +890,8 @@ def main() -> None:
             "observation_mode": observation_mode,
             "history_steps": history_steps,
             "max_action_delta": args_cli.max_action_delta,
+            "preload_direction_scale": args_cli.preload_direction_scale,
+            "preload_direction_hold_gain": args_cli.preload_direction_hold_gain,
             "deterministic_reset": args_cli.deterministic_reset,
             "socket_pos_override": list(args_cli.socket_pos) if args_cli.socket_pos is not None else None,
             "trace_json": os.path.abspath(args_cli.trace_json) if args_cli.trace_json else None,

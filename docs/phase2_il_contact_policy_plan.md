@@ -531,8 +531,43 @@ scripts/run_phase2_contact_bc_temporal_residual_current_smoke_gate.sh
 
 Status: dataset and wrapper are prepared and syntax-checked, but not yet run on GPU. This is a materially different learned-policy hypothesis than the failed one-step `37D` residual-current BC run.
 
+Follow-up static-hold attempt:
+
+```text
+run dir: artifacts/gpu_gate/2026-05-20T20-02-49Z_isaac-phase2-contact-handoff-last-action-l4
+controller: last-preload-action
+status: aborted during Brev provisioning before Isaac runtime or eval
+instance id: a8i77l2b3
+cleanup: confirmed no visible instances, JSON workspaces=null
+```
+
+This is not a robotics result. It only shows that the Brev lifecycle can still stall during create/delete, so the next wrapper should use a shorter readiness window.
+
+Implemented local harness for an active non-learning baseline:
+
+```bash
+scripts/run_phase2_contact_handoff_preload_direction_gate.sh
+```
+
+This wrapper evaluates:
+
+```text
+--controller preload-direction
+```
+
+The controller uses the last two scripted preload actions to estimate the final joint-space insertion direction, then applies:
+
+```text
+joint_delta =
+  preload_direction_hold_gain * (last_preload_action - current_joint_pos)
+  + preload_direction_scale * (last_preload_action - penultimate_preload_action)
+```
+
+with `--max-action-delta 0.02`.
+
 Updated priority:
 
-1. Optionally run `last-preload-action` hold once as a second non-learning baseline.
-2. Prefer implementing an active contact-maintenance controller that preserves downward preload and uses bounded lateral correction.
-3. Use that controller to generate post-contact demonstrations before running the temporal residual-current BC smoke.
+1. Run `preload-direction` once as the next non-learning active baseline if Brev is stable.
+2. If it preserves near-contact longer than BC/current-joint, use it to generate post-contact demonstrations.
+3. If it also fails immediately, stop deterministic joint-position baselines and move to richer demonstrations or a Cartesian/IK contact-maintenance controller.
+4. Only run the temporal residual-current BC smoke after the demonstration labels contain sustained near-contact behavior.

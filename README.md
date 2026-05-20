@@ -102,14 +102,6 @@ Offline audit of the existing BC eval traces confirms the same issue:
 - Staged best-window BC: `near_contact_fraction=0.0125`, `longest_near_contact_streak=5`, `final_vs_handoff_miss_delta=+8.3880`
 - Staged near-contact residual-current BC: `near_contact_fraction=0.0175`, `longest_near_contact_streak=6`, `final_vs_handoff_miss_delta=+45.5555`
 
-A deterministic post-handoff hold baseline harness is now prepared but not yet run:
-
-```bash
-scripts/run_phase2_contact_handoff_hold_gate.sh
-```
-
-This will compare learned BC handoff against a non-learning `current-joint` stabilizer before spending more GPU time on new learned-policy variants.
-
 The first `current-joint` hold baseline has now run:
 
 - `success_step=null`
@@ -119,6 +111,16 @@ The first `current-joint` hold baseline has now run:
 - `final_delta_vs_handoff=+58.8510`
 
 Interpretation: passive joint holding is worse than the staged BC variants and does not preserve contact. The near-success handoff needs active contact maintenance, not just a static hold.
+
+The follow-up `last-preload-action` static baseline attempt did not produce a robotics result. The Brev instance `a8i77l2b3` stalled in `BUILDING / NOT READY`, the run was aborted before Isaac runtime bootstrap, and cleanup independently confirmed no visible instances afterward.
+
+A new active deterministic post-handoff baseline is now prepared:
+
+```bash
+scripts/run_phase2_contact_handoff_preload_direction_gate.sh
+```
+
+It uses `--controller preload-direction`, which follows the final scripted joint-space direction with a small bounded stabilizing anchor. This is the next non-learning baseline to try before spending more GPU time on new BC variants.
 
 A temporal residual-current BC dataset is also prepared but not yet run:
 

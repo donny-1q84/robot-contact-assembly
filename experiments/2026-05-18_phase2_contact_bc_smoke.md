@@ -871,3 +871,108 @@ Next useful work should target active stabilization:
 2. Add a small deterministic contact-maintenance controller that keeps downward preload and bounded lateral correction.
 3. Use that controller to generate post-contact demonstrations with sustained contact labels.
 4. Then run temporal residual-current BC against those richer labels.
+
+## Attempt 8: Last-Preload-Action Provisioning Abort
+
+Date: 2026-05-20
+
+Goal:
+
+Run the second static handoff baseline:
+
+```text
+scripted preload through step 1543 -> repeat final preload action for 400 steps
+```
+
+Run dir:
+
+```text
+artifacts/gpu_gate/2026-05-20T20-02-49Z_isaac-phase2-contact-handoff-last-action-l4
+```
+
+Instance observed during create:
+
+```text
+name: isaac-phase2-contact-handoff-last-action-l4
+id: a8i77l2b3
+type: g2-standard-4:nvidia-l4:1
+gpu: L4
+listed price: $0.85/hr
+```
+
+Failure:
+
+The Brev instance was created, but it stayed in:
+
+```text
+RUNNING / BUILDING / NOT READY
+```
+
+for several polling rounds. The run was manually aborted before Isaac runtime bootstrap or evaluation started. During cleanup, Brev briefly reported the same instance as:
+
+```text
+RUNNING / COMPLETED / READY
+```
+
+after the first delete request, then moved through:
+
+```text
+DELETING / COMPLETED / NOT READY
+```
+
+The guarded cleanup re-issued delete by both name and id until Brev returned:
+
+```text
+No instances in org NCA-57cf-29515
+JSON: { "workspaces": null }
+```
+
+Result:
+
+No `last-preload-action` robotics result was produced. This attempt is a provisioning / lifecycle abort, not a controller failure.
+
+Decision:
+
+Do not count this as evidence for or against `last-preload-action`. Because the already-run `current-joint` hold showed that passive holding is unstable, the next useful local change is a small active post-handoff baseline instead of repeatedly retrying static holds.
+
+## Local Follow-Up: Preload-Direction Active Baseline
+
+Implemented a new deterministic post-handoff controller:
+
+```text
+--controller preload-direction
+```
+
+Controller logic:
+
+```text
+joint_delta =
+  preload_direction_hold_gain * (last_preload_action - current_joint_pos)
+  + preload_direction_scale * (last_preload_action - penultimate_preload_action)
+```
+
+Then the delta is clamped by `--max-action-delta` and applied as a joint-position target.
+
+Purpose:
+
+This is still not a learned policy, but it is a better baseline than static hold because it tests whether the final scripted motion direction can actively preserve or recover shallow contact after handoff.
+
+Prepared guarded wrapper:
+
+```bash
+scripts/run_phase2_contact_handoff_preload_direction_gate.sh
+```
+
+Default settings:
+
+```text
+controller: preload-direction
+max_action_delta: 0.02
+preload_direction_hold_gain: 0.35
+preload_direction_scale: 1.0
+build_stuck_seconds: 180
+ready_timeout_seconds: 600
+create_timeout: 600
+```
+
+The shorter readiness window is intentional. If Brev again leaves the instance in `BUILDING / NOT READY`, the run should abort and clean up before spending much more time.
