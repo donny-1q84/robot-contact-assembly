@@ -467,7 +467,23 @@ It writes results under:
 artifacts/evaluations/contact_handoff_baseline/
 ```
 
-Status: implemented and syntax-checked, but not yet run on GPU. Use it only when a paid baseline comparison is worth opening a new instance.
+Completed current-joint handoff baseline:
+
+```text
+run dir: artifacts/gpu_gate/2026-05-20T19-34-58Z_isaac-phase2-contact-handoff-hold-l4
+eval: artifacts/evaluations/contact_handoff_baseline/2026-05-20T19-52-13Z_current-joint/summary.json
+controller: current-joint
+success_step: null
+handoff_miss: 0.03185
+near_contact_fraction: 0.0000
+longest_near_contact_streak: 0
+best_strict_miss_score_after_handoff: 0.44359
+best_delta_vs_handoff: +0.41174
+final_strict_miss_score: 58.88280
+final_delta_vs_handoff: +58.85095
+```
+
+Interpretation: simply holding the measured joint position is worse than both staged BC variants. It immediately loses the relaxed contact-force condition and never re-enters near-contact. The handoff state is therefore not a stable passive contact state; it requires active maintenance.
 
 Implemented local harness for step 2:
 
@@ -514,3 +530,9 @@ scripts/run_phase2_contact_bc_temporal_residual_current_smoke_gate.sh
 ```
 
 Status: dataset and wrapper are prepared and syntax-checked, but not yet run on GPU. This is a materially different learned-policy hypothesis than the failed one-step `37D` residual-current BC run.
+
+Updated priority:
+
+1. Optionally run `last-preload-action` hold once as a second non-learning baseline.
+2. Prefer implementing an active contact-maintenance controller that preserves downward preload and uses bounded lateral correction.
+3. Use that controller to generate post-contact demonstrations before running the temporal residual-current BC smoke.

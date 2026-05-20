@@ -739,3 +739,135 @@ scripts/run_phase2_contact_bc_temporal_residual_current_smoke_gate.sh
 Status:
 
 The dataset and wrapper are prepared and syntax-checked, but not yet run on GPU.
+
+## Attempt 7: Post-Handoff Current-Joint Hold Baseline
+
+Date: 2026-05-20
+
+Goal:
+
+Evaluate a deterministic non-learning baseline at the same staged handoff state used by BC. This answers whether the near-success handoff can be held by simply commanding the measured joint positions, without any learned correction.
+
+Preflight:
+
+```text
+Brev org: NCA-57cf-29515
+Selected profile: cheap
+Selected instance type: g2-standard-4:nvidia-l4:1
+Listed price during preflight: $0.85/hr
+Task: RCA-PegInHole-Franka-JointPos-Contact-Play-v0
+Controller: current-joint
+Preload trace: artifacts/evaluations/scripted/2026-05-17T23-32-18Z/seed_42_trace.json
+Preload end step: 1543
+```
+
+Run dir:
+
+```text
+artifacts/gpu_gate/2026-05-20T19-34-58Z_isaac-phase2-contact-handoff-hold-l4
+```
+
+Instance:
+
+```text
+name: isaac-phase2-contact-handoff-hold-l4
+id: eh3tyfddz
+type: g2-standard-4:nvidia-l4:1
+gpu: L4
+```
+
+Evaluation artifacts:
+
+```text
+artifacts/evaluations/contact_handoff_baseline/2026-05-20T19-52-13Z_current-joint/summary.json
+artifacts/evaluations/contact_handoff_baseline/2026-05-20T19-52-13Z_current-joint/trace.json
+artifacts/evaluations/contact_handoff_baseline/2026-05-20T19-52-13Z_current-joint/eval.log
+artifacts/evaluations/contact_handoff_baseline/2026-05-20T19-52-13Z_current-joint/eval_command.txt
+```
+
+Staged handoff state:
+
+```text
+handoff_lateral: 0.005198 m
+handoff_axial: 0.041265 m
+handoff_rot: 0.181203 rad
+handoff_contact_force_magnitude: 0.530984 N
+handoff_strict_miss_score: 0.031854
+handoff_near_contact_rate: 1.000
+```
+
+Hold rollout result:
+
+```text
+success_step: null
+near_contact_fraction: 0.0000
+near_contact_step_count: 0 / 400
+longest_near_contact_streak: 0
+best_strict_miss_score: 0.443591
+best_vs_handoff_strict_miss_delta: +0.411738
+final_strict_miss_score: 58.882805
+final_vs_handoff_strict_miss_delta: +58.850951
+final_lateral: 0.246677 m
+final_axial: 0.165500 m
+final_rot: 2.397971 rad
+max_contact_force_magnitude: 0.089430 N
+```
+
+Cleanup:
+
+The artifact pullback completed before shutdown. Brev showed the instance as `DELETING`/`STOPPING` for several polling rounds, then the guarded cleanup re-issued delete by both name and id. Independent post-run checks confirmed:
+
+```text
+No instances in org NCA-57cf-29515
+JSON: { "workspaces": null }
+```
+
+### Interpretation
+
+What succeeded:
+
+- The non-learning handoff baseline wrapper works end to end.
+- The run uses the same staged preload and same strict/near-contact metrics as BC, so the comparison is fair.
+- Artifact pullback and deletion worked.
+
+What failed:
+
+- `current-joint` hold did not preserve near-contact.
+- Contact force dropped below the `0.2 N` near-contact threshold immediately after handoff.
+- It never entered the relaxed near-contact band during the 400-step hold rollout.
+- Around step `225`, the peg/socket state jumped to the same large-error basin seen in previous failed rollouts.
+
+Comparison against learned BC:
+
+```text
+staged best-window BC:
+  near_contact_fraction: 0.0125
+  longest_near_contact_streak: 5
+  best_delta_vs_handoff: +0.1547
+  final_delta_vs_handoff: +8.3880
+
+staged near-contact residual-current BC:
+  near_contact_fraction: 0.0175
+  longest_near_contact_streak: 6
+  best_delta_vs_handoff: +0.2839
+  final_delta_vs_handoff: +45.5555
+
+current-joint hold:
+  near_contact_fraction: 0.0000
+  longest_near_contact_streak: 0
+  best_delta_vs_handoff: +0.4117
+  final_delta_vs_handoff: +58.8510
+```
+
+The hold baseline is worse than both learned BC variants on short near-contact dwell time. However, all three fail. This means the next blocker is not just policy overfitting; the staged handoff is a marginal contact state that needs active contact maintenance, compliance, or better post-contact demonstrations.
+
+### Decision
+
+Do not run another static hold baseline unchanged.
+
+Next useful work should target active stabilization:
+
+1. Compare `last-preload-action` hold once, because it may preserve the scripted preload better than `current-joint`.
+2. Add a small deterministic contact-maintenance controller that keeps downward preload and bounded lateral correction.
+3. Use that controller to generate post-contact demonstrations with sustained contact labels.
+4. Then run temporal residual-current BC against those richer labels.
