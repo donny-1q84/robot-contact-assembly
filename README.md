@@ -95,6 +95,11 @@ The latest local demonstration audit shows why the first BC policy was weak:
 
 Interpretation: the archive is useful for learning a near-contact stabilization prior, but it is not yet a successful insertion-demonstration dataset. A larger residual-current near-contact dataset has been prepared locally with `3187` samples. The next learned-policy GPU run, if used, should evaluate sustained near-contact and post-handoff degradation, not only `success_step`.
 
+Offline audit of the existing BC eval traces confirms the same issue:
+
+- All-trace BC: `near_contact_fraction=0.0000`
+- Staged best-window BC: `near_contact_fraction=0.0125`, `longest_near_contact_streak=5`, `final_vs_handoff_miss_delta=+8.3880`
+
 ## V1 scope
 
 The first version is intentionally narrow:

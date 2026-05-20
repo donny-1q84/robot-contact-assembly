@@ -347,6 +347,39 @@ For the next residual-current smoke, a useful result is not necessarily `success
 near_contact_fraction improves and best/final miss does not degrade badly relative to handoff
 ```
 
+## Existing BC Eval Trace Audit
+
+Added:
+
+```bash
+python3 scripts/analyze_bc_eval_traces.py \
+  --output-md experiments/2026-05-20_phase2_bc_eval_trace_audit.md \
+  --output-json artifacts/analysis/phase2_bc_eval_trace_audit.json
+```
+
+Result:
+
+```text
+all-trace BC:
+  bc_near_frac: 0.0000
+  bc_longest_near: 0
+  bc_best_miss: 21.0692
+  bc_final_miss: 57.3366
+
+staged best-window BC:
+  handoff_miss: 0.0319
+  bc_near_frac: 0.0125
+  bc_longest_near: 5
+  bc_best_miss: 0.1865
+  bc_final_miss: 8.4199
+  best_delta: +0.1547
+  final_delta: +8.3880
+```
+
+Interpretation:
+
+The previous BC policies were not contact-stabilizing policies. The staged best-window policy briefly touched the relaxed near-contact band, but it did not maintain it and degraded heavily after handoff. This makes the larger near-contact residual-current dataset the next logical smoke, not another best-window absolute-action run.
+
 ## GPU Policy
 
 Do not open GPU for dataset extraction; it is local.
