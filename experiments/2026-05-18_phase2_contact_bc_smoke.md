@@ -976,3 +976,75 @@ create_timeout: 600
 ```
 
 The shorter readiness window is intentional. If Brev again leaves the instance in `BUILDING / NOT READY`, the run should abort and clean up before spending much more time.
+
+## Attempt 9: Preload-Direction Provisioning Abort
+
+Date: 2026-05-20
+
+Goal:
+
+Run the new active non-learning baseline:
+
+```text
+scripted preload through step 1543 -> preload-direction controller for 400 steps
+```
+
+Run dir:
+
+```text
+artifacts/gpu_gate/2026-05-20T20-30-57Z_isaac-phase2-contact-handoff-preload-dir-l4
+```
+
+Instance observed during create:
+
+```text
+name: isaac-phase2-contact-handoff-preload-dir-l4
+id: 8ewsb9mo9
+type: g2-standard-4:nvidia-l4:1
+gpu: L4
+listed price: $0.85/hr
+```
+
+Failure:
+
+The create command reported a successful instance, but `brev ls` stayed at:
+
+```text
+RUNNING / BUILDING / NOT READY
+```
+
+The shortened readiness guard triggered as intended:
+
+```text
+instance isaac-phase2-contact-handoff-preload-dir-l4 stuck in RUNNING/BUILDING for 185s; aborting before ready timeout
+```
+
+No SSH, Isaac runtime bootstrap, or evaluation started.
+
+Cleanup:
+
+The guarded cleanup deleted by both name and id. Brev showed the instance as:
+
+```text
+DELETING / NOT READY
+```
+
+for several polling rounds. A later delete by name returned `instance ... not found`, then Brev returned:
+
+```text
+No instances in org NCA-57cf-29515
+JSON: { "workspaces": null }
+```
+
+Result:
+
+No `preload-direction` robotics result was produced. This is another Brev provisioning/lifecycle abort, not a controller failure.
+
+Decision:
+
+Do not open another Brev GPU instance immediately. The next robotics work should remain local until either:
+
+1. Brev support confirms the create/delete lifecycle issue is fixed for this org, or
+2. a different provider / instance path is selected and tested with a tiny non-Isaac smoke first.
+
+The `preload-direction` code path remains the next GPU experiment once the compute backend is reliable enough to use.

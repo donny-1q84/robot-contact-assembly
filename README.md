@@ -120,7 +120,7 @@ A new active deterministic post-handoff baseline is now prepared:
 scripts/run_phase2_contact_handoff_preload_direction_gate.sh
 ```
 
-It uses `--controller preload-direction`, which follows the final scripted joint-space direction with a small bounded stabilizing anchor. This is the next non-learning baseline to try before spending more GPU time on new BC variants.
+It uses `--controller preload-direction`, which follows the final scripted joint-space direction with a small bounded stabilizing anchor. The first attempt to run it also aborted during Brev provisioning before SSH / Isaac runtime / eval, so there is not yet a robotics result for this controller. Do not open another Brev instance until the provider lifecycle issue is either resolved or tested with a tiny create/SSH/delete smoke.
 
 A temporal residual-current BC dataset is also prepared but not yet run:
 

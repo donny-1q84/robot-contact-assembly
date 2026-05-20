@@ -567,7 +567,24 @@ with `--max-action-delta 0.02`.
 
 Updated priority:
 
-1. Run `preload-direction` once as the next non-learning active baseline if Brev is stable.
-2. If it preserves near-contact longer than BC/current-joint, use it to generate post-contact demonstrations.
-3. If it also fails immediately, stop deterministic joint-position baselines and move to richer demonstrations or a Cartesian/IK contact-maintenance controller.
-4. Only run the temporal residual-current BC smoke after the demonstration labels contain sustained near-contact behavior.
+The first `preload-direction` GPU attempt also aborted during Brev provisioning:
+
+```text
+run dir: artifacts/gpu_gate/2026-05-20T20-30-57Z_isaac-phase2-contact-handoff-preload-dir-l4
+controller: preload-direction
+status: aborted before SSH / Isaac runtime / eval
+instance id: 8ewsb9mo9
+reason: RUNNING / BUILDING / NOT READY for 185s
+cleanup: confirmed no visible instances, JSON workspaces=null
+```
+
+This is not a controller result. It indicates the compute backend is currently the blocker.
+
+Updated priority:
+
+1. Do not open another Brev GPU instance immediately.
+2. Keep `preload-direction` as the next robotics eval once the GPU backend is stable.
+3. Before the next paid Isaac run, do a tiny provider smoke that only creates, SSH-probes, and deletes the chosen instance.
+4. If `preload-direction` preserves near-contact longer than BC/current-joint, use it to generate post-contact demonstrations.
+5. If it also fails after a valid eval, stop deterministic joint-position baselines and move to richer demonstrations or a Cartesian/IK contact-maintenance controller.
+6. Only run the temporal residual-current BC smoke after the demonstration labels contain sustained near-contact behavior.
