@@ -1,4 +1,4 @@
-# BC Evaluation Trace Audit
+# Handoff Controller Evaluation Trace Audit
 
 ## Gates
 
@@ -9,19 +9,20 @@ near:   xy < 0.0150 m, z < 0.0600 m, rot < 0.3500 rad, contact >= 0.200
 
 ## Summary
 
-| run | action | preload | bc_steps | bc_success | bc_near_frac | bc_longest_near | handoff_miss | bc_best_miss | bc_final_miss | best_delta | final_delta |
+| run | controller | preload | controlled_steps | controlled_success | near_frac | longest_near | handoff_miss | best_miss | final_miss | best_delta | final_delta |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 2026-05-18T21-34-10Z | legacy-absolute | 0 | 400 | 0 | 0.0000 | 0 | n/a | 21.0692 | 57.3366 | n/a | n/a |
 | 2026-05-19T05-59-43Z | legacy-absolute | 1544 | 400 | 0 | 0.0125 | 5 | 0.0319 | 0.1865 | 8.4199 | 0.1547 | 8.3880 |
 | 2026-05-20T04-32-33Z | residual-current | 1544 | 400 | 0 | 0.0175 | 6 | 0.0319 | 0.3157 | 45.5874 | 0.2839 | 45.5555 |
+| 2026-05-20T19-52-13Z_current-joint | current-joint | 1544 | 400 | 0 | 0.0000 | 0 | 0.0319 | 0.4436 | 58.8828 | 0.4117 | 58.8510 |
 
 ## Interpretation
 
-- `bc_near_frac` measures how much of the BC-controlled rollout stayed in the relaxed near-contact band.
-- `best_delta` and `final_delta` are relative to the handoff miss when a preload stage exists; positive values mean BC made the state worse.
+- `near_frac` measures how much of the controlled rollout stayed in the relaxed near-contact band.
+- `best_delta` and `final_delta` are relative to the handoff miss when a preload stage exists; positive values mean the controller made the state worse.
 - Legacy all-trace BC has no preload handoff, so its deltas are `n/a`.
-- The residual-current policy slightly improves relaxed near-contact dwell time over best-window BC, but it worsens both best and final strict-miss deltas. This is not a useful controller improvement.
+- `current-joint` hold is worse than the staged learned policies on every controlled near-contact metric.
 
 ## Decision
 
-Stop one-step BC retries on the current trace archive. The next learned-policy run must change either the data, the observation history, or the controller structure before using another paid GPU session.
+The handoff state is not passively stable. The next useful branch should add active contact maintenance or collect richer post-contact demonstrations; do not spend another run on unchanged static hold or one-step BC.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline audit for BC evaluation traces."""
+"""Offline audit for BC and deterministic handoff-controller evaluation traces."""
 
 from __future__ import annotations
 
@@ -49,6 +49,7 @@ class TraceAudit:
     run_id: str
     trace: str
     task: str | None
+    controller: str | None
     checkpoint: str | None
     action_mode: str | None
     preload: StageStats | None
@@ -209,6 +210,7 @@ def _audit_trace(path: Path, cfg: GateCfg) -> TraceAudit:
         run_id=path.parent.name,
         trace=str(path),
         task=summary.get("task"),
+        controller=summary.get("controller"),
         checkpoint=summary.get("checkpoint"),
         action_mode=summary.get("action_mode"),
         preload=preload_stats,
@@ -248,7 +250,7 @@ def _table(headers: list[str], rows: list[list[Any]]) -> str:
 
 def _render(audits: list[TraceAudit], cfg: GateCfg) -> str:
     lines = [
-        "# BC Evaluation Trace Audit",
+        "# Handoff Controller Evaluation Trace Audit",
         "",
         "## Gates",
         "",
@@ -264,22 +266,22 @@ def _render(audits: list[TraceAudit], cfg: GateCfg) -> str:
         _table(
             [
                 "run",
-                "action",
+                "controller",
                 "preload",
-                "bc_steps",
-                "bc_success",
-                "bc_near_frac",
-                "bc_longest_near",
+                "controlled_steps",
+                "controlled_success",
+                "near_frac",
+                "longest_near",
                 "handoff_miss",
-                "bc_best_miss",
-                "bc_final_miss",
+                "best_miss",
+                "final_miss",
                 "best_delta",
                 "final_delta",
             ],
             [
                 [
                     audit.run_id,
-                    audit.action_mode or "legacy-absolute",
+                    audit.controller or audit.action_mode or "legacy-absolute",
                     audit.preload.steps if audit.preload else 0,
                     audit.bc.steps,
                     audit.bc.success_steps,
@@ -300,8 +302,8 @@ def _render(audits: list[TraceAudit], cfg: GateCfg) -> str:
             "",
             "## Interpretation",
             "",
-            "- `bc_near_frac` measures how much of the BC-controlled rollout stayed in the relaxed near-contact band.",
-            "- `best_delta` and `final_delta` are relative to the handoff miss when a preload stage exists; positive values mean BC made the state worse.",
+            "- `near_frac` measures how much of the controlled rollout stayed in the relaxed near-contact band.",
+            "- `best_delta` and `final_delta` are relative to the handoff miss when a preload stage exists; positive values mean the controller made the state worse.",
             "- Legacy all-trace BC has no preload handoff, so its deltas are `n/a`.",
             "",
         ]
