@@ -258,6 +258,25 @@ Remote status:
 
 The first residual-current remote attempt on 2026-05-19 did not reach training. Brev returned `unexpected EOF` during workspace creation and exposed backend id `rx7dirywd`; guarded cleanup deleted it and independent audit showed `"workspaces": null`.
 
+Completed near-contact residual-current smoke:
+
+```text
+run dir: artifacts/gpu_gate/2026-05-20T04-17-08Z_isaac-phase2-contact-bc-near-contact-residual-l4
+checkpoint: artifacts/policies/phase2_contact_bc_near_contact_residual_current/bc_mlp.pt
+eval: artifacts/evaluations/bc_policy/2026-05-20T04-32-33Z/summary.json
+success_step: null
+bc_success_step: null
+handoff_miss: 0.03185
+near_contact_fraction: 0.0175
+longest_near_contact_streak: 6
+best_strict_miss_score_after_bc: 0.31573
+best_delta_vs_handoff: +0.28387
+final_strict_miss_score: 45.58740
+final_delta_vs_handoff: +45.55555
+```
+
+Interpretation: the larger `3187`-sample residual-current dataset slightly increased relaxed near-contact dwell time relative to the staged best-window BC run, but it still degraded the handoff state and eventually diverged. The useful conclusion is now negative: one-step BC on the current scripted trace archive is not sufficient for final-contact stabilization.
+
 Do not repeatedly retry this run until either the Brev create-path stability improves or the next paid run is explicitly worth the remaining risk.
 
 ## Demonstration Coverage Audit
@@ -324,7 +343,7 @@ Remote wrapper:
 scripts/run_phase2_contact_bc_near_contact_residual_current_smoke_gate.sh
 ```
 
-This is the next better learned-policy smoke than the 314-sample best-window run, but its success criterion should be reduced post-handoff degradation or sustained near-contact, not strict insertion success.
+This wrapper has now been run. It did not produce a successful controller, but it did establish the right diagnostic metrics for learned-policy handoff: sustained near-contact and post-handoff degradation.
 
 Evaluator update:
 
@@ -374,11 +393,20 @@ staged best-window BC:
   bc_final_miss: 8.4199
   best_delta: +0.1547
   final_delta: +8.3880
+
+staged near-contact residual-current BC:
+  handoff_miss: 0.0319
+  bc_near_frac: 0.0175
+  bc_longest_near: 6
+  bc_best_miss: 0.3157
+  bc_final_miss: 45.5874
+  best_delta: +0.2839
+  final_delta: +45.5555
 ```
 
 Interpretation:
 
-The previous BC policies were not contact-stabilizing policies. The staged best-window policy briefly touched the relaxed near-contact band, but it did not maintain it and degraded heavily after handoff. This makes the larger near-contact residual-current dataset the next logical smoke, not another best-window absolute-action run.
+The previous BC policies were not contact-stabilizing policies. The staged residual-current policy briefly improved relaxed near-contact dwell time, but it still made the strict handoff state worse and diverged by the end of the rollout. Do not spend another GPU cycle on the same one-step BC formulation.
 
 ## GPU Policy
 
@@ -386,9 +414,9 @@ Do not open GPU for dataset extraction; it is local.
 
 Only open GPU for:
 
-1. BC smoke training if local PyTorch is unavailable or too slow.
-2. A short learned-policy eval once a checkpoint exists.
-3. Additional demonstration collection with a fixed, measurable pass/fail condition.
+1. Additional demonstration collection with a fixed, measurable pass/fail condition.
+2. A short learned-policy eval only after the policy formulation changes.
+3. BC smoke training only if the dataset/action representation has changed materially.
 
 Each paid run must still use the guarded Brev flow and final empty-org checks.
 
@@ -411,3 +439,32 @@ Strong milestone:
 ```text
 BC or BC+RL policy achieves strict success_step != null
 ```
+
+## Immediate Next Step
+
+Do local controller and data work before opening another GPU instance:
+
+1. Add a deterministic post-handoff hold/stabilization baseline. This gives a non-learning reference for whether a policy actually improves contact retention.
+2. Extend the BC observation with temporal context: previous action, previous error, and recent contact-force history.
+3. Generate new demonstrations that continue for several seconds after the near-success handoff instead of only reaching the handoff point.
+4. Re-run the trace audit locally and require evidence of target-gate or sustained near-contact labels before the next paid GPU run.
+
+Implemented local harness for step 1:
+
+```bash
+scripts/run_phase2_contact_handoff_hold_gate.sh
+```
+
+This guarded wrapper runs the same staged preload through step `1543`, then evaluates a deterministic controller through the existing contact-policy evaluator:
+
+```text
+--controller current-joint
+```
+
+It writes results under:
+
+```text
+artifacts/evaluations/contact_handoff_baseline/
+```
+
+Status: implemented and syntax-checked, but not yet run on GPU. Use it only when a paid baseline comparison is worth opening a new instance.

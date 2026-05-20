@@ -489,3 +489,193 @@ JSON: { "workspaces": null }
 Decision:
 
 Do not immediately retry the residual-current run in a loop. The code path is prepared, but repeated Brev create-path EOFs are now a cost/risk issue rather than a robotics issue.
+
+## Attempt 6: Near-Contact Residual-Current Smoke
+
+Date: 2026-05-20
+
+Goal:
+
+Train on the larger near-contact residual-current dataset and test whether a one-step MLP can preserve the staged near-contact handoff better than the earlier all-trace and best-window BC policies.
+
+Preflight:
+
+```text
+Brev org: NCA-57cf-29515
+Selected profile: cheap
+Selected instance type: g2-standard-4:nvidia-l4:1
+Listed price during preflight: $0.85/hr
+Task: RCA-PegInHole-Franka-JointPos-Contact-Play-v0
+Dataset: artifacts/datasets/phase2_contact_bc_near_contact_residual_current/phase2_contact_bc_near_contact_residual_current_dataset.jsonl
+Dataset samples: 3187
+Action mode: residual-current
+```
+
+Run dir:
+
+```text
+artifacts/gpu_gate/2026-05-20T04-17-08Z_isaac-phase2-contact-bc-near-contact-residual-l4
+```
+
+Instance:
+
+```text
+name: isaac-phase2-contact-bc-near-contact-residual-l4
+id: idlgz45tf
+type: g2-standard-4:nvidia-l4:1
+gpu: L4
+```
+
+Training artifacts:
+
+```text
+artifacts/policies/phase2_contact_bc_near_contact_residual_current/bc_mlp.pt
+artifacts/policies/phase2_contact_bc_near_contact_residual_current/bc_mlp.metadata.json
+artifacts/policies/phase2_contact_bc_near_contact_residual_current/train.log
+artifacts/policies/phase2_contact_bc_near_contact_residual_current/train_command.txt
+```
+
+BC training result:
+
+```text
+epochs: 300
+num_samples: 3187
+train_samples: 2709
+val_samples: 478
+best_val_loss: 0.03591490909457207
+```
+
+Evaluation artifacts:
+
+```text
+artifacts/evaluations/bc_policy/2026-05-20T04-32-33Z/summary.json
+artifacts/evaluations/bc_policy/2026-05-20T04-32-33Z/trace.json
+artifacts/evaluations/bc_policy/2026-05-20T04-32-33Z/eval.log
+artifacts/evaluations/bc_policy/2026-05-20T04-32-33Z/eval_command.txt
+```
+
+Staged handoff state:
+
+```text
+handoff_lateral: 0.005198 m
+handoff_axial: 0.041265 m
+handoff_rot: 0.181203 rad
+handoff_contact_force_magnitude: 0.530984 N
+handoff_strict_miss_score: 0.031854
+handoff_near_contact_rate: 1.000
+```
+
+BC rollout result:
+
+```text
+success_step: null
+bc_success_step: null
+final_success_rate: 0.0
+near_contact_fraction: 0.0175
+near_contact_step_count: 7 / 400
+longest_near_contact_streak: 6
+best_strict_miss_score: 0.315726
+best_vs_handoff_strict_miss_delta: +0.283872
+final_strict_miss_score: 45.587402
+final_vs_handoff_strict_miss_delta: +45.555549
+final_lateral: 0.271593 m
+final_axial: 0.007078 m
+final_rot: 2.072810 rad
+max_contact_force_magnitude: 24.307920 N
+```
+
+Cleanup:
+
+The artifact pullback completed before shutdown. Brev showed the instance as `DELETING` for several polling rounds and briefly flipped back to `DEPLOYING`, then the guarded cleanup re-issued delete by both name and id. Independent post-run checks confirmed:
+
+```text
+No instances in org NCA-57cf-29515
+JSON: { "workspaces": null }
+```
+
+### Interpretation
+
+What succeeded:
+
+- The guarded low-cost L4 workflow completed end to end again.
+- The larger residual-current dataset trained successfully and produced a checkpoint plus metadata.
+- The staged evaluator confirmed the scripted handoff starts inside the relaxed near-contact band.
+- The new near-contact metrics correctly captured short-term retention after BC handoff.
+
+What failed:
+
+- The learned policy still did not achieve strict success.
+- It only stayed in the relaxed near-contact band for `7 / 400` BC-controlled steps.
+- It made the handoff state worse: best miss increased from `0.031854` to `0.315726`, and final miss increased to `45.587402`.
+- The failure mode is lateral and orientation drift after handoff, not lack of dataset fitting.
+
+Comparison:
+
+```text
+all-trace BC:
+  near_contact_fraction: 0.0000
+  best_miss: 21.0692
+  final_miss: 57.3366
+
+staged best-window BC:
+  near_contact_fraction: 0.0125
+  longest_near_contact_streak: 5
+  best_delta_vs_handoff: +0.1547
+  final_delta_vs_handoff: +8.3880
+
+staged near-contact residual-current BC:
+  near_contact_fraction: 0.0175
+  longest_near_contact_streak: 6
+  best_delta_vs_handoff: +0.2839
+  final_delta_vs_handoff: +45.5555
+```
+
+The residual-current formulation marginally improved relaxed near-contact dwell time, but it degraded the strict-gate score more than the smaller best-window policy. This is not a useful learned controller yet.
+
+### Decision
+
+Stop running one-step BC variants on the current trace archive.
+
+The current evidence says the blocker is not GPU training or artifact plumbing. The blocker is that the demonstrations do not contain enough successful post-contact stabilization behavior, and the policy class has no temporal or stabilizing structure.
+
+Next work should be local-first:
+
+1. Add a controller-side hold/stabilization baseline at the handoff state, so learned policies are compared against a non-learning contact retention baseline.
+2. Add temporal context to the BC observation, such as previous actions and recent contact-force history.
+3. Collect new demonstrations that intentionally remain in near-contact for several seconds after the best scripted handoff instead of stopping at the closest point.
+4. Only open GPU again once the next run has a different hypothesis than "more one-step BC on the same labels."
+
+## Local Follow-Up: Post-Handoff Hold Baseline Harness
+
+Implemented a deterministic non-learning baseline path for the next comparison.
+
+Code changes:
+
+```text
+scripts/evaluate_contact_bc_policy.py
+scripts/run_remote_eval_contact_handoff_baseline.sh
+scripts/run_phase2_contact_handoff_hold_gate.sh
+scripts/run_guarded_phase2_gate.sh
+```
+
+New evaluator modes:
+
+```text
+--controller bc
+--controller current-joint
+--controller last-preload-action
+```
+
+Purpose:
+
+The current BC failures are only meaningful if they are compared against a simple hold baseline at the same handoff state. If `current-joint` or `last-preload-action` holds near-contact longer than BC, the learned policy is objectively worse than a non-learning stabilizer. If the hold baseline also fails quickly, the contact state itself is dynamically unstable and the next work should focus on controller compliance or better post-contact data.
+
+Prepared guarded command:
+
+```bash
+scripts/run_phase2_contact_handoff_hold_gate.sh
+```
+
+Status:
+
+The harness is implemented and syntax-checked, but not yet run on GPU.

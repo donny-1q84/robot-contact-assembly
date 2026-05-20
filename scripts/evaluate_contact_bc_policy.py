@@ -236,12 +236,23 @@ def _make_observation(
     return torch.cat(obs_parts, dim=-1), fields
 
 
-parser = argparse.ArgumentParser(description="Evaluate a BC contact policy on the contact peg-in-hole task.")
+parser = argparse.ArgumentParser(description="Evaluate a BC or deterministic post-handoff contact controller on the contact peg-in-hole task.")
 parser.add_argument("--disable_fabric", action="store_true", default=False, help="Disable fabric.")
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments.")
 parser.add_argument("--steps", type=int, default=400, help="Number of evaluation steps.")
 parser.add_argument("--task", type=str, default="RCA-PegInHole-Franka-JointPos-Contact-Play-v0", help="Task name.")
-parser.add_argument("--checkpoint", type=str, required=True, help="BC checkpoint from scripts/train_contact_bc_policy.py.")
+parser.add_argument(
+    "--controller",
+    type=str,
+    default="bc",
+    choices=("bc", "current-joint", "last-preload-action"),
+    help=(
+        "Controller used after optional preload. 'bc' runs the learned checkpoint, "
+        "'current-joint' commands the measured joints each step, and "
+        "'last-preload-action' repeats the final scripted preload action."
+    ),
+)
+parser.add_argument("--checkpoint", type=str, default=None, help="BC checkpoint from scripts/train_contact_bc_policy.py.")
 parser.add_argument("--seed", type=int, default=42, help="Environment seed.")
 parser.add_argument("--warmup-steps", type=int, default=30)
 parser.add_argument("--deterministic-reset", action="store_true", default=False)
@@ -307,24 +318,37 @@ def main() -> None:
         if args_cli.socket_pos is not None:
             _override_socket_pose(env_cfg, args_cli.socket_pos)
 
-        checkpoint = torch.load(args_cli.checkpoint, map_location="cpu")
-        obs_dim = int(checkpoint["obs_dim"])
-        action_dim = int(checkpoint["action_dim"])
-        model = _build_model(obs_dim, action_dim, int(checkpoint["hidden_dim"]), int(checkpoint["layers"]))
-        model.load_state_dict(checkpoint["model_state_dict"])
         device = torch.device(args_cli.device if args_cli.device is not None else env_cfg.sim.device)
-        model.to(device).eval()
-        obs_mean = checkpoint["obs_mean"].to(device)
-        obs_std = checkpoint["obs_std"].to(device)
-        action_mean = checkpoint["action_mean"].to(device)
-        action_std = checkpoint["action_std"].to(device)
-        action_mode = str(checkpoint.get("action_mode", "absolute"))
-        if action_mode not in {"absolute", "residual-current"}:
-            raise RuntimeError(f"unsupported checkpoint action_mode={action_mode!r}")
+        model = None
+        obs_dim = 0
+        action_dim = 0
+        obs_mean = obs_std = action_mean = action_std = None
+        action_mode = args_cli.controller
+        if args_cli.controller == "bc":
+            if not args_cli.checkpoint:
+                raise RuntimeError("--checkpoint is required when --controller=bc")
+            checkpoint = torch.load(args_cli.checkpoint, map_location="cpu")
+            obs_dim = int(checkpoint["obs_dim"])
+            action_dim = int(checkpoint["action_dim"])
+            model = _build_model(obs_dim, action_dim, int(checkpoint["hidden_dim"]), int(checkpoint["layers"]))
+            model.load_state_dict(checkpoint["model_state_dict"])
+            model.to(device).eval()
+            obs_mean = checkpoint["obs_mean"].to(device)
+            obs_std = checkpoint["obs_std"].to(device)
+            action_mean = checkpoint["action_mean"].to(device)
+            action_std = checkpoint["action_std"].to(device)
+            action_mode = str(checkpoint.get("action_mode", "absolute"))
+            if action_mode not in {"absolute", "residual-current"}:
+                raise RuntimeError(f"unsupported checkpoint action_mode={action_mode!r}")
 
         env = gym.make(args_cli.task, cfg=env_cfg, render_mode=None)
         env_unwrapped = env.unwrapped
         env.reset()
+        env_action_dim = int(env.action_space.shape[-1])
+        if args_cli.controller == "bc" and action_dim != env_action_dim:
+            raise RuntimeError(f"checkpoint action_dim={action_dim} does not match env action_dim={env_action_dim}")
+        if args_cli.controller != "bc":
+            action_dim = env_action_dim
 
         if args_cli.warmup_steps > 0:
             zero_actions = torch.zeros(env.action_space.shape, device=env_unwrapped.device)
@@ -373,6 +397,7 @@ def main() -> None:
         preload_best_strict_miss_score_step = None
         handoff_lateral = handoff_axial = handoff_rot = handoff_contact_force = handoff_strict_miss_score = None
         handoff_near_contact_rate = None
+        last_preload_action = None
 
         if args_cli.preload_trace_json:
             preload_actions = _load_trace_actions(
@@ -391,6 +416,7 @@ def main() -> None:
             for replay_index, replay in enumerate(preload_actions):
                 action = torch.as_tensor(replay["raw_action"], device=env_unwrapped.device, dtype=torch.float32)
                 action = action.unsqueeze(0).repeat(num_envs, 1)
+                last_preload_action = action.clone()
                 env.step(action)
                 lateral, axial, rot, contact_force = read_metrics()
                 strict_miss = _strict_miss_score(
@@ -493,6 +519,8 @@ def main() -> None:
         current_near_contact_streak = 0
         first_near_contact_step = None
         bc_steps_executed = 0
+        if args_cli.controller == "last-preload-action" and last_preload_action is None:
+            raise RuntimeError("--controller=last-preload-action requires --preload-trace-json")
 
         for step in range(args_cli.steps):
             bc_steps_executed = step + 1
@@ -506,22 +534,36 @@ def main() -> None:
                 joint_limit_lower,
                 joint_limit_upper,
             )
-            with torch.inference_mode():
-                obs = obs.to(device)
-                pred_norm = model((obs - obs_mean) / obs_std)
-                policy_output = (pred_norm * action_std + action_mean).to(env_unwrapped.device)
+            if obs_dim == 0:
+                obs_dim = int(obs.shape[-1])
+            joint_pos = fields["joint_pos"]
+            if args_cli.controller == "bc":
+                if model is None or obs_mean is None or obs_std is None or action_mean is None or action_std is None:
+                    raise RuntimeError("BC controller is not initialized")
+                with torch.inference_mode():
+                    obs = obs.to(device)
+                    pred_norm = model((obs - obs_mean) / obs_std)
+                    policy_output = (pred_norm * action_std + action_mean).to(env_unwrapped.device)
 
-            if policy_output.shape[-1] != env.action_space.shape[-1]:
-                raise RuntimeError(f"policy action_dim={policy_output.shape[-1]} does not match env action_dim={env.action_space.shape[-1]}")
-            actions = policy_output
-            if action_mode == "residual-current":
-                joint_pos = fields["joint_pos"]
-                if args_cli.max_action_delta > 0.0:
-                    actions = joint_pos + torch.clamp(policy_output, -args_cli.max_action_delta, args_cli.max_action_delta)
-                else:
-                    actions = joint_pos + policy_output
+                if policy_output.shape[-1] != env.action_space.shape[-1]:
+                    raise RuntimeError(f"policy action_dim={policy_output.shape[-1]} does not match env action_dim={env.action_space.shape[-1]}")
+                actions = policy_output
+                if action_mode == "residual-current":
+                    if args_cli.max_action_delta > 0.0:
+                        actions = joint_pos + torch.clamp(policy_output, -args_cli.max_action_delta, args_cli.max_action_delta)
+                    else:
+                        actions = joint_pos + policy_output
+            elif args_cli.controller == "current-joint":
+                policy_output = torch.zeros_like(joint_pos)
+                actions = joint_pos
+            elif args_cli.controller == "last-preload-action":
+                if last_preload_action is None:
+                    raise RuntimeError("--controller=last-preload-action requires --preload-trace-json")
+                policy_output = last_preload_action.to(env_unwrapped.device)
+                actions = policy_output.clone()
+            else:
+                raise RuntimeError(f"unsupported controller={args_cli.controller!r}")
             if actions.shape[-1] == 7 and args_cli.max_action_delta > 0.0:
-                joint_pos = fields["joint_pos"]
                 if action_mode == "absolute":
                     actions = joint_pos + torch.clamp(actions - joint_pos, -args_cli.max_action_delta, args_cli.max_action_delta)
                 if joint_limit_lower is not None and joint_limit_upper is not None:
@@ -625,6 +667,7 @@ def main() -> None:
                         "success": bool(success[0].item()),
                         "raw_action": _tensor_list(actions[0]),
                         "policy_output": _tensor_list(policy_output[0]),
+                        "controller": args_cli.controller,
                         "action_mode": action_mode,
                         "observation": _tensor_list(obs[0]),
                         "physical_tip_rel_socket_pos": _tensor_list(fields["physical_tip_rel_socket_pos"][0]),
@@ -651,7 +694,8 @@ def main() -> None:
                 final_vs_handoff_strict_miss_delta = final_strict_miss_score - handoff_strict_miss_score
         summary = {
             "task": args_cli.task,
-            "checkpoint": os.path.abspath(args_cli.checkpoint),
+            "controller": args_cli.controller,
+            "checkpoint": os.path.abspath(args_cli.checkpoint) if args_cli.checkpoint else None,
             "seed": args_cli.seed,
             "steps_requested": args_cli.steps,
             "bc_steps_executed": bc_steps_executed,

@@ -43,6 +43,8 @@ BC_CHECKPOINT="${RCA_BC_CHECKPOINT:-/workspace/artifacts/policies/phase2_contact
 BC_EPOCHS="${RCA_BC_EPOCHS:-250}"
 BC_TRAIN_EXTRA_ARGS="${RCA_BC_TRAIN_EXTRA_ARGS:-}"
 BC_EVAL_EXTRA_ARGS="${RCA_BC_EVAL_EXTRA_ARGS:-}"
+BASELINE_CONTROLLER="${RCA_BASELINE_CONTROLLER:-current-joint}"
+BASELINE_EVAL_EXTRA_ARGS="${RCA_BASELINE_EVAL_EXTRA_ARGS:-}"
 
 RUN_ID="$(date -u +"%Y-%m-%dT%H-%M-%SZ")"
 LOCAL_RUN_DIR="${REPO_ROOT}/artifacts/gpu_gate/${RUN_ID}_${INSTANCE_NAME}"
@@ -566,8 +568,22 @@ main() {
         "${EVAL_TIMEOUT_SECONDS}" \
         "${BC_EVAL_EXTRA_ARGS}"
       ;;
+    contact_handoff_baseline)
+      log "running contact handoff baseline controller=${BASELINE_CONTROLLER}"
+      bash "${SCRIPT_DIR}/run_remote_eval_contact_handoff_baseline.sh" \
+        "${INSTANCE_NAME}" \
+        "${REMOTE_ROOT}" \
+        "${REMOTE_COMPOSE_ROOT}" \
+        "${TASK_NAME}" \
+        "${NUM_ENVS}" \
+        "${STEPS}" \
+        "${SEEDS%%,*}" \
+        "${BASELINE_CONTROLLER}" \
+        "${EVAL_TIMEOUT_SECONDS}" \
+        "${BASELINE_EVAL_EXTRA_ARGS}"
+      ;;
     *)
-      echo "[guarded-gate] unknown RCA_GATE_COMMAND=${GATE_COMMAND}; use scripted_eval, scripted_socket_sweep, scripted_reach_sweep, action_calibration, calibration_then_scripted_eval, contact_bc_train, contact_bc_eval, or contact_bc_smoke" >&2
+      echo "[guarded-gate] unknown RCA_GATE_COMMAND=${GATE_COMMAND}; use scripted_eval, scripted_socket_sweep, scripted_reach_sweep, action_calibration, calibration_then_scripted_eval, contact_bc_train, contact_bc_eval, contact_bc_smoke, or contact_handoff_baseline" >&2
       return 2
       ;;
   esac

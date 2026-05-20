@@ -7,10 +7,10 @@ Robot assembly project built around a narrow Isaac Lab `peg-in-hole` workflow. P
 - Task: `peg-in-hole`
 - Simulator stack: Isaac Sim + Isaac Lab
 - Robot: Franka Panda
-- Control: relative differential IK
-- Policy: PPO (`rsl_rl`)
+- Control: relative differential IK and joint-position contact-control variants
+- Policy: PPO (`rsl_rl`) plus scripted and BC/IL baselines
 - Execution model: local planning and artifact archive + remote Brev GPU runtime
-- Latest measured results: Phase 2 now has one shallow true-contact scripted success; strict contact-retention gates remain near-miss failures; first BC and staged BC learned-policy smokes are complete but not successful controllers
+- Latest measured results: Phase 2 now has one shallow true-contact scripted success; strict contact-retention gates remain near-miss failures; all-trace, best-window, and near-contact residual-current BC smokes are complete but not successful controllers
 - Current runtime shell: explicit peg geometry, fixed guide-socket contact walls, and physical socket-frame success logic
 
 ## Phase 1 Scope
@@ -84,8 +84,9 @@ The first learned-policy contact smokes are also complete:
 
 - All-trace BC reset eval: `success_step=null`, `best_strict_miss_score=21.0692`
 - Best-window staged BC handoff eval: `success_step=null`, `handoff_miss=0.0319`, `best_after_bc=0.1865`
+- Near-contact residual-current staged BC eval: `success_step=null`, `near_contact_fraction=0.0175`, `best_after_bc=0.3157`, `final_miss=45.5874`
 
-Interpretation: the BC dataset/checkpoint/evaluation path works, but the current one-step MLP BC policy does not stabilize final contact after handoff. The next learned-policy step should be a residual or temporally conditioned final-contact policy with richer post-contact demonstrations, not another unchanged BC rerun. See [experiments/2026-05-18_phase2_contact_bc_smoke.md](experiments/2026-05-18_phase2_contact_bc_smoke.md) and [docs/phase2_il_contact_policy_plan.md](docs/phase2_il_contact_policy_plan.md).
+Interpretation: the BC dataset/checkpoint/evaluation path works, but the current one-step MLP BC policies do not stabilize final contact after handoff. The next learned-policy step should change the data/control formulation, not run another one-step BC variant on the same trace archive. See [experiments/2026-05-18_phase2_contact_bc_smoke.md](experiments/2026-05-18_phase2_contact_bc_smoke.md) and [docs/phase2_il_contact_policy_plan.md](docs/phase2_il_contact_policy_plan.md).
 
 The latest local demonstration audit shows why the first BC policy was weak:
 
@@ -93,12 +94,21 @@ The latest local demonstration audit shows why the first BC policy was weak:
 - Near-contact steps: `3227`
 - Strict/target gate passing steps: `0`
 
-Interpretation: the archive is useful for learning a near-contact stabilization prior, but it is not yet a successful insertion-demonstration dataset. A larger residual-current near-contact dataset has been prepared locally with `3187` samples. The next learned-policy GPU run, if used, should evaluate sustained near-contact and post-handoff degradation, not only `success_step`.
+Interpretation: the archive is useful for learning a near-contact stabilization prior, but it is not yet a successful insertion-demonstration dataset. A larger residual-current near-contact dataset with `3187` samples has now been trained and evaluated; it still does not stabilize the handoff.
 
 Offline audit of the existing BC eval traces confirms the same issue:
 
 - All-trace BC: `near_contact_fraction=0.0000`
 - Staged best-window BC: `near_contact_fraction=0.0125`, `longest_near_contact_streak=5`, `final_vs_handoff_miss_delta=+8.3880`
+- Staged near-contact residual-current BC: `near_contact_fraction=0.0175`, `longest_near_contact_streak=6`, `final_vs_handoff_miss_delta=+45.5555`
+
+A deterministic post-handoff hold baseline harness is now prepared but not yet run:
+
+```bash
+scripts/run_phase2_contact_handoff_hold_gate.sh
+```
+
+This will compare learned BC handoff against a non-learning `current-joint` stabilizer before spending more GPU time on new learned-policy variants.
 
 ## V1 scope
 
@@ -163,8 +173,9 @@ Phase 1 is closed. The current milestone is Phase 2 contact-shell validation:
 1. Keep the physical peg/socket/contact task reproducible.
 2. Preserve the shallow true-contact success as the first demonstrable result.
 3. Stop adding scripted retention heuristics after the force-aware near miss.
-4. Move the next technical step to imitation learning or a learned contact policy.
+4. Stop one-step BC retries on the current trace archive after the all-trace, best-window, and residual-current failures.
 5. Keep all reported metrics explicit about whether they use the shallow gate or strict gate.
+6. Move the next technical step to local-first data/control reformulation before another paid GPU run.
 
 ## Current Runtime Scaffold
 
@@ -309,14 +320,15 @@ Interpretation:
 - The contact task, socket-frame metrics, force observations, guarded Brev runtime, artifact pullback, and cleanup checks are working.
 - The scripted controller can reach a physically contacting near-seat state reproducibly.
 - Strict success is still not achieved because lateral centering, contact retention, and final rotation trade off during the last contact-retention phase.
-- Continuing to add scripted retention heuristics is now low-value; the next useful step is a learned contact policy or imitation-learning dataset on the validated contact shell.
+- Continuing to add scripted retention heuristics or one-step BC variants is now low-value; the next useful step is better contact-retention data and a temporally conditioned or stabilizing learned policy.
 
 Current decision:
 
 - Stop paid GPU runs on the scripted-controller branch.
 - Preserve the shallow success as the Phase 2 demonstration milestone.
 - Preserve the strict-gate failures as diagnosis evidence.
-- Move the next implementation step to local-first IL/RL preparation, not another one-off heuristic.
+- Move the next implementation step to local-first IL/RL preparation, not another one-off heuristic or unchanged one-step BC run.
+- Use `scripts/run_phase2_contact_handoff_hold_gate.sh` as the next paid baseline only if a non-learning handoff comparison is needed.
 
 See [experiments/2026-05-14_phase2_guarded_gate_attempt.md](experiments/2026-05-14_phase2_guarded_gate_attempt.md) for the guarded-gate sequence and artifact paths. See [experiments/2026-05-17_phase2_near_success_diagnosis.md](experiments/2026-05-17_phase2_near_success_diagnosis.md) for the final scripted near-success diagnosis.
 
