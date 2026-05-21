@@ -592,6 +592,20 @@ scripts/run_brev_probe_only_gate.sh
 
 This uses the same price capture, instance selection, stuck-build guard, delete retries, and empty-org checks as the Isaac gates, but exits immediately after `whoami`, `hostname`, `nvidia-smi`, and disk probing.
 
-4. If `preload-direction` preserves near-contact longer than BC/current-joint, use it to generate post-contact demonstrations.
-5. If it also fails after a valid eval, stop deterministic joint-position baselines and move to richer demonstrations or a Cartesian/IK contact-maintenance controller.
-6. Only run the temporal residual-current BC smoke after the demonstration labels contain sustained near-contact behavior.
+The first probe-only run on `2026-05-21` failed before SSH:
+
+```text
+run dir: artifacts/gpu_gate/2026-05-21T05-06-38Z_isaac-probe-only-l4
+instance id: o9l5b7lcr
+type: g2-standard-4:nvidia-l4:1
+reason: create said Ready, but brev ls stayed RUNNING / BUILDING / NOT READY for 195s
+cleanup: confirmed no visible instances, JSON workspaces=null
+```
+
+This confirms the blocker is the Brev/provider lifecycle, not Isaac or the robotics code path.
+
+4. Do not run `preload-direction` until probe-only succeeds.
+5. If probing again, either wait for Brev support confirmation or explicitly test a non-GCP / non-L4 candidate with `probe_only` before any Isaac workload.
+6. If `preload-direction` preserves near-contact longer than BC/current-joint after a valid eval, use it to generate post-contact demonstrations.
+7. If it also fails after a valid eval, stop deterministic joint-position baselines and move to richer demonstrations or a Cartesian/IK contact-maintenance controller.
+8. Only run the temporal residual-current BC smoke after the demonstration labels contain sustained near-contact behavior.

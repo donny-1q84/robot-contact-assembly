@@ -1056,3 +1056,85 @@ scripts/run_brev_probe_only_gate.sh
 ```
 
 This should be the next paid Brev command before any Isaac run. It stops after instance creation, SSH readiness, `nvidia-smi`, and disk probing, then deletes the instance through the same guarded cleanup path.
+
+## Attempt 10: Probe-Only Gate Still Fails
+
+Date: 2026-05-21
+
+Goal:
+
+Verify Brev lifecycle stability before attempting any paid Isaac runtime or robotics evaluation:
+
+```text
+create instance -> wait for SSH READY -> probe whoami/hostname/nvidia-smi/df -> delete
+```
+
+Run dir:
+
+```text
+artifacts/gpu_gate/2026-05-21T05-06-38Z_isaac-probe-only-l4
+```
+
+Instance observed during create:
+
+```text
+name: isaac-probe-only-l4
+id: o9l5b7lcr
+type: g2-standard-4:nvidia-l4:1
+gpu: L4
+listed price: $0.85/hr
+```
+
+Failure:
+
+The Brev create command reported:
+
+```text
+isaac-probe-only-l4: Ready
+```
+
+but the authoritative `brev ls instances --all` state stayed at:
+
+```text
+RUNNING / BUILDING / NOT READY
+```
+
+The stuck-build guard aborted before SSH:
+
+```text
+instance isaac-probe-only-l4 stuck in RUNNING/BUILDING for 195s; aborting before ready timeout
+```
+
+No SSH probe, `nvidia-smi`, Isaac install, or robotics evaluation ran.
+
+Cleanup:
+
+The guarded cleanup deleted by both name and id. Brev kept showing:
+
+```text
+DELETING / NOT READY
+```
+
+for several polling rounds, then the wrapper confirmed:
+
+```text
+No instances in org NCA-57cf-29515
+```
+
+Independent post-run verification also confirmed:
+
+```text
+No instances in org NCA-57cf-29515
+JSON: { "workspaces": null }
+```
+
+Result:
+
+The compute backend is still not reliable enough for a paid Isaac run. This is a provider lifecycle failure, not a project-code or robotics failure.
+
+Decision:
+
+Do not run `preload-direction` or temporal BC on Brev until the probe-only gate succeeds. The next valid paid command should be either:
+
+1. the same `scripts/run_brev_probe_only_gate.sh` after Brev support confirms the org lifecycle issue is fixed, or
+2. an explicit non-GCP / non-L4 probe-only candidate if we decide to test whether the issue is tied to `g2-standard-4:nvidia-l4:1`.

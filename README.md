@@ -176,7 +176,7 @@ See [architecture.md](docs/architecture.md) and [task_breakdown.md](docs/task_br
 For the shortest GPU-session workflow, use [phase1_gpu_session_runbook.md](docs/phase1_gpu_session_runbook.md).
 Before creating any paid GPU instance, use [gpu_selection_policy.md](docs/gpu_selection_policy.md) to compare live Brev prices and choose the best-value instance for the specific job.
 For the next Phase 2 contact-shell gate, use `scripts/run_guarded_phase2_gate.sh` so price capture, runtime install, artifact pullback, deletion, and final empty-org checks happen in one controlled flow.
-After the repeated Brev create/delete lifecycle stalls, run `scripts/run_brev_probe_only_gate.sh` first. It only creates the selected instance, waits for SSH readiness, probes `nvidia-smi` / disk, and deletes it without installing Isaac or running evaluation.
+After the repeated Brev create/delete lifecycle stalls, run `scripts/run_brev_probe_only_gate.sh` first. It only creates the selected instance, waits for SSH readiness, probes `nvidia-smi` / disk, and deletes it without installing Isaac or running evaluation. The first `2026-05-21` probe-only run still failed before SSH on `g2-standard-4:nvidia-l4:1`, so do not run another Isaac workload on Brev until probe-only succeeds or a different explicit provider candidate is validated.
 
 ## Repository layout
 

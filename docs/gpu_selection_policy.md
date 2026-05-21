@@ -64,6 +64,14 @@ Use the task, not the GPU name, as the selector.
 
 ## Current Snapshot
 
+Checked on `2026-05-21` with 500 GB target disk:
+
+- `g2-standard-4:nvidia-l4:1`, L4 24 GB, `$0.85/hr`: still the cheapest visible candidate, but it failed the probe-only lifecycle gate before SSH. Avoid using this type for Isaac until `scripts/run_brev_probe_only_gate.sh` succeeds or Brev support confirms the org/provider issue is fixed.
+- `gpu-l40s-a.1gpu-8vcpu-32gb`, L40S 48 GB, `$1.86/hr`: next explicit non-GCP candidate to consider for a probe-only test if we need to determine whether the issue is specific to GCP L4.
+- `g6e.xlarge`, L40S 45 GB, `$2.23/hr`: AWS fallback candidate for probe-only testing if Nebius also fails or is unavailable.
+
+Do not proceed from probe-only to Isaac install/eval unless the probe reaches SSH, prints `nvidia-smi`, and deletes cleanly with both plain and JSON empty-org checks.
+
 Checked on `2026-04-26` with 500 GB target disk:
 
 - `g2-standard-4:nvidia-l4:1`, L4 24 GB, about `$0.85/hr`: cheapest candidate for a short headless scripted gate if Isaac boots reliably.
