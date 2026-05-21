@@ -72,6 +72,8 @@ Checked on `2026-05-21` with 500 GB target disk:
 
 Do not proceed from probe-only to Isaac install/eval unless the probe reaches SSH, prints `nvidia-smi`, and deletes cleanly with both plain and JSON empty-org checks.
 
+Update from `2026-05-21T22-21Z`: the explicit Nebius L40S probe also failed before SSH. It stayed `RUNNING / BUILDING / NOT READY` for `248s`, then cleanup encountered Brev RPC timeouts and repeated `RUNNING / COMPLETED / READY` then `DELETING / COMPLETED / NOT READY` states before finally clearing. This is now a Brev/org lifecycle issue, not just a GCP L4 issue. Do not test the AWS fallback casually; contact Brev support or use a different compute path first.
+
 Explicit probe-only wrappers:
 
 ```bash

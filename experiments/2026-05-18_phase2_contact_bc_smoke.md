@@ -1138,3 +1138,96 @@ Do not run `preload-direction` or temporal BC on Brev until the probe-only gate 
 
 1. the same `scripts/run_brev_probe_only_gate.sh` after Brev support confirms the org lifecycle issue is fixed, or
 2. an explicit non-GCP / non-L4 probe-only candidate if we decide to test whether the issue is tied to `g2-standard-4:nvidia-l4:1`.
+
+## Attempt 11: Nebius L40S Probe-Only Gate Also Fails
+
+Date: 2026-05-21 UTC / 2026-05-22 local
+
+Goal:
+
+Determine whether the probe-only lifecycle failure is specific to GCP L4 by testing an explicit non-GCP L40S instance:
+
+```bash
+scripts/run_brev_probe_l40s_nebius_gate.sh
+```
+
+Run dir:
+
+```text
+artifacts/gpu_gate/2026-05-21T22-21-15Z_isaac-probe-only-nebius-l40s
+```
+
+Instance observed during create:
+
+```text
+name: isaac-probe-only-nebius-l40s
+id: f7yhguiy5
+type: gpu-l40s-a.1gpu-8vcpu-32gb
+provider: Nebius
+gpu: L40S
+listed price: $1.86/hr
+```
+
+Failure:
+
+The create command reported:
+
+```text
+isaac-probe-only-nebius-l40s: Ready
+```
+
+but `brev ls instances --all` stayed at:
+
+```text
+RUNNING / BUILDING / NOT READY
+```
+
+The stuck-build guard aborted before SSH:
+
+```text
+instance isaac-probe-only-nebius-l40s stuck in RUNNING/BUILDING for 248s; aborting before ready timeout
+```
+
+No SSH probe, `nvidia-smi`, Isaac install, or robotics evaluation ran.
+
+Cleanup:
+
+The cleanup path repeatedly deleted by both name and id. During cleanup, Brev briefly reported the instance as:
+
+```text
+RUNNING / COMPLETED / READY
+```
+
+then:
+
+```text
+DELETING / COMPLETED / NOT READY
+```
+
+There were also Brev RPC failures:
+
+```text
+rpc error: code = Internal desc = context deadline exceeded
+rpc error: code = Internal desc = downstream duration timeout
+```
+
+Final wrapper and independent checks both confirmed:
+
+```text
+No instances in org NCA-57cf-29515
+JSON: { "workspaces": null }
+```
+
+Result:
+
+The lifecycle failure is not limited to the cheapest GCP L4 path. A Nebius L40S probe-only instance also failed before SSH and required repeated guarded cleanup.
+
+Decision:
+
+Stop all Brev GPU attempts for now, including the AWS L40S fallback. The evidence is strong enough that the blocker is Brev/org lifecycle reliability, not the robotics code, Isaac runtime, or a specific GCP L4 instance type.
+
+Next action should be operational, not technical:
+
+1. Send Brev support the repeated probe-only evidence.
+2. Do not run any Isaac workload on Brev until support confirms the lifecycle issue is fixed.
+3. If compute is needed urgently, use a different provider path outside this Brev org, or only resume after a clean probe-only pass.

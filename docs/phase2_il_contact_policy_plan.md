@@ -612,6 +612,20 @@ scripts/run_brev_probe_l40s_nebius_gate.sh
 scripts/run_brev_probe_l40s_aws_gate.sh
 ```
 
-6. If `preload-direction` preserves near-contact longer than BC/current-joint after a valid eval, use it to generate post-contact demonstrations.
-7. If it also fails after a valid eval, stop deterministic joint-position baselines and move to richer demonstrations or a Cartesian/IK contact-maintenance controller.
-8. Only run the temporal residual-current BC smoke after the demonstration labels contain sustained near-contact behavior.
+The Nebius L40S probe-only run also failed before SSH:
+
+```text
+run dir: artifacts/gpu_gate/2026-05-21T22-21-15Z_isaac-probe-only-nebius-l40s
+instance id: f7yhguiy5
+type: gpu-l40s-a.1gpu-8vcpu-32gb
+reason: create said Ready, but brev ls stayed RUNNING / BUILDING / NOT READY for 248s
+cleanup: repeated delete by name/id; confirmed no visible instances, JSON workspaces=null
+```
+
+This makes the issue cross-provider enough that the AWS fallback should not be tested casually.
+
+6. Stop all Brev GPU attempts until Brev support confirms the lifecycle issue is fixed or a separate compute path is chosen.
+7. Keep `preload-direction` as the next robotics eval once compute is reliable.
+8. If `preload-direction` preserves near-contact longer than BC/current-joint after a valid eval, use it to generate post-contact demonstrations.
+9. If it also fails after a valid eval, stop deterministic joint-position baselines and move to richer demonstrations or a Cartesian/IK contact-maintenance controller.
+10. Only run the temporal residual-current BC smoke after the demonstration labels contain sustained near-contact behavior.
