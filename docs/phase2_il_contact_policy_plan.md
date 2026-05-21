@@ -605,7 +605,13 @@ cleanup: confirmed no visible instances, JSON workspaces=null
 This confirms the blocker is the Brev/provider lifecycle, not Isaac or the robotics code path.
 
 4. Do not run `preload-direction` until probe-only succeeds.
-5. If probing again, either wait for Brev support confirmation or explicitly test a non-GCP / non-L4 candidate with `probe_only` before any Isaac workload.
+5. If probing again, either wait for Brev support confirmation or explicitly test a non-GCP / non-L4 candidate with `probe_only` before any Isaac workload:
+
+```bash
+scripts/run_brev_probe_l40s_nebius_gate.sh
+scripts/run_brev_probe_l40s_aws_gate.sh
+```
+
 6. If `preload-direction` preserves near-contact longer than BC/current-joint after a valid eval, use it to generate post-contact demonstrations.
 7. If it also fails after a valid eval, stop deterministic joint-position baselines and move to richer demonstrations or a Cartesian/IK contact-maintenance controller.
 8. Only run the temporal residual-current BC smoke after the demonstration labels contain sustained near-contact behavior.

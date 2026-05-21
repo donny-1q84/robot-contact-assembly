@@ -72,6 +72,16 @@ Checked on `2026-05-21` with 500 GB target disk:
 
 Do not proceed from probe-only to Isaac install/eval unless the probe reaches SSH, prints `nvidia-smi`, and deletes cleanly with both plain and JSON empty-org checks.
 
+Explicit probe-only wrappers:
+
+```bash
+scripts/run_brev_probe_only_gate.sh
+scripts/run_brev_probe_l40s_nebius_gate.sh
+scripts/run_brev_probe_l40s_aws_gate.sh
+```
+
+Use only one at a time, and verify empty-org text + JSON output afterward.
+
 Checked on `2026-04-26` with 500 GB target disk:
 
 - `g2-standard-4:nvidia-l4:1`, L4 24 GB, about `$0.85/hr`: cheapest candidate for a short headless scripted gate if Isaac boots reliably.

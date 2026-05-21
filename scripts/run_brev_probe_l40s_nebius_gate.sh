@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+export RCA_GATE_COMMAND="probe_only"
+export RCA_GATE_INSTANCE_TYPE="${RCA_GATE_INSTANCE_TYPE:-gpu-l40s-a.1gpu-8vcpu-32gb}"
+export RCA_GATE_INSTANCE_NAME="${RCA_GATE_INSTANCE_NAME:-isaac-probe-only-nebius-l40s}"
+export RCA_GATE_CREATE_TIMEOUT="${RCA_GATE_CREATE_TIMEOUT:-900}"
+export RCA_GATE_READY_TIMEOUT_SECONDS="${RCA_GATE_READY_TIMEOUT_SECONDS:-900}"
+export RCA_GATE_BUILD_STUCK_SECONDS="${RCA_GATE_BUILD_STUCK_SECONDS:-240}"
+export RCA_GATE_DELETE_TIMEOUT_SECONDS="${RCA_GATE_DELETE_TIMEOUT_SECONDS:-900}"
+
+exec "${SCRIPT_DIR}/run_guarded_phase2_gate.sh"
