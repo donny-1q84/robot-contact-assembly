@@ -1902,8 +1902,86 @@ Latest bundle after JointPos rotate-descend wiring:
 artifacts/launchable/robot-contact-assembly-launchable-jointpos-rotate-descend-2026-05-26.tar.gz
 ```
 
+## 2026-06-11 Contact Physics Validity Audit
+
+A geometric audit of all recorded traces found that the Phase 2 task has no
+real peg/socket contact physics, which invalidates the physical premise of
+the entire scripted-controller and BC campaign.
+
+```text
+script: scripts/analyze_contact_physics_validity.py
+report: artifacts/analysis/contact_physics_validity_2026-06-11.md
+        artifacts/analysis/contact_physics_validity_2026-06-11.json
+traces analyzed: 78
+traces with free-space contact force: 72
+traces with silent wall penetration: 15
+verdicts: no_wall_physics=15, contact_signal_not_socket=57, consistent=3 (tiny smokes)
+```
+
+Root cause: both the peg and the socket guide walls are spawned with
+`kinematic_enabled=True`, and `sync_peg_to_hand` teleports the peg to the
+hand pose every step. PhysX does not resolve kinematic-kinematic pairs, so
+the guide walls have never exerted any force on the peg. The
+`contact_force_magnitude` signal is not socket reaction either; it is
+consistent with gripper-finger interaction with the kinematically synced
+peg.
+
+Decisive evidence:
+
+```text
+softgated trace step 2322:
+  peg axis passes 10mm through both left and right walls; contact reads 0.00
+softgated trace step 98:
+  peg in free space at z=0.745, >0.3m from any wall; contact reads 1.00
+softgated trace steps 1399-1403:
+  inserting end 52-58mm deep inside the channel at tilt 0.21rad,
+  4x the geometric two-point maximum (0.05rad) for that depth
+best near-miss trace 2026-05-17T23-32-18Z:
+  816 steps with contact>=0.3 while >=2mm clear of every wall (max 3.35)
+  298 steps with wall penetration >=2mm while contact < 0.1
+  penetration/contact correlation: -0.113
+note: the logged physical_tip_pos_w is the gripped upper end of the peg;
+  the inserting end is one peg length farther along the peg axis.
+  Trace quaternions are XYZW.
+```
+
+Implications:
+
+1. Every paid probe optimized against a non-physical gate: `contact>=0.5`
+   measured the gripper, not insertion, and the rotation plateau happened
+   in a world where walls cannot block anything, so it is a
+   controller/kinematics artifact, not contact jamming.
+2. The earlier no-wall-collision diagnostic result (parking the walls
+   changed nothing) is fully explained: the walls were never interacting.
+3. The "shallow true-contact success", the strict near-miss labels, the
+   near-contact BC datasets, and the final-contact reset candidates are all
+   labeled by a gripper-force artifact and do not represent physical
+   insertion contact.
+4. Do not spend any further paid compute on any controller, BC, or RL run
+   until the environment is fixed and a smoke test demonstrates real
+   peg-wall collision response.
+
+Required environment fix before any new run:
+
+```text
+- give the task a dynamic peg with real collision response: either a
+  dynamic rigid body rigidly attached to the hand (fixed joint) or an
+  extra link on the robot articulation
+- keep the socket guide walls as colliders against that dynamic peg so
+  PhysX generates real contact constraints
+- remove sync_peg_to_hand teleportation during contact phases; a
+  teleported kinematic body cannot experience reaction forces
+- route the success-gate contact signal through a peg-vs-wall filtered
+  contact pair, not the peg net-force sensor
+- add a contact-physics smoke: command the peg straight into a wall and
+  assert nonzero wall reaction and blocked motion before any paid run
+```
+
 ## Recommended Next Steps
 
+0. Before anything else: apply the environment contact-physics fix from the
+   2026-06-11 audit above and validate it with the wall-reaction smoke.
+   All downstream recommendations assume a physically valid task.
 1. Do not run a full Isaac install/evaluation through the current Brev GCP path.
 2. Treat the AWS Isaac Launchable as technically validated but expensive; do not create another paid Brev/AWS/GPU environment unless there is an explicit budget and a deletion monitor is active.
    Local create scripts now also require `RCA_ALLOW_PAID_BREV_CREATE=1` before they will call `brev create`, and the paid CLI wrappers start `scripts/brev_paid_run_watchdog.sh` before creation. For UI Launchable runs, run `scripts/start_brev_ui_launchable_watchdog.sh` before clicking Create, or start `scripts/brev_paid_run_watchdog.sh` with a target name/id immediately after creation.
