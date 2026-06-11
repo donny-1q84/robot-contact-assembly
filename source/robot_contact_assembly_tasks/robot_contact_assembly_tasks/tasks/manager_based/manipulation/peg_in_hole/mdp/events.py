@@ -11,6 +11,12 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 
+def _to_torch(data: torch.Tensor) -> torch.Tensor:
+    """Return a torch tensor regardless of whether Isaac Lab stores torch or warp data."""
+
+    return data if isinstance(data, torch.Tensor) else wp.to_torch(data)
+
+
 def sync_peg_to_hand(
     env: ManagerBasedRLEnv,
     env_ids: torch.Tensor | slice | None,
@@ -31,11 +37,18 @@ def sync_peg_to_hand(
     robot = env.scene[robot_cfg.name]
     peg = env.scene[peg_cfg.name]
 
-    index = slice(None) if env_ids is None else env_ids
-    sim_env_ids = None if env_ids is None or env_ids == slice(None) else env_ids
+    if env_ids is None:
+        index = slice(None)
+        sim_env_ids = None
+    elif isinstance(env_ids, slice):
+        index = env_ids
+        sim_env_ids = None if env_ids == slice(None) else env_ids
+    else:
+        index = env_ids
+        sim_env_ids = env_ids
 
-    body_pos_w = wp.to_torch(robot.data.body_pos_w)[:, robot_cfg.body_ids[0]][index]  # type: ignore[index]
-    body_quat_w = wp.to_torch(robot.data.body_quat_w)[:, robot_cfg.body_ids[0]][index]  # type: ignore[index]
+    body_pos_w = _to_torch(robot.data.body_pos_w)[:, robot_cfg.body_ids[0]][index]  # type: ignore[index]
+    body_quat_w = _to_torch(robot.data.body_quat_w)[:, robot_cfg.body_ids[0]][index]  # type: ignore[index]
 
     tip_offset_pos = body_pos_w.new_tensor(body_offset).unsqueeze(0).repeat(body_pos_w.shape[0], 1)
     tip_offset_quat = body_pos_w.new_tensor(body_rot_offset).unsqueeze(0).repeat(body_pos_w.shape[0], 1)

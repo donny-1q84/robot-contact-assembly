@@ -8,7 +8,12 @@ import warp as wp
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.math import combine_frame_transforms, subtract_frame_transforms
 
-from ..constants import IDENTITY_QUAT, PEG_TIP_FROM_CENTER_POS
+from ..constants import (
+    IDENTITY_QUAT,
+    PEG_TIP_FROM_CENTER_POS,
+    SOCKET_INSERTION_AXIS_LOCAL,
+    SOCKET_INSERTION_AXIS_SIGN_INVARIANT,
+)
 
 if TYPE_CHECKING:
     from isaaclab.assets import RigidObject
@@ -23,13 +28,13 @@ def _to_torch(data: torch.Tensor) -> torch.Tensor:
 
 
 def _quat_conjugate(quat: torch.Tensor) -> torch.Tensor:
-    """Quaternion conjugate for `(x, y, z, w)` tensors."""
+    """Quaternion conjugate for the calibrated legacy `(x, y, z, w)` tensors."""
 
     return torch.cat((-quat[..., :3], quat[..., 3:]), dim=-1)
 
 
 def _quat_multiply(lhs: torch.Tensor, rhs: torch.Tensor) -> torch.Tensor:
-    """Hamilton product for `(x, y, z, w)` quaternions."""
+    """Hamilton product for the calibrated legacy `(x, y, z, w)` quaternions."""
 
     x1, y1, z1, w1 = lhs.unbind(dim=-1)
     x2, y2, z2, w2 = rhs.unbind(dim=-1)
@@ -50,6 +55,18 @@ def _rotate_vector_inverse(quat: torch.Tensor, vec: torch.Tensor) -> torch.Tenso
     zeros = torch.zeros_like(vec[..., :1])
     vec_quat = torch.cat((vec, zeros), dim=-1)
     return _quat_multiply(_quat_multiply(_quat_conjugate(quat), vec_quat), quat)[..., :3]
+
+
+def _rotate_vector(quat: torch.Tensor, vec: torch.Tensor) -> torch.Tensor:
+    """Rotate local-frame vectors into the world frame of `quat`."""
+
+    zeros = torch.zeros_like(vec[..., :1])
+    vec_quat = torch.cat((vec, zeros), dim=-1)
+    return _quat_multiply(_quat_multiply(quat, vec_quat), _quat_conjugate(quat))[..., :3]
+
+
+def _normalize_vectors(vec: torch.Tensor) -> torch.Tensor:
+    return vec / torch.clamp(torch.linalg.norm(vec, dim=-1, keepdim=True), min=1.0e-8)
 
 
 def _peg_root_pose_w(env: ManagerBasedRLEnv, peg_cfg: SceneEntityCfg) -> tuple[torch.Tensor, torch.Tensor]:
@@ -114,6 +131,24 @@ def tip_to_socket_orientation(
     socket_pos_w, socket_quat_w = _socket_pose_w(env, socket_cfg)
     _, rel_quat = subtract_frame_transforms(socket_pos_w, socket_quat_w, tip_pos_w, tip_quat_w)
     return rel_quat
+
+
+def tip_to_socket_axis_error(
+    env: ManagerBasedRLEnv,
+    peg_cfg: SceneEntityCfg,
+    socket_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+    """Sign-invariant insertion-axis error for the cylindrical peg."""
+
+    _, tip_quat_w = _peg_tip_pose_w(env, peg_cfg)
+    socket_pos_w, socket_quat_w = _socket_pose_w(env, socket_cfg)
+    axis_local = socket_pos_w.new_tensor(SOCKET_INSERTION_AXIS_LOCAL).unsqueeze(0).repeat(socket_pos_w.shape[0], 1)
+    tip_axis_w = _normalize_vectors(_rotate_vector(tip_quat_w, axis_local))
+    socket_axis_w = _normalize_vectors(_rotate_vector(socket_quat_w, axis_local))
+    dot = torch.sum(tip_axis_w * socket_axis_w, dim=1)
+    if SOCKET_INSERTION_AXIS_SIGN_INVARIANT:
+        dot = torch.abs(dot)
+    return torch.acos(torch.clamp(dot, min=-1.0, max=1.0))
 
 
 def peg_contact_force_magnitude(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:

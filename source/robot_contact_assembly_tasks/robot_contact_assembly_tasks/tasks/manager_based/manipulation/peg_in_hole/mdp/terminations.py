@@ -4,14 +4,13 @@ from typing import TYPE_CHECKING
 
 import torch
 from isaaclab.managers import SceneEntityCfg
-from isaaclab.utils.math import quat_error_magnitude
 
 from ..constants import (
     SOCKET_SUCCESS_ROT_TOLERANCE_RAD,
     SOCKET_SUCCESS_XY_TOLERANCE_M,
     SOCKET_SUCCESS_Z_TOLERANCE_M,
 )
-from .observations import _peg_tip_pose_w, _socket_pose_w, tip_to_socket_position
+from .observations import tip_to_socket_axis_error, tip_to_socket_position
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -25,11 +24,9 @@ def insertion_metrics(
     """Return lateral, axial, and rotational insertion errors against the socket frame."""
 
     rel_pos = tip_to_socket_position(env, peg_cfg, socket_cfg)
-    _, tip_quat_w = _peg_tip_pose_w(env, peg_cfg)
-    _, socket_quat_w = _socket_pose_w(env, socket_cfg)
     lateral_error = torch.linalg.norm(rel_pos[:, :2], dim=1)
     axial_error = torch.abs(rel_pos[:, 2])
-    rot_error = quat_error_magnitude(tip_quat_w, socket_quat_w)
+    rot_error = tip_to_socket_axis_error(env, peg_cfg, socket_cfg)
     return lateral_error, axial_error, rot_error
 
 

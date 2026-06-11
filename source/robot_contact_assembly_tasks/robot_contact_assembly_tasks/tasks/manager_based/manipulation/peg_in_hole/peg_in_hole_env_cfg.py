@@ -326,7 +326,7 @@ class EventCfg:
     sync_peg_each_step = EventTerm(
         func=mdp.sync_peg_to_hand,
         mode="interval",
-        interval_range_s=(0.0, 0.0),
+        interval_range_s=(1.0 / 30.0, 1.0 / 30.0),
         params={
             "robot_cfg": SceneEntityCfg("robot", body_names=MISSING),
             "peg_cfg": SceneEntityCfg("peg"),
@@ -453,6 +453,10 @@ class PegInHoleEnvCfg(ManagerBasedRLEnvCfg):
         self.episode_length_s = 8.0
         self.viewer.eye = (2.5, 2.5, 1.8)
         self.sim.dt = 1.0 / 60.0
+        env_step_s = self.sim.dt * self.decimation
+        # Keep the rigidly attached peg synchronized every environment step. A zero-second
+        # interval can trap newer Isaac Lab EventManager implementations in an immediate loop.
+        self.events.sync_peg_each_step.interval_range_s = (env_step_s, env_step_s)
         self.teleop_devices = DevicesCfg(
             devices={
                 "keyboard": Se3KeyboardCfg(gripper_term=False, sim_device=self.sim.device),

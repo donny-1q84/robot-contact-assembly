@@ -2,8 +2,8 @@
 
 import math
 
-# The remote runtime tracks Isaac Lab develop / Isaac Sim 6, where quaternions use XYZW
-# ordering. Keep hard-coded rotations in this file in `(x, y, z, w)` order.
+# These constants are empirical frame-calibration values for the current contact shell.
+# Keep the numeric values stable unless a remote Launchable gate re-calibrates them.
 IDENTITY_QUAT = (0.0, 0.0, 0.0, 1.0)
 
 # Controller-side tip frame used by the relative IK action.
@@ -33,8 +33,12 @@ PEG_ROOT_FROM_TIP_ROT = IDENTITY_QUAT
 # Fixed contact guide geometry. This is intentionally a simple square guide channel rather
 # than a CAD-accurate socket so the first contact milestone stays easy to debug.
 SOCKET_FRAME_POS = (0.520, 0.000, 0.190)
-# Match UniformPoseCommandCfg ranges roll=0, pitch=pi, yaw=0 under XYZW ordering.
+# Empirically matched to the Launchable contact-frame metrics.
 SOCKET_FRAME_ROT = (0.0, 1.0, 0.0, 0.0)
+SOCKET_INSERTION_AXIS_LOCAL = (0.0, 0.0, 1.0)
+# The socket frame's local Z points opposite the tip-first peg shaft in the calibrated
+# Launchable convention, and the cylindrical peg is twist-symmetric about that axis.
+SOCKET_INSERTION_AXIS_SIGN_INVARIANT = True
 SOCKET_GUIDE_CLEARANCE_M = 0.0015
 SOCKET_GUIDE_WALL_THICKNESS_M = 0.0060
 SOCKET_GUIDE_DEPTH_M = 0.060

@@ -6,6 +6,7 @@ from .observations import (
     peg_contact_force_magnitude_scaled,
     peg_contact_force_socket,
     socket_pose,
+    tip_to_socket_axis_error,
     tip_to_socket_orientation,
     tip_to_socket_position,
 )
@@ -35,6 +36,7 @@ __all__ = [
     "tip_orientation_error_tanh",
     "tip_position_error",
     "tip_position_error_tanh",
+    "tip_to_socket_axis_error",
     "tip_to_socket_orientation",
     "tip_to_socket_position",
 ]
