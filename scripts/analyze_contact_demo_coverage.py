@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import json
+import tarfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -131,8 +133,13 @@ def _trace_paths(root: Path, since: str | None, explicit: list[Path]) -> list[Pa
     return paths
 
 
-def _load_trace(path: Path, cfg: GateCfg) -> tuple[dict[str, Any], list[StepMetric]]:
-    data = json.loads(path.read_text(encoding="utf-8"))
+def _load_trace_data(
+    data: dict[str, Any],
+    *,
+    trace_id: str,
+    run_id: str,
+    cfg: GateCfg,
+) -> tuple[dict[str, Any], list[StepMetric]]:
     summary = data.get("summary") or {}
     task = str(summary.get("task") or "")
     scripted_control_mode = str(summary.get("scripted_control_mode") or "")
@@ -148,8 +155,8 @@ def _load_trace(path: Path, cfg: GateCfg) -> tuple[dict[str, Any], list[StepMetr
         miss = _miss(lateral, axial, rot, contact, cfg)
         metrics.append(
             StepMetric(
-                run_id=path.parent.name,
-                trace=str(path),
+                run_id=run_id,
+                trace=trace_id,
                 task=task,
                 scripted_control_mode=scripted_control_mode,
                 socket_pos=socket_pos,
@@ -168,7 +175,36 @@ def _load_trace(path: Path, cfg: GateCfg) -> tuple[dict[str, Any], list[StepMetr
     return summary, metrics
 
 
-def _coverage(path: Path, metrics: list[StepMetric]) -> TraceCoverage | None:
+def _load_trace(path: Path, cfg: GateCfg) -> tuple[dict[str, Any], list[StepMetric]]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return _load_trace_data(data, trace_id=str(path), run_id=path.parent.name, cfg=cfg)
+
+
+def _load_archive_traces(archive: Path, cfg: GateCfg, since: str | None) -> list[tuple[dict[str, Any], list[StepMetric]]]:
+    loaded: list[tuple[dict[str, Any], list[StepMetric]]] = []
+    with tarfile.open(archive, "r:*") as tar:
+        members = [
+            member
+            for member in tar.getmembers()
+            if member.isfile() and member.name.endswith("_trace.json")
+        ]
+        for member in sorted(members, key=lambda item: item.name):
+            run_id = Path(member.name).parent.name
+            if since is not None and run_id < since:
+                continue
+            extracted = tar.extractfile(member)
+            if extracted is None:
+                continue
+            with extracted:
+                data = json.load(extracted)
+            if not isinstance(data, dict):
+                continue
+            trace_id = f"{archive}::{member.name}"
+            loaded.append(_load_trace_data(data, trace_id=trace_id, run_id=run_id, cfg=cfg))
+    return loaded
+
+
+def _coverage(metrics: list[StepMetric]) -> TraceCoverage | None:
     if not metrics:
         return None
     best = min(metrics, key=lambda metric: (metric.miss, metric.axial, metric.lateral, metric.rot))
@@ -176,8 +212,8 @@ def _coverage(path: Path, metrics: list[StepMetric]) -> TraceCoverage | None:
     future = metrics[best.index :]
     post_best_min_miss = min(metric.miss for metric in future) if future else best.miss
     return TraceCoverage(
-        run_id=path.parent.name,
-        trace=str(path),
+        run_id=best.run_id,
+        trace=best.trace,
         task=best.task,
         scripted_control_mode=best.scripted_control_mode,
         socket_pos=best.socket_pos,
@@ -331,9 +367,16 @@ def _render_markdown(coverages: list[TraceCoverage], cfg: GateCfg, limit: int) -
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("traces", nargs="*", type=Path, help="Trace JSON files or directories. Defaults to scanning --root.")
+    parser.add_argument(
+        "traces",
+        nargs="*",
+        type=Path,
+        help="Trace JSON files, trace directories, or Launchable result .tar.gz archives. Defaults to scanning --root.",
+    )
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--since", default="2026-05-17T00-00-00Z")
+    parser.add_argument("--archive", action="append", type=Path, default=[], help="Launchable result archive to scan.")
+    parser.add_argument("--archive-glob", action="append", default=[], help="Glob of Launchable result archives to scan.")
     parser.add_argument("--task-contains", default="JointPos", help="Only include traces whose task contains this string. Empty string disables.")
     parser.add_argument("--mode", default="", help="Only include traces whose scripted_control_mode matches this value. Empty string disables.")
     parser.add_argument("--xy-tol", type=float, default=0.005)
@@ -360,15 +403,38 @@ def main() -> int:
         near_min_contact=args.near_min_contact,
     )
     coverages: list[TraceCoverage] = []
-    for path in _trace_paths(args.root, args.since, args.traces):
+    explicit_traces: list[Path] = []
+    archives = list(args.archive)
+    for path in args.traces:
+        if str(path).endswith((".tar.gz", ".tgz")):
+            archives.append(path)
+        else:
+            explicit_traces.append(path)
+    for pattern in args.archive_glob:
+        archives.extend(Path(match) for match in sorted(glob.glob(pattern)))
+
+    if explicit_traces:
+        trace_paths = _trace_paths(args.root, args.since, explicit_traces)
+    elif archives:
+        trace_paths = []
+    else:
+        trace_paths = _trace_paths(args.root, args.since, [])
+
+    trace_items: list[tuple[dict[str, Any], list[StepMetric]]] = []
+    for path in trace_paths:
         summary, metrics = _load_trace(path, cfg)
+        trace_items.append((summary, metrics))
+    for archive in archives:
+        trace_items.extend(_load_archive_traces(archive, cfg, args.since))
+
+    for summary, metrics in trace_items:
         task = str(summary.get("task") or "")
         mode = str(summary.get("scripted_control_mode") or "")
         if args.task_contains and args.task_contains not in task:
             continue
         if args.mode and args.mode != mode:
             continue
-        item = _coverage(path, metrics)
+        item = _coverage(metrics)
         if item is not None:
             coverages.append(item)
 

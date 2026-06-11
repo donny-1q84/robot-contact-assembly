@@ -31,13 +31,14 @@ rca_remote_host_exec() {
 
 rca_remote_container_exec() {
   local container_cmd="$1"
+  local docker_exec_env="${RCA_REMOTE_DOCKER_EXEC_ENV:-}"
   local quoted_container_cmd
   local host_cmd
 
   quoted_container_cmd="$(printf '%q' "${container_cmd}")"
   printf -v host_cmd '%s\n%s\n%s\n' \
     'set -euo pipefail' \
-    "sudo docker exec -i \"${RCA_REMOTE_TASK_CONTAINER}\" bash -lc ${quoted_container_cmd}" \
+    "sudo docker exec -i ${docker_exec_env} \"${RCA_REMOTE_TASK_CONTAINER}\" bash -lc ${quoted_container_cmd}" \
     ""
   rca_remote_host_exec "${host_cmd}"
 }

@@ -133,6 +133,20 @@ else
   ISAAC_SIM_IMAGE="${ISAAC_SIM_IMAGE}" WEB_VIEWER_PORT="${WEB_VIEWER_PORT}" ISAACSIM_SIGNAL_PORT="${ISAACSIM_SIGNAL_PORT}" ISAACSIM_STREAM_PORT="${ISAACSIM_STREAM_PORT}" ISAACSIM_HOST="${HOST_IP}" ${COMPOSE_BASE} up -d --build
 fi
 
+pull_attempt=1
+while true; do
+  if sudo docker pull "${ISAAC_SIM_IMAGE}"; then
+    break
+  fi
+  if [ "${pull_attempt}" -ge 3 ]; then
+    echo "[runtime] docker pull failed after ${pull_attempt} attempts: ${ISAAC_SIM_IMAGE}" >&2
+    exit 1
+  fi
+  echo "[runtime] docker pull failed for ${ISAAC_SIM_IMAGE}; retrying attempt $((pull_attempt + 1))/3" >&2
+  pull_attempt=$((pull_attempt + 1))
+  sleep 20
+done
+
 sudo docker rm -f "${TASK_CONTAINER_NAME}" >/dev/null 2>&1 || true
 sudo docker run -d \
   --name "${TASK_CONTAINER_NAME}" \
