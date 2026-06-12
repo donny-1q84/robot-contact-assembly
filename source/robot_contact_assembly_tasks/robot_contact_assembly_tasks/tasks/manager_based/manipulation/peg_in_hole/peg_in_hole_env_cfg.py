@@ -28,8 +28,11 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from robot_contact_assembly_tasks._compat import configclass
 
 from . import mdp
+from .assets import AttachedPegCylinderCfg
 from .constants import (
     IDENTITY_QUAT,
+    PEG_CENTER_BODY_OFFSET_POS,
+    PEG_CENTER_BODY_OFFSET_ROT,
     PEG_LENGTH_M,
     PEG_RADIUS_M,
     PEG_ROOT_FROM_TIP_POS,
@@ -42,6 +45,16 @@ from .constants import (
     SOCKET_GUIDE_INNER_HALF_WIDTH_M,
     SOCKET_GUIDE_OUTER_HALF_WIDTH_M,
     SOCKET_GUIDE_WALL_THICKNESS_M,
+)
+
+# Contact-tuned collision settings shared by the peg and the guide walls. The
+# guide clearance is 1.5mm per side, so the contact offset must stay well below
+# it or PhysX generates phantom contacts across the channel.
+_CONTACT_COLLISION_PROPS = dict(contact_offset=0.001, rest_offset=0.0)
+_CONTACT_MATERIAL = sim_utils.RigidBodyMaterialCfg(
+    static_friction=0.3,
+    dynamic_friction=0.3,
+    restitution=0.0,
 )
 
 
@@ -63,18 +76,31 @@ class PegInHoleSceneCfg(InteractiveSceneCfg):
 
     robot: ArticulationCfg = MISSING
 
+    # The peg is a DYNAMIC body welded to the hand by a fixed joint authored in
+    # the spawner. It must never be kinematic: the 2026-06-11 audit showed the
+    # kinematic peg passed through the kinematic walls with zero reaction, so
+    # the task had no real contact physics.
     peg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Peg",
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.45, 0.0, 0.35), rot=IDENTITY_QUAT),
-        spawn=sim_utils.CylinderCfg(
+        spawn=AttachedPegCylinderCfg(
             radius=PEG_RADIUS_M,
             height=PEG_LENGTH_M,
             axis="Z",
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                kinematic_enabled=False,
+                disable_gravity=False,
+                max_depenetration_velocity=5.0,
+                solver_position_iteration_count=16,
+                solver_velocity_iteration_count=1,
+            ),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.05),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
+            collision_props=sim_utils.CollisionPropertiesCfg(**_CONTACT_COLLISION_PROPS),
+            physics_material=_CONTACT_MATERIAL,
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.23, 0.46, 0.82)),
             activate_contact_sensors=True,
+            joint_local_pos0=PEG_CENTER_BODY_OFFSET_POS,
+            joint_local_rot0_xyzw=PEG_CENTER_BODY_OFFSET_ROT,
         ),
     )
 
@@ -108,7 +134,8 @@ class PegInHoleSceneCfg(InteractiveSceneCfg):
             ),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
             mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
+            collision_props=sim_utils.CollisionPropertiesCfg(**_CONTACT_COLLISION_PROPS),
+            physics_material=_CONTACT_MATERIAL,
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.55, 0.55, 0.55)),
         ),
     )
@@ -131,7 +158,8 @@ class PegInHoleSceneCfg(InteractiveSceneCfg):
             ),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
             mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
+            collision_props=sim_utils.CollisionPropertiesCfg(**_CONTACT_COLLISION_PROPS),
+            physics_material=_CONTACT_MATERIAL,
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.55, 0.55, 0.55)),
         ),
     )
@@ -154,7 +182,8 @@ class PegInHoleSceneCfg(InteractiveSceneCfg):
             ),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
             mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
+            collision_props=sim_utils.CollisionPropertiesCfg(**_CONTACT_COLLISION_PROPS),
+            physics_material=_CONTACT_MATERIAL,
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.55, 0.55, 0.55)),
         ),
     )
@@ -177,7 +206,8 @@ class PegInHoleSceneCfg(InteractiveSceneCfg):
             ),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
             mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
+            collision_props=sim_utils.CollisionPropertiesCfg(**_CONTACT_COLLISION_PROPS),
+            physics_material=_CONTACT_MATERIAL,
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.55, 0.55, 0.55)),
         ),
     )
@@ -311,22 +341,14 @@ class EventCfg:
             "velocity_range": (0.0, 0.0),
         },
     )
+    # Best-effort placement so the fixed joint starts near zero error after the
+    # arm joints are reset. The joint itself enforces the hand-peg transform
+    # during simulation; there must be NO per-step teleport event, because
+    # teleporting a joint-constrained dynamic body would fight the solver and
+    # erase contact impulses (the failure mode behind the 2026-06-11 audit).
     sync_peg_on_reset = EventTerm(
         func=mdp.sync_peg_to_hand,
         mode="reset",
-        params={
-            "robot_cfg": SceneEntityCfg("robot", body_names=MISSING),
-            "peg_cfg": SceneEntityCfg("peg"),
-            "body_offset": PEG_TIP_BODY_OFFSET_POS,
-            "body_rot_offset": PEG_TIP_BODY_OFFSET_ROT,
-            "peg_root_from_tip_pos": PEG_ROOT_FROM_TIP_POS,
-            "peg_root_from_tip_rot": PEG_ROOT_FROM_TIP_ROT,
-        },
-    )
-    sync_peg_each_step = EventTerm(
-        func=mdp.sync_peg_to_hand,
-        mode="interval",
-        interval_range_s=(1.0 / 30.0, 1.0 / 30.0),
         params={
             "robot_cfg": SceneEntityCfg("robot", body_names=MISSING),
             "peg_cfg": SceneEntityCfg("peg"),
@@ -453,10 +475,6 @@ class PegInHoleEnvCfg(ManagerBasedRLEnvCfg):
         self.episode_length_s = 8.0
         self.viewer.eye = (2.5, 2.5, 1.8)
         self.sim.dt = 1.0 / 60.0
-        env_step_s = self.sim.dt * self.decimation
-        # Keep the rigidly attached peg synchronized every environment step. A zero-second
-        # interval can trap newer Isaac Lab EventManager implementations in an immediate loop.
-        self.events.sync_peg_each_step.interval_range_s = (env_step_s, env_step_s)
         self.teleop_devices = DevicesCfg(
             devices={
                 "keyboard": Se3KeyboardCfg(gripper_term=False, sim_device=self.sim.device),

@@ -151,14 +151,35 @@ def tip_to_socket_axis_error(
     return torch.acos(torch.clamp(dot, min=-1.0, max=1.0))
 
 
-def peg_contact_force_magnitude(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
-    """Net contact-force magnitude on the peg body."""
+def _peg_wall_contact_forces_w(sensor: ContactSensor) -> torch.Tensor:
+    """Socket-wall contact force on the peg, summed over the filtered wall pairs.
 
-    sensor: ContactSensor = env.scene[sensor_cfg.name]
+    Uses ``force_matrix_w`` (shape ``(num_envs, num_bodies, num_filters, 3)``),
+    which only aggregates contacts against ``filter_prim_paths_expr`` — the four
+    guide walls. ``net_forces_w`` would also include gripper-finger and other
+    incidental contacts, which is exactly the artifact that invalidated the old
+    contact gate (2026-06-11 audit). The net-force fallback only exists for
+    sensors configured without a filter list.
+    """
+
+    force_matrix = getattr(sensor.data, "force_matrix_w", None)
+    if force_matrix is not None:
+        forces = _to_torch(force_matrix)
+        if forces.ndim > 2:
+            forces = forces.sum(dim=tuple(range(1, forces.ndim - 1)))
+        return forces
     net_forces = _to_torch(sensor.data.net_forces_w)
     if net_forces.ndim == 3:
         net_forces = net_forces.sum(dim=1)
-    return torch.linalg.norm(net_forces, dim=-1, keepdim=True)
+    return net_forces
+
+
+def peg_contact_force_magnitude(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Socket-wall contact-force magnitude on the peg body."""
+
+    sensor: ContactSensor = env.scene[sensor_cfg.name]
+    forces = _peg_wall_contact_forces_w(sensor)
+    return torch.linalg.norm(forces, dim=-1, keepdim=True)
 
 
 def peg_contact_force_socket(
@@ -167,14 +188,12 @@ def peg_contact_force_socket(
     socket_cfg: SceneEntityCfg,
     force_scale: float = 20.0,
 ) -> torch.Tensor:
-    """Net contact force on the peg, expressed in the socket frame and squashed with tanh."""
+    """Socket-wall contact force on the peg, in the socket frame, squashed with tanh."""
 
     sensor: ContactSensor = env.scene[sensor_cfg.name]
-    net_forces = _to_torch(sensor.data.net_forces_w)
-    if net_forces.ndim == 3:
-        net_forces = net_forces.sum(dim=1)
+    forces = _peg_wall_contact_forces_w(sensor)
     _, socket_quat_w = _socket_pose_w(env, socket_cfg)
-    local_forces = _rotate_vector_inverse(socket_quat_w, net_forces)
+    local_forces = _rotate_vector_inverse(socket_quat_w, forces)
     return torch.tanh(local_forces / force_scale)
 
 

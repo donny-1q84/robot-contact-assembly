@@ -136,6 +136,21 @@ The smoke now defaults `RCA_FORCE_APP_LAUNCHER=1` to avoid probing older launche
 
 If this fails due Isaac Lab 2.3 API drift, stop and patch compatibility locally before running the expensive contact evaluation.
 
+After the zero-agent smoke passes, run the contact-physics smoke gate. This is
+mandatory after the 2026-06-11 audit (the kinematic peg/wall task had no real
+contact physics) and must pass before ANY paid controller/BC/RL run:
+
+```bash
+./scripts/run_launchable_contact_physics_smoke.sh
+```
+
+It presses the welded dynamic peg onto a guide-wall top with the Abs IK play
+task (2 envs to catch per-env joint wiring failures) and marker-checks:
+`attach`, `free-space`, `press-force`, `press-blocked`, `release`,
+`joint-integrity`. A FAIL marker means the fixed-joint attachment or the
+peg-wall collision response is still wrong; stop and fix locally instead of
+launching any further paid work.
+
 Plain Brev AWS VM / Isaac Sim 6.0.0-dev2 note from 2026-06-07:
 
 ```bash

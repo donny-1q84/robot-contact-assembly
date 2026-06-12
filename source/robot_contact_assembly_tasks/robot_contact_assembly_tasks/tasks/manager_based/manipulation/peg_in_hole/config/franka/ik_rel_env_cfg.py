@@ -38,7 +38,6 @@ class FrankaPegInHoleEnvCfg(PegInHoleEnvCfg):
 
         self.commands.socket_pose.body_name = "panda_hand"
         self.events.sync_peg_on_reset.params["robot_cfg"].body_names = ["panda_hand"]
-        self.events.sync_peg_each_step.params["robot_cfg"].body_names = ["panda_hand"]
 
         self.scene.num_envs = 256
         self.scene.env_spacing = 2.5
@@ -88,7 +87,6 @@ class FrankaPegInHoleContactEnvCfg(PegInHoleContactEnvCfg):
 
         self.commands.socket_pose.body_name = "panda_hand"
         self.events.sync_peg_on_reset.params["robot_cfg"].body_names = ["panda_hand"]
-        self.events.sync_peg_each_step.params["robot_cfg"].body_names = ["panda_hand"]
         self.events.reset_robot_joints.params["position_range"] = (0.97, 1.03)
         self.observations.policy.enable_corruption = False
 

@@ -1977,6 +1977,74 @@ Required environment fix before any new run:
   assert nonzero wall reaction and blocked motion before any paid run
 ```
 
+The environment fix was implemented locally on 2026-06-13:
+
+```text
+source/.../peg_in_hole/assets.py (new)
+  AttachedPegCylinderCfg / spawn_attached_peg_cylinder: spawns the peg as a
+  DYNAMIC rigid body and authors a USD PhysicsFixedJoint from panda_hand to
+  the peg inside the env_0 template (before sim start; cloner replicates it
+  per env). Joint local pose = PEG_CENTER_BODY_OFFSET_POS/ROT, i.e. the same
+  hand-to-peg transform the old kinematic sync enforced (XYZW constants are
+  converted explicitly to USD scalar-first quaternions). The joint sets
+  excludeFromArticulation so the peg stays a standalone RigidObject view.
+  Gripper hand/finger collisions against the peg are disabled via
+  UsdPhysics.FilteredPairsAPI (they interpenetrate by construction and only
+  pollute forces/dynamics).
+
+source/.../peg_in_hole/peg_in_hole_env_cfg.py
+  peg: kinematic_enabled=False, max_depenetration_velocity=5.0, solver
+  iterations 16/1, contact_offset=0.001 / rest_offset=0.0 (clearance is
+  1.5mm per side, the offset must stay below it), friction 0.3, attached
+  spawner wired with the calibrated joint transform.
+  walls: same contact offsets/material, still kinematic colliders (valid
+  against a dynamic peg).
+  events: sync_peg_each_step REMOVED (a per-step teleport would fight the
+  joint and erase contact impulses); sync_peg_on_reset kept as best-effort
+  placement so the joint starts near zero error after arm reset.
+
+source/.../peg_in_hole/mdp/observations.py
+  peg_contact_force_magnitude / peg_contact_force_socket now read the
+  wall-filtered force_matrix_w (summed over the four guide-wall pairs)
+  instead of net_forces_w. scripted_agent.py and
+  evaluate_contact_bc_policy.py consume these mdp functions directly, so
+  every contact gate in the stack switches to the wall-only signal without
+  script changes. Observation widths are unchanged.
+
+source/.../peg_in_hole/config/franka/ik_rel_env_cfg.py
+  sync_peg_each_step references removed. zero_agent's
+  --disable_peg_sync_interval / --peg_sync_interval_seconds flags use
+  defensive getattr and now no-op.
+
+scripts/contact_physics_smoke.py (new)
+scripts/run_launchable_contact_physics_smoke.sh (new)
+  The audit-mandated gate. Runs the Abs IK play task with num_envs=2
+  (catches per-env joint wiring failures after cloning), then checks
+  markers: attach (peg tracks its own hand through the fixed joint),
+  free-space (wall-filtered force ~0 when hovering), press-force
+  (sustained reaction >0.5N pressing 20mm into a wall top), press-blocked
+  (the peg end stays within 8mm of the wall-top plane instead of passing
+  through), release, joint-integrity. The smoke overrides
+  episode_length_s to 60s so the phase sequence cannot be interrupted by
+  the play cfg's 240-step timeout.
+```
+
+Status: implemented and lint/syntax-checked locally; NOT yet validated on an
+Isaac runtime because no local GPU/Isaac is available. The first action on
+the next approved GPU session must be
+`./scripts/run_launchable_contact_physics_smoke.sh`, before any other
+evaluation. Until that smoke passes, treat the contact physics as unproven.
+
+Verified runtime conventions used by the fix (empirically, from the June
+Launchable traces): quaternions are XYZW end-to-end in the deployed Isaac
+Lab runtimes (tip = hand ⊗ (0,0,0.1034) reproduces logged positions to
+<1mm under XYZW and is ~17cm off under WXYZ), and the logged
+`physical_tip_pos_w` is the gripped UPPER end of the peg — the inserting
+end is one peg length farther along the peg axis. An earlier automated
+review claimed a systemic XYZW/WXYZ mismatch against Isaac Lab math utils;
+that claim is wrong for the deployed runtimes and was refuted with the
+trace check above.
+
 ## Recommended Next Steps
 
 0. Before anything else: apply the environment contact-physics fix from the

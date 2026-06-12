@@ -27,11 +27,17 @@ def sync_peg_to_hand(
     peg_root_from_tip_pos: tuple[float, float, float],
     peg_root_from_tip_rot: tuple[float, float, float, float],
 ) -> None:
-    """Rigidly follow the controller tip frame with the physical peg each environment step.
+    """Place the physical peg at the controller tip frame. RESET-ONLY.
 
     `body_offset` and `body_rot_offset` define the same tip frame used by the IK action.
     The physical peg root is then derived from that tip pose, so controller targets,
     rewards, terminations, and trace metrics refer to one consistent tip frame.
+
+    The peg is a dynamic body welded to the hand by a fixed joint (see
+    ``assets.spawn_attached_peg_cylinder``). This teleport must only run on
+    reset to seed the joint near zero error; running it per step would fight
+    the joint solver and erase contact impulses, reintroducing the
+    no-contact-physics artifact documented in the 2026-06-11 audit.
     """
 
     robot = env.scene[robot_cfg.name]
