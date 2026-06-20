@@ -1182,9 +1182,19 @@ def _target_action_frame_pose_w(
 
 
 def _physical_peg_tip_pose_w(env_unwrapped) -> tuple[torch.Tensor, torch.Tensor]:
-    peg = env_unwrapped.scene["peg"]
-    peg_pos_w = _as_torch(peg.data.root_pos_w)
-    peg_quat_w = _as_torch(peg.data.root_quat_w)
+    try:
+        peg = env_unwrapped.scene["peg"]
+        peg_data = getattr(peg, "data", None)
+        if peg_data is None or not hasattr(peg_data, "root_pos_w"):
+            raise AttributeError("scene peg has no RigidObject root pose data")
+        peg_pos_w = _as_torch(peg_data.root_pos_w)
+        peg_quat_w = _as_torch(peg_data.root_quat_w)
+    except (AttributeError, KeyError, RuntimeError, ValueError):
+        # Current contact-shell runtime welds the peg into the Franka
+        # articulation and does not expose it as a separate RigidObject view.
+        # In that model the physical tip is the calibrated hand action frame.
+        robot = env_unwrapped.scene["robot"]
+        return _action_frame_pose_w(env_unwrapped, robot.body_names.index("panda_hand"))
     tip_offset_pos = peg_pos_w.new_tensor(PEG_TIP_FROM_CENTER_POS).unsqueeze(0).repeat(peg_pos_w.shape[0], 1)
     tip_offset_quat = peg_pos_w.new_tensor(IDENTITY_QUAT).unsqueeze(0).repeat(peg_pos_w.shape[0], 1)
     return combine_frame_transforms(peg_pos_w, peg_quat_w, tip_offset_pos, tip_offset_quat)

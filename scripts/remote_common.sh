@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 
+RCA_REMOTE_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RCA_DEFAULT_ENV_NAME="isaac-l40s"
 RCA_DEFAULT_REMOTE_ROOT="/home/ubuntu/projects/robot-contact-assembly"
 RCA_DEFAULT_REMOTE_COMPOSE_ROOT="/home/ubuntu/isaac-compose"
 RCA_DEFAULT_TASK_CONTAINER="isaac-runner"
 RCA_DEFAULT_STREAM_CONTAINER="isaac-sim"
 
+rca_remote_operation_preflight() {
+  "${RCA_REMOTE_COMMON_DIR}/remote_operation_preflight.sh" || return $?
+}
+
 rca_init_remote_vars() {
+  rca_remote_operation_preflight || return $?
   RCA_ENV_NAME="${1:-${RCA_DEFAULT_ENV_NAME}}"
   RCA_REMOTE_ROOT="${2:-${RCA_DEFAULT_REMOTE_ROOT}}"
   RCA_REMOTE_COMPOSE_ROOT="${3:-${RCA_DEFAULT_REMOTE_COMPOSE_ROOT}}"

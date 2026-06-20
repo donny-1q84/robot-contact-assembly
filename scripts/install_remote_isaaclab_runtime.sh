@@ -4,12 +4,15 @@ set -euo pipefail
 ENV_NAME="${1:-isaac-l40s}"
 REMOTE_ROOT="${2:-/home/ubuntu/projects/robot-contact-assembly}"
 REMOTE_COMPOSE_ROOT="${3:-/home/ubuntu/isaac-compose}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ISAAC_SIM_IMAGE="${ISAAC_SIM_IMAGE:-nvcr.io/nvidia/isaac-sim:6.0.0-dev2}"
 TASK_CONTAINER_NAME="${RCA_REMOTE_TASK_CONTAINER:-isaac-runner}"
 WEB_VIEWER_PORT="${WEB_VIEWER_PORT:-8210}"
 ISAACSIM_SIGNAL_PORT="${ISAACSIM_SIGNAL_PORT:-49100}"
 ISAACSIM_STREAM_PORT="${ISAACSIM_STREAM_PORT:-47998}"
 SKIP_STREAM_STACK="${RCA_SKIP_STREAM_STACK:-0}"
+
+"${SCRIPT_DIR}/remote_operation_preflight.sh"
 
 printf -v REMOTE_ROOT_Q "%q" "${REMOTE_ROOT}"
 printf -v REMOTE_COMPOSE_ROOT_Q "%q" "${REMOTE_COMPOSE_ROOT}"

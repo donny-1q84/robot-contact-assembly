@@ -1,0 +1,85 @@
+created_utc=2026-06-20T12-44-48Z
+source_repo=/Volumes/Extreme Pro/Projects/robot-contact-assembly
+git_head=92465f44180c7c51a75d50b0d454ef8009db9513
+git_branch=master
+git_dirty=1
+source_payload_scope=runtime-v1
+source_payload_sha256=5ecbb035170e1cbc323d70263d5a7398c0e2a47cc2b2a2f86a7aef010a760e7f
+git_status_short_begin
+ M .gitignore
+ M AGENTS.md
+ M README.md
+ M docs/aws_isaac_launchable_runbook.md
+ M docs/current_project_handoff.md
+ M docs/gpu_selection_policy.md
+ M docs/phase2_cv_summary.md
+ M docs/phase2_il_contact_policy_plan.md
+ M scripts/bootstrap_brev_workspace.sh
+ M scripts/brev_paid_run_watchdog.sh
+ M scripts/check_contact_geometry_constants.py
+ M scripts/contact_physics_smoke.py
+ M scripts/create_launchable_bundle.sh
+ M scripts/evaluate_contact_bc_policy.py
+ M scripts/install_remote_isaaclab_runtime.sh
+ M scripts/pull_artifacts.sh
+ M scripts/push_single_file_to_brev.py
+ M scripts/recreate_brev_and_run_polish.sh
+ M scripts/remote_common.sh
+ M scripts/run_brev_reachable_guard_probe.sh
+ M scripts/run_guarded_phase2_gate.sh
+ M scripts/run_launchable_absik_full_arm_posture_matrix.sh
+ M scripts/run_launchable_absik_ik_method_matrix.sh
+ M scripts/run_launchable_absik_target_offset_matrix.sh
+ M scripts/run_launchable_contact_physics_smoke.sh
+ M scripts/run_launchable_headless_smoke.sh
+ M scripts/run_launchable_jointpos_nullspace_matrix.sh
+ M scripts/run_launchable_phase2_absik_handoff_probe.sh
+ M scripts/run_launchable_phase2_fresh_preload_direction.sh
+ M scripts/run_launchable_phase2_jointpos_nullspace_probe.sh
+ M scripts/run_launchable_phase2_preload_direction.sh
+ M scripts/run_launchable_rca_diagnostic_matrix.sh
+ M scripts/run_remote_eval_final_contact_candidate_bc.sh
+ M scripts/scripted_agent.py
+ M scripts/setup_remote_isaaclab.sh
+ M scripts/start_brev_ui_launchable_watchdog.sh
+ M scripts/start_live_code_port_forward.sh
+ M scripts/sync_to_brev.sh
+ D source/robot_contact_assembly_tasks/robot_contact_assembly_tasks.egg-info/PKG-INFO
+ D source/robot_contact_assembly_tasks/robot_contact_assembly_tasks.egg-info/SOURCES.txt
+ D source/robot_contact_assembly_tasks/robot_contact_assembly_tasks.egg-info/dependency_links.txt
+ D source/robot_contact_assembly_tasks/robot_contact_assembly_tasks.egg-info/not-zip-safe
+ D source/robot_contact_assembly_tasks/robot_contact_assembly_tasks.egg-info/requires.txt
+ D source/robot_contact_assembly_tasks/robot_contact_assembly_tasks.egg-info/top_level.txt
+ M source/robot_contact_assembly_tasks/robot_contact_assembly_tasks/tasks/manager_based/manipulation/peg_in_hole/assets.py
+ M source/robot_contact_assembly_tasks/robot_contact_assembly_tasks/tasks/manager_based/manipulation/peg_in_hole/config/franka/ik_rel_env_cfg.py
+ M source/robot_contact_assembly_tasks/robot_contact_assembly_tasks/tasks/manager_based/manipulation/peg_in_hole/constants.py
+ M source/robot_contact_assembly_tasks/robot_contact_assembly_tasks/tasks/manager_based/manipulation/peg_in_hole/mdp/events.py
+ M source/robot_contact_assembly_tasks/robot_contact_assembly_tasks/tasks/manager_based/manipulation/peg_in_hole/mdp/observations.py
+ M source/robot_contact_assembly_tasks/robot_contact_assembly_tasks/tasks/manager_based/manipulation/peg_in_hole/peg_in_hole_env_cfg.py
+?? .sha256
+?? "bash -s"
+?? docs/brev_launchable_lifecycle_hold.md
+?? docs/brev_support_followup_2026-06-20.md
+?? docs/contact_smoke_failure_review_2026-06-20.md
+?? docs/project_quality_audit_2026-06-18.md
+?? scripts/archive_contact_smoke_log.sh
+?? scripts/brev_paid_safety_status.sh
+?? scripts/check_brev_lifecycle_hold_clearance.sh
+?? scripts/check_brev_support_evidence.py
+?? scripts/check_contact_physics_wiring.py
+?? scripts/check_launchable_retry_readiness.sh
+?? scripts/check_phase2_contact_gate.py
+?? scripts/check_project_policy_compliance.py
+?? scripts/check_project_structure.py
+?? scripts/create_brev_lifecycle_incident_bundle.sh
+?? scripts/launchable_post_contact_gate.sh
+?? scripts/paid_compute_preflight.sh
+?? scripts/prepare_contact_smoke_run.sh
+?? scripts/project_status_report.py
+?? scripts/pull_contact_smoke_log.sh
+?? scripts/refresh_brev_login.sh
+?? scripts/remote_operation_preflight.sh
+?? scripts/run_local_quality_checks.sh
+?? scripts/source_payload_fingerprint.py
+?? scripts/test_local_gates.py
+git_status_short_end

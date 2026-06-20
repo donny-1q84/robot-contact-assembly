@@ -7,6 +7,7 @@ This project should not default to one fixed GPU type. Before every paid GPU ses
 Run these commands before creating an instance:
 
 ```bash
+scripts/brev_paid_safety_status.sh
 /Users/Shenghan/bin/brev ls instances --all
 /Users/Shenghan/bin/brev ls instances --json --all
 /Users/Shenghan/bin/brev search --min-total-vram 24 --min-disk 500 --stoppable --sort price | head -40
@@ -18,11 +19,16 @@ If any instance is already running and it is not part of the current task, stop 
 
 ## Mandatory Billing Watchdog
 
-Every paid Brev run must have a local watchdog before the instance is created or immediately after a UI-created Launchable appears. The watchdog records a local ledger, polls `brev ls instances --json --all`, and enforces a hard TTL. If the Brev CLI login expires, it cannot delete the instance automatically, but it fails loudly by writing `manual_delete_required.txt` and sending a macOS notification with the Dashboard URL.
+Every paid Brev run must have a local watchdog before the instance is created or immediately after a UI-created Launchable appears. The watchdog records a local ledger with the TTL plus any supplied budget/hourly-estimate cost boundary, polls `brev ls instances --json --all`, and enforces a hard TTL. If the Brev CLI login expires, it cannot delete the instance automatically, but it fails loudly by writing `manual_delete_required.txt` and sending a macOS notification with the Dashboard URL.
 
 For target-specific monitoring:
 
 ```bash
+RCA_ALLOW_PAID_BREV_CREATE=1 \
+RCA_BREV_CREDITS_VERIFIED=1 \
+RCA_PAID_BUDGET_EUR=<explicit-budget> \
+RCA_PAID_ESTIMATED_EUR_PER_HOUR=<conservative-eur-per-hour> \
+RCA_PAID_RUN_PURPOSE=contact_physics_smoke \
 RCA_BREV_WATCHDOG_INSTANCE_NAME=<instance-name> \
 RCA_BREV_WATCHDOG_MAX_MINUTES=60 \
 scripts/brev_paid_run_watchdog.sh
@@ -31,8 +37,18 @@ scripts/brev_paid_run_watchdog.sh
 For a UI Launchable when the exact generated name/id is not known yet, use org-scope only in the dedicated project org and only when deleting all visible instances is acceptable:
 
 ```bash
+RCA_ALLOW_PAID_BREV_CREATE=1 \
+RCA_BREV_CREDITS_VERIFIED=1 \
+RCA_PAID_BUDGET_EUR=<explicit-budget> \
+RCA_PAID_ESTIMATED_EUR_PER_HOUR=<conservative-eur-per-hour> \
+RCA_PAID_RUN_PURPOSE=contact_physics_smoke \
+RCA_BREV_WATCHDOG_MAX_MINUTES=60 \
 scripts/start_brev_ui_launchable_watchdog.sh
 ```
+
+Use the UI/provider hourly price converted conservatively to EUR. The paid
+preflight rejects runs whose estimated max cost
+`RCA_PAID_ESTIMATED_EUR_PER_HOUR * TTL / 60` exceeds the explicit budget.
 
 The guarded CLI wrappers start this watchdog automatically. Default TTLs are:
 
@@ -152,7 +168,7 @@ scripts/run_brev_probe_l40s_aws_gate.sh
 ```
 
 Use only one at a time, and verify empty-org text + JSON output afterward.
-After the 2026-05-26 Brev credit exhaustion, these wrappers fail closed unless `RCA_ALLOW_PAID_BREV_CREATE=1` is set deliberately for that session.
+After the 2026-05-26 Brev credit exhaustion, these wrappers fail closed unless `RCA_ALLOW_PAID_BREV_CREATE=1` and `RCA_BREV_CREDITS_VERIFIED=1` are set deliberately for that session. Set the credit marker only after checking the Brev UI/org balance, because the CLI has no read-only credit-balance command. They must also pass `scripts/paid_compute_preflight.sh`, which requires an explicit budget, conservative EUR/hour estimate, hard TTL, valid Brev CLI auth, an empty visible org, and an estimated max cost inside the budget. Before the Phase 2 contact gate passes, the only valid paid purpose is `RCA_PAID_RUN_PURPOSE=contact_physics_smoke`.
 
 Checked on `2026-04-26` with 500 GB target disk:
 
@@ -170,10 +186,17 @@ The `2026-04-26` L4 gate attempt showed that a cold L4 can waste time during Isa
 
 Do not let `brev create` automatically fall through a long list of increasingly expensive instances.
 
-Use an explicit type after comparing prices and only after an explicit budget/deletion check. Prefer the guarded wrappers; if a manual `brev create` is unavoidable, set and record the same paid-create acknowledgement:
+Use an explicit type after comparing prices and only after an explicit budget/deletion check. Prefer the guarded wrappers; if a manual `brev create` is unavoidable, first run and record the paid preflight:
 
 ```bash
 export RCA_ALLOW_PAID_BREV_CREATE=1
+export RCA_BREV_CREDITS_VERIFIED=1
+export RCA_PAID_BUDGET_EUR=<explicit-budget>
+export RCA_PAID_ESTIMATED_EUR_PER_HOUR=<conservative-eur-per-hour>
+export RCA_PAID_MAX_MINUTES=<ttl-minutes>
+export RCA_PAID_RUN_PURPOSE=contact_physics_smoke
+scripts/paid_compute_preflight.sh
+
 /Users/Shenghan/bin/brev create isaac-l40s \
   --type <selected-type> \
   --min-disk 500 \

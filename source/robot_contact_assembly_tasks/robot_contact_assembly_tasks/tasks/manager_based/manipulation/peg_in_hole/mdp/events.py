@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 import torch
 import warp as wp
 from isaaclab.managers import SceneEntityCfg
-from isaaclab.utils.math import combine_frame_transforms
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -15,6 +14,47 @@ def _to_torch(data: torch.Tensor) -> torch.Tensor:
     """Return a torch tensor regardless of whether Isaac Lab stores torch or warp data."""
 
     return data if isinstance(data, torch.Tensor) else wp.to_torch(data)
+
+
+def _quat_conjugate(quat: torch.Tensor) -> torch.Tensor:
+    """Quaternion conjugate for Isaac Lab WXYZ tensors."""
+
+    return torch.cat((quat[..., :1], -quat[..., 1:]), dim=-1)
+
+
+def _quat_multiply(lhs: torch.Tensor, rhs: torch.Tensor) -> torch.Tensor:
+    """Hamilton product for Isaac Lab WXYZ quaternions."""
+
+    w1, x1, y1, z1 = lhs.unbind(dim=-1)
+    w2, x2, y2, z2 = rhs.unbind(dim=-1)
+    return torch.stack(
+        (
+            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+        ),
+        dim=-1,
+    )
+
+
+def _rotate_vector(quat: torch.Tensor, vec: torch.Tensor) -> torch.Tensor:
+    """Rotate local-frame vectors into world frame with Isaac Lab WXYZ quaternions."""
+
+    zeros = torch.zeros_like(vec[..., :1])
+    vec_quat = torch.cat((zeros, vec), dim=-1)
+    return _quat_multiply(_quat_multiply(quat, vec_quat), _quat_conjugate(quat))[..., 1:]
+
+
+def _combine_frame_transforms_wxyz(
+    parent_pos: torch.Tensor,
+    parent_quat: torch.Tensor,
+    child_pos: torch.Tensor,
+    child_quat: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Compose transforms using Isaac Lab's WXYZ quaternion convention."""
+
+    return parent_pos + _rotate_vector(parent_quat, child_pos), _quat_multiply(parent_quat, child_quat)
 
 
 def sync_peg_to_hand(
@@ -58,7 +98,7 @@ def sync_peg_to_hand(
 
     tip_offset_pos = body_pos_w.new_tensor(body_offset).unsqueeze(0).repeat(body_pos_w.shape[0], 1)
     tip_offset_quat = body_pos_w.new_tensor(body_rot_offset).unsqueeze(0).repeat(body_pos_w.shape[0], 1)
-    tip_pos_w, tip_quat_w = combine_frame_transforms(
+    tip_pos_w, tip_quat_w = _combine_frame_transforms_wxyz(
         body_pos_w,
         body_quat_w,
         tip_offset_pos,
@@ -67,7 +107,7 @@ def sync_peg_to_hand(
 
     root_offset_pos = body_pos_w.new_tensor(peg_root_from_tip_pos).unsqueeze(0).repeat(body_pos_w.shape[0], 1)
     root_offset_quat = body_pos_w.new_tensor(peg_root_from_tip_rot).unsqueeze(0).repeat(body_pos_w.shape[0], 1)
-    peg_pos_w, peg_quat_w = combine_frame_transforms(
+    peg_pos_w, peg_quat_w = _combine_frame_transforms_wxyz(
         tip_pos_w,
         tip_quat_w,
         root_offset_pos,

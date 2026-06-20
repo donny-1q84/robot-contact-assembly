@@ -30,13 +30,12 @@ def _load_constants():
     return module
 
 
-def _quat_rotate_legacy_xyzw(
+def _quat_rotate_wxyz(
     quat: tuple[float, float, float, float],
     vec: tuple[float, float, float],
 ) -> tuple[float, float, float]:
-    x, y, z, w = quat
+    w, x, y, z = quat
     vx, vy, vz = vec
-    # The calibrated peg constants intentionally preserve the legacy `(x, y, z, w)` numeric convention.
     return (
         (1.0 - 2.0 * (y * y + z * z)) * vx + 2.0 * (x * y - z * w) * vy + 2.0 * (x * z + y * w) * vz,
         2.0 * (x * y + z * w) * vx + (1.0 - 2.0 * (x * x + z * z)) * vy + 2.0 * (y * z - x * w) * vz,
@@ -54,7 +53,7 @@ def main() -> int:
     c = _load_constants()
 
     yaw = c.PEG_TIP_YAW_OFFSET_RAD
-    expected_tip_rot = (0.0, 0.0, math.sin(0.5 * yaw), math.cos(0.5 * yaw))
+    expected_tip_rot = (math.cos(0.5 * yaw), 0.0, 0.0, math.sin(0.5 * yaw))
     _assert_close("PEG_TIP_BODY_OFFSET_ROT", c.PEG_TIP_BODY_OFFSET_ROT, expected_tip_rot)
 
     quat_norm = math.sqrt(sum(value * value for value in c.PEG_TIP_BODY_OFFSET_ROT))
@@ -62,7 +61,7 @@ def main() -> int:
         raise AssertionError(f"PEG_TIP_BODY_OFFSET_ROT is not unit length: norm={quat_norm:.12f}")
 
     local_tip = c.PEG_TIP_FROM_CENTER_POS
-    rotated_local_tip = _quat_rotate_legacy_xyzw(c.PEG_CENTER_BODY_OFFSET_ROT, local_tip)
+    rotated_local_tip = _quat_rotate_wxyz(c.PEG_CENTER_BODY_OFFSET_ROT, local_tip)
     physical_tip_offset = tuple(
         c.PEG_CENTER_BODY_OFFSET_POS[index] + rotated_local_tip[index] for index in range(3)
     )
@@ -72,7 +71,7 @@ def main() -> int:
     _assert_close("PEG_ROOT_FROM_TIP_ROT", c.PEG_ROOT_FROM_TIP_ROT, c.IDENTITY_QUAT)
 
     print("[geometry-check] contact geometry constants are self-consistent")
-    print(f"[geometry-check] tip_rot_legacy_xyzw={c.PEG_TIP_BODY_OFFSET_ROT}")
+    print(f"[geometry-check] tip_rot_wxyz={c.PEG_TIP_BODY_OFFSET_ROT}")
     print(f"[geometry-check] physical_tip_offset={physical_tip_offset}")
     print(f"[geometry-check] peg_root_from_tip_pos={c.PEG_ROOT_FROM_TIP_POS}")
     return 0

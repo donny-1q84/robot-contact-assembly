@@ -4,6 +4,9 @@ set -euo pipefail
 ENV_NAME="${1:-isaac-l40s}"
 REMOTE_ROOT="${2:-/home/ubuntu/projects/robot-contact-assembly}"
 REMOTE_ISAACLAB_DIR="${REMOTE_ROOT}/third_party/IsaacLab"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+"${SCRIPT_DIR}/remote_operation_preflight.sh"
 
 echo "[isaaclab] ensuring IsaacLab develop exists on ${ENV_NAME}:${REMOTE_ISAACLAB_DIR}"
 /Users/Shenghan/bin/brev exec "${ENV_NAME}" "bash -lc '

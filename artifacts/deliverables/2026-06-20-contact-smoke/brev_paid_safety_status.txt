@@ -1,0 +1,20 @@
+[brev-safety] repo=/Volumes/Extreme Pro/Projects/robot-contact-assembly
+[brev-safety] brev_cli=/Users/Shenghan/bin/brev
+[brev-safety] lifecycle_hold=active file=/Volumes/Extreme Pro/Projects/robot-contact-assembly/docs/brev_launchable_lifecycle_hold.md
+[brev-safety] healthcheck=pass
+Healthy!
+[brev-safety] org_list=pass
+Your organizations:
+ NAME              ID                              
+ * NCA-57cf-29515  org-3BaYGdtoRGmgc77Z7NHHhPSD254 
+[brev-safety] instance_list=pass
+{
+  "workspaces": null
+}
+[brev-safety] visible_instances=0
+[brev-safety] watchdog_processes=none
+[brev-safety] manual_delete_alerts=present
+/Volumes/Extreme Pro/Projects/robot-contact-assembly/artifacts/brev_paid_runs/2026-06-07T20-29-23Z_rca-reachable-approach-vm/watchdog_foreground/manual_delete_required.txt
+/Volumes/Extreme Pro/Projects/robot-contact-assembly/artifacts/brev_paid_runs/2026-06-07T22-18-02Z_rca-reachable-guard-tuned-vm/manual_delete_required.txt
+[brev-safety] manual_delete_alerts=stale_resolved current_visible_instances=0
+[brev-safety] status=SAFE_NO_VISIBLE_PAID_INSTANCE

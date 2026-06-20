@@ -10,8 +10,8 @@ Robot assembly project built around a narrow Isaac Lab `peg-in-hole` workflow. P
 - Control: relative differential IK and joint-position contact-control variants
 - Policy: PPO (`rsl_rl`) plus scripted and BC/IL baselines
 - Execution model: local planning and artifact archive + remote Brev GPU runtime
-- Latest measured results: Phase 2 now has one shallow true-contact scripted success; strict contact-retention gates remain near-miss failures; all-trace, best-window, and near-contact residual-current BC smokes are complete but not successful controllers
-- Current runtime shell: explicit peg geometry, fixed guide-socket contact walls, and physical socket-frame success logic
+- Current blocking status: the contact-physics fix is implemented locally, but not yet validated on a real Isaac runtime. Until `scripts/run_launchable_contact_physics_smoke.sh` passes, the pulled log is installed with `scripts/archive_contact_smoke_log.sh`, and `scripts/check_phase2_contact_gate.py` reports PASS, all older Phase 2 "true-contact", near-miss, BC, and reset-candidate metrics are diagnostic history only.
+- Current runtime shell: dynamic peg rigid body welded to the hand, fixed guide-socket contact walls, wall-filtered contact-force observations, and physical socket-frame success logic
 
 ## Phase 1 Scope
 
@@ -53,7 +53,7 @@ Interpretation:
 
 See [experiments/2026-04-05_phase1_rl_baseline.md](experiments/2026-04-05_phase1_rl_baseline.md) for the full run history and [docs/phase1_cv_summary.md](docs/phase1_cv_summary.md) for the concise CV/interview framing.
 
-The strongest Phase 2 scripted contact result so far is the shallow true-contact milestone:
+Historical Phase 2 scripted result, now diagnostic only until regenerated under the validated contact-physics task:
 
 - Run `2026-05-17T19-47-06Z`
   - `success_step=1538`
@@ -62,7 +62,7 @@ The strongest Phase 2 scripted contact result so far is the shallow true-contact
   - `rot=0.1909`
   - `contact=0.6927`
 
-This is a real peg/socket contact-shell success under a deliberately shallow gate:
+At the time, this was treated as a shallow peg/socket contact-shell success under a deliberately shallow gate:
 
 - `xy < 0.005 m`
 - `z < 0.045 m`
@@ -79,6 +79,8 @@ The strict scripted gate still has no success. The closest force-aware retention
   - `contact=0.5298`
 
 It missed the strict gate by about `0.20 mm` lateral error and `0.0012 rad` rotation error. See [experiments/2026-05-17_phase2_near_success_diagnosis.md](experiments/2026-05-17_phase2_near_success_diagnosis.md) and [docs/phase2_cv_summary.md](docs/phase2_cv_summary.md).
+
+Important current caveat: the 2026-06-11 contact-physics audit invalidated these older Phase 2 contact metrics as proof of real wall reaction. Keep them for historical controller diagnosis, but do not cite them as completed contact-assembly success until a new trace is regenerated after the wall-reaction smoke passes.
 
 The first learned-policy contact smokes are also complete:
 
@@ -144,7 +146,7 @@ The axis-aware Launchable validation ran on `2026-05-24` using `isaac-launchable
 
 The XY-retention path was then remote-validated on `isaac-launchable-1e19c4` / `1cozht94s`. Smoke passed, but the guarded run still failed closed: selected handoff step `8`, `lateral=0.0065`, `axial=0.6025`, `rot=0.9335`, `strict_miss_score=63.4364`. Recovery gates triggered for most of the rollout (`rotate_xy_recovery_step_count=1767`, max lateral about `1.00m`; `descend_xy_recovery_step_count=122`), which proves the blocker is not missing recovery-state detection; the joint-IK branch still walks away under the current scripted handoff family. Two live-patched joint-step scaling diagnostics (`global` and `after-xy-global`) also failed before a useful handoff and were stopped early. Diagnostics are in `artifacts/launchable_logs/rca-launchable-diagnostics-1cozht94s.tar.gz` and `artifacts/launchable_logs/rca-host-diagnostics-1cozht94s.tar.gz`; the instance was deleted, SSH lookup failed afterward, and the Brev UI showed an empty environment list.
 
-Historical metrics above still report the metric used at the time of those runs. Do not spend another paid run sweeping the current scripted handoff family. The next useful work is a new controller/policy formulation, not another Launchable retry of `preload-direction`.
+Historical metrics above still report the metric used at the time of those runs. They are not current proof of physical contact. Do not spend another paid run sweeping the current scripted handoff family. The next useful work is contact-physics validation first, then a new controller/policy formulation only after the validated task exists.
 
 The Abs IK branch has now been smoke-tested on AWS Launchable (`isaac-launchable-4a2c79` / `ij912di64`). It is materially different from the failed joint-position / standalone JointIK route because it uses Isaac Lab's native absolute-pose IK action term. Smoke passed, but the scripted-only probe failed closed: selected handoff step `319`, `lateral=0.1112`, `axial=0.0171`, `rot=0.6220`, `contact=4.9495`, `strict_miss_score=15.0390`. The compact `probe_summary.json` shows depth/contact are ready (`z_ready_step_count=285`, `contact_ready_step_count=320`), but `xy_ready_step_count=0` and `rot_ready_step_count=0`; the run also stayed in `reach` phase for all 320 steps, with best lateral at the final step. Artifacts are in `artifacts/launchable_logs/rca-absik-probe-results-ij912di64.tar.gz`. Follow-up trace review found that the native 7D Abs IK path was writing world-frame absolute pose targets into Isaac Lab's root-frame action term. `scripts/scripted_agent.py` now defaults 7D MDP Abs IK to `--mdp-abs-action-frame root`, and `scripts/run_launchable_phase2_absik_handoff_probe.sh` explicitly uses that root-frame path with a 1200-step window.
 
@@ -269,7 +271,46 @@ Remote Brev GPU VM:
 
 See [architecture.md](docs/architecture.md) and [task_breakdown.md](docs/task_breakdown.md).
 For the shortest GPU-session workflow, use [phase1_gpu_session_runbook.md](docs/phase1_gpu_session_runbook.md).
-Before creating any paid GPU instance, use [gpu_selection_policy.md](docs/gpu_selection_policy.md) to compare live Brev prices and choose the best-value instance for the specific job. The local Brev create wrappers now refuse paid instance creation unless `RCA_ALLOW_PAID_BREV_CREATE=1` is set after an explicit budget/deletion check, and they start `scripts/brev_paid_run_watchdog.sh` before `brev create` so every paid CLI run has a local TTL ledger and cleanup monitor. For UI-created Launchables, run `scripts/start_brev_ui_launchable_watchdog.sh` before clicking Create, or start `scripts/brev_paid_run_watchdog.sh` against the generated instance name/id immediately after creation.
+Before creating any paid GPU instance, use [gpu_selection_policy.md](docs/gpu_selection_policy.md) to compare live Brev prices and choose the best-value instance for the specific job. The local Brev create wrappers now refuse paid instance creation unless `RCA_ALLOW_PAID_BREV_CREATE=1` is set after an explicit budget/deletion check, and they start `scripts/brev_paid_run_watchdog.sh` before `brev create` so every paid CLI run has a local TTL/cost-boundary ledger and cleanup monitor. For UI-created Launchables, run `scripts/start_brev_ui_launchable_watchdog.sh` before clicking Create, or start `scripts/brev_paid_run_watchdog.sh` against the generated instance name/id immediately after creation.
+
+Every paid path now also has to pass:
+
+```bash
+RCA_BREV_LOGIN_EMAIL=<email> ./scripts/refresh_brev_login.sh
+
+RCA_ALLOW_PAID_BREV_CREATE=1 \
+RCA_BREV_CREDITS_VERIFIED=1 \
+RCA_PAID_BUDGET_EUR=<explicit-budget> \
+RCA_PAID_ESTIMATED_EUR_PER_HOUR=<conservative-eur-per-hour> \
+RCA_PAID_MAX_MINUTES=<ttl-minutes> \
+RCA_PAID_RUN_PURPOSE=contact_physics_smoke \
+  ./scripts/paid_compute_preflight.sh
+```
+
+`scripts/refresh_brev_login.sh` refreshes Brev/NVIDIA CLI auth and then runs only the read-only `brev ls instances --json --all` verification. It does not create paid resources.
+
+`scripts/brev_paid_safety_status.sh` is the read-only quick safety snapshot:
+it checks Brev backend health, the active org, `brev ls instances --json --all`,
+watchdog processes, watchdog ledgers, and the lifecycle hold file. Use it before
+and after any paid/Brev work; when no paid job is intentionally running it must
+show `visible_instances=0`.
+
+Use `RCA_PAID_RUN_PURPOSE=contact_physics_smoke` only for the short Isaac contact-physics smoke before the Phase 2 gate passes. All other paid work defaults to `post_contact_gate` and is blocked until `python3 scripts/check_phase2_contact_gate.py` reports PASS. The preflight also fails closed when Brev CLI auth is expired, any active instance is visible, the manual credit-balance marker `RCA_BREV_CREDITS_VERIFIED=1` is missing, or the estimated max cost (`RCA_PAID_ESTIMATED_EUR_PER_HOUR * RCA_PAID_MAX_MINUTES / 60`) exceeds `RCA_PAID_BUDGET_EUR`; there is no supported phase-gate skip or nonempty-org override.
+
+After the 2026-06-20 repeated AWS Launchable lifecycle failures, an active hold
+file at `docs/brev_launchable_lifecycle_hold.md` also blocks paid creation by
+default. A retry requires `RCA_ACK_BREV_LIFECYCLE_RISK=1` in addition to the
+normal budget/TTL/auth/empty-org checks, and should only be used after Brev
+cleanup is confirmed and the lifecycle risk is deliberately accepted.
+Use `scripts/create_brev_lifecycle_incident_bundle.sh` to package support
+evidence, and `scripts/check_brev_lifecycle_hold_clearance.sh` to confirm
+`visible_instances=0` plus fail-closed preflight behavior before any human
+review of the hold.
+If a single contact-smoke retry is later deliberately considered, run
+`./scripts/check_launchable_retry_readiness.sh` first. It is read-only and
+stays blocked unless the lifecycle risk acknowledgement, budget, hourly
+estimate, TTL, empty-org state, and bundle readiness all line up.
+
 For the next Phase 2 contact-shell gate, use `scripts/run_guarded_phase2_gate.sh` so price capture, runtime install, artifact pullback, deletion, and final empty-org checks happen in one controlled flow.
 After the repeated Brev create/delete lifecycle stalls, run a probe before any Isaac workload. The conservative default remains `scripts/run_brev_probe_only_gate.sh`: it creates the selected instance, waits for Brev list readiness, probes `nvidia-smi` / disk over SSH, and deletes it without installing Isaac or running evaluation. The first `2026-05-21` probe-only run failed before SSH on `g2-standard-4:nvidia-l4:1`; the explicit Nebius L40S probe also failed before SSH and required repeated cleanup. Brev support later confirmed there were no hidden billable resources and suggested the issue may involve the deployment / port workflow rather than a hidden instance. A newer direct-SSH probe, `scripts/run_brev_probe_direct_ssh_gate.sh`, then failed even earlier on `2026-05-24`: Brev's `CreateWorkspace` API returned `unexpected EOF` before SSH. Do not run full Isaac jobs through that Brev GCP CLI path until support confirms the create API issue is fixed. The official AWS Isaac Launchable path in `docs/aws_isaac_launchable_runbook.md` successfully brought up an L40S Launchable, passed the marker-checked headless smoke and diagnostic matrix after Isaac Lab 2.3 compatibility fixes, and ran the `preload-direction` eval. Use it only for short, explicit paid runs and delete the instance immediately afterward.
 
@@ -284,14 +325,61 @@ After the repeated Brev create/delete lifecycle stalls, run a probe before any I
 
 ## Current milestone
 
-Phase 1 is closed. The current milestone is Phase 2 contact-shell validation:
+Phase 1 is closed. The current milestone is Phase 2 contact-physics validation:
 
 1. Keep the physical peg/socket/contact task reproducible.
-2. Preserve the shallow true-contact success as the first demonstrable result.
+2. Treat the older shallow "true-contact" success as diagnostic history until regenerated after the wall-reaction smoke passes.
 3. Stop adding scripted retention heuristics after the force-aware near miss.
 4. Stop one-step BC retries on the current trace archive after the all-trace, best-window, and residual-current failures.
 5. Keep all reported metrics explicit about whether they use the shallow gate or strict gate.
-6. Move the next technical step to local-first data/control/action-semantics reformulation before another paid GPU run; the Launchable runtime path itself has passed smoke, but the current scripted handoff family and the native Abs IK scripted probe both failed closed.
+6. Move the next technical step to the contact-physics smoke gate before another paid controller/policy run; if it passes, regenerate a minimal scripted trace under the validated task before revisiting data/control/action-semantics reformulation.
+
+Before any remote or paid step, run the local no-Isaac quality gate:
+
+```bash
+./scripts/run_local_quality_checks.sh
+```
+
+This also runs project structure checks through `scripts/check_project_structure.py`, contact-physics wiring checks through `scripts/check_contact_physics_wiring.py`, policy checks through `scripts/check_project_policy_compliance.py`, and offline gate behavior tests through `scripts/test_local_gates.py`; it does not call Brev or Isaac. It runs without writing Python bytecode and fails if generated cache or package metadata is present.
+
+Then run the Phase 2 contact gate:
+
+```bash
+python3 scripts/check_phase2_contact_gate.py
+```
+
+If it reports `BLOCKED`, do not run controller sweeps, BC, RL, or broad paid GPU jobs. The only next paid action is a short Isaac runtime smoke using `./scripts/run_launchable_contact_physics_smoke.sh`, followed by log pullback, immediate instance deletion, and an empty-instance confirmation.
+
+The archived smoke log must contain the marker set enforced by `scripts/check_phase2_contact_gate.py`: `phase free-space-settle: end`, `attach`, `free-space`, `phase local-guide-reanchor: end`, `local-guide reanchored`, `free-space-reanchored`, `phase press-hold: end`, `press-force`, `press-tracking`, `press-blocked`, `press-no-clip`, `phase retreat-hold: end`, `release`, `joint-integrity`, `phase-sequence: PASS`, and the wrapper completion marker. Its source evidence must include the current runtime `source_payload_sha256`; stale PASS logs from older runtime code do not unlock downstream work, but documentation-only commits should not force another paid smoke.
+
+For a read-only current-state snapshot:
+
+```bash
+python3 scripts/project_status_report.py
+```
+
+When ready for the one allowed paid smoke, use the guarded preparation command:
+
+```bash
+RCA_PAID_BUDGET_EUR=<explicit-budget> \
+RCA_PAID_ESTIMATED_EUR_PER_HOUR=<conservative-eur-per-hour> \
+RCA_BREV_CREDITS_VERIFIED=1 \
+  ./scripts/prepare_contact_smoke_run.sh
+```
+
+It runs the local quality gate and paid preflight first, then creates a fresh contact-smoke Launchable bundle with the source manifest and prints the exact tarball path to upload. It does not create a Launchable by itself. Launchable bundles exclude generated caches plus local tool configuration such as `.claude/`; `source_payload_sha256` fingerprints the `runtime-v1` source scope that affects the contact smoke, not documentation-only bundle content.
+
+After the remote smoke finishes, pull and validate the only allowed pre-gate artifact with:
+
+```bash
+./scripts/pull_contact_smoke_log.sh <launchable-env-name> /workspace/robot-contact-assembly
+```
+
+Low-level helpers that operate on an already-running Brev environment now route through `scripts/remote_operation_preflight.sh`. While the contact gate is blocked, they refuse normal post-contact remote work; only `RCA_REMOTE_OPERATION_PURPOSE=contact_physics_smoke` is allowed. Remote preflight completion is not externally skippable. For the one allowed pre-gate pullback, use `scripts/pull_contact_smoke_log.sh`; it pulls only `artifacts/launchable_logs/contact_physics_smoke.log` and immediately runs `scripts/archive_contact_smoke_log.sh`.
+
+Launchable workload scripts now also have a remote-side guard through `scripts/launchable_post_contact_gate.sh`. Inside the paid runtime, every non-contact-smoke Launchable evaluation/matrix/probe script must see a local `contact_physics_smoke.log` that passes `scripts/check_phase2_contact_gate.py` for the current runtime source payload before it runs.
+
+The policy check also statically scans for direct `ssh`, `rsync`, `scp`, `sftp`, and `brev exec/copy/port-forward/shell/open` usage so new remote helpers cannot bypass the preflight silently.
 
 ## Current Runtime Scaffold
 
@@ -306,6 +394,10 @@ The current runnable Isaac Lab shell is still intentionally simple, but it now i
   - `RCA-PegInHole-Franka-IK-Rel-Polish-v0`
   - `RCA-PegInHole-Franka-IK-Rel-Contact-v0`
   - `RCA-PegInHole-Franka-IK-Rel-Contact-Play-v0`
+  - `RCA-PegInHole-Franka-IK-Abs-Contact-v0`
+  - `RCA-PegInHole-Franka-IK-Abs-Contact-Play-v0`
+  - `RCA-PegInHole-Franka-JointPos-Contact-v0`
+  - `RCA-PegInHole-Franka-JointPos-Contact-Play-v0`
 
 The policy observation contract is still kept Phase-1 compatible so the best proxy checkpoint can be evaluated zero-shot in the new contact shell before adding force terms to the actor.
 
@@ -415,7 +507,7 @@ See [experiments/2026-04-26_phase2_contact_frame_fix.md](experiments/2026-04-26_
 
 ## Latest Phase 2 Scripted Gate Status
 
-The latest guarded L4 scripted gates were completed on `2026-05-17` against the real contact shell. They produced one shallow true-contact success and several strict-gate near misses:
+Pre-audit guarded L4 scripted gates were completed on `2026-05-17` against the then-current contact shell. After the 2026-06-11 contact-physics audit, treat these as historical controller diagnostics, not as proof of physical peg-wall insertion:
 
 - Shallow contact success:
   - run `2026-05-17T19-47-06Z`
@@ -433,17 +525,17 @@ The latest guarded L4 scripted gates were completed on `2026-05-17` against the 
 
 Interpretation:
 
-- The contact task, socket-frame metrics, force observations, guarded Brev runtime, artifact pullback, and cleanup checks are working.
-- The scripted controller can reach a physically contacting near-seat state reproducibly.
-- Strict success is still not achieved because lateral centering, contact retention, and final rotation trade off during the last contact-retention phase.
-- Continuing to add scripted retention heuristics or one-step BC variants is now low-value; the next useful step is better contact-retention data and a temporally conditioned or stabilizing learned policy.
+- The guarded Brev runtime, artifact pullback, and cleanup checks were useful.
+- The older contact-force metric is not current proof of wall reaction.
+- Strict success was not achieved, and the older near-seat labels must be regenerated under the validated dynamic-peg task before they can drive BC, RL, or reset-candidate work.
+- Continuing to add scripted retention heuristics or one-step BC variants is low-value before the contact-physics smoke passes.
 
 Current decision:
 
 - Stop paid GPU runs on the scripted-controller branch.
-- Preserve the shallow success as the Phase 2 demonstration milestone.
+- Do not preserve the older shallow success as a Phase 2 demonstration milestone until it is regenerated after the wall-reaction smoke passes.
 - Preserve the strict-gate failures as diagnosis evidence.
-- Move the next implementation step to local-first IL/RL preparation, not another one-off heuristic or unchanged one-step BC run.
+- Move the next implementation step to contact-physics smoke validation, not IL/RL preparation, another one-off heuristic, or unchanged one-step BC run.
 - Do not re-run `scripts/run_phase2_contact_handoff_hold_gate.sh` unchanged; the `current-joint` hold baseline has already failed.
 - Use `scripts/run_phase2_contact_bc_temporal_residual_current_smoke_gate.sh` only after deciding that the next paid learned-policy run should test temporal context.
 
@@ -451,7 +543,9 @@ See [experiments/2026-05-14_phase2_guarded_gate_attempt.md](experiments/2026-05-
 
 ## First Contact Validation
 
-The first useful validation sequence for the new contact shell is:
+This older remote validation sequence is retained for historical runtime context. The current first validation is `./scripts/run_launchable_contact_physics_smoke.sh`; do not run transfer eval, scripted gates, BC, or RL before that wall-reaction smoke passes.
+
+Historical validation sequence:
 
 1. Run the remote smoke suite:
    - `./scripts/run_remote_smoke_test.sh`
@@ -627,15 +721,15 @@ For the concise CV-facing summary and interview framing, see [phase1_cv_summary.
 
 ## What comes next
 
-The proxy-to-contact migration is done, and the first shallow true-contact success is recorded. The next meaningful technical step is not another GPU burn on the same hand-coded polish controller.
+The proxy-to-contact migration is not complete until the dynamic-peg contact smoke passes on Isaac runtime. The next meaningful technical step is not another GPU burn on the same hand-coded polish controller.
 
 The recommended next phase is:
 
-- generate a small demonstration dataset around the validated contact shell
-- train a learned final-contact policy or imitation policy for the last `5-6 cm`
-- use the shallow scripted success as a reset/initialization curriculum
-- evaluate against both the shallow gate and the strict gate
-- only reopen paid GPU runs when the next experiment has a single measurable pass/fail condition
+- run and archive the contact-physics smoke gate
+- regenerate one short scripted trace under the validated contact shell
+- only then decide whether to generate demonstrations, train a learned final-contact policy, or use reset/initialization curricula
+- evaluate against both the shallow gate and the strict gate only after the metric source is verified
+- only reopen paid GPU runs when the next experiment has a single measurable pass/fail condition and cleanup watchdog
 
 Before committing to a learned policy action space, run the one-at-a-time control-mode comparison in [phase2_control_mode_comparison_plan.md](docs/phase2_control_mode_comparison_plan.md):
 

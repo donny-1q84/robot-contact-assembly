@@ -1,0 +1,342 @@
+#!/usr/bin/env python3
+"""Print the current project status and next allowed action.
+
+This is a read-only report. It intentionally does not call Brev, start Isaac,
+or mutate files. Use the dedicated gate scripts for pass/fail enforcement:
+
+- scripts/run_local_quality_checks.sh
+- scripts/check_phase2_contact_gate.py
+- scripts/paid_compute_preflight.sh
+"""
+
+from __future__ import annotations
+
+import argparse
+from dataclasses import dataclass
+import os
+from pathlib import Path
+import subprocess
+from typing import Iterable
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+FAILING_STATUSES = {"BLOCKED", "STALE", "MISSING"}
+BREV_LIFECYCLE_HOLD_FILE = Path(
+    os.environ.get(
+        "RCA_BREV_LIFECYCLE_HOLD_FILE",
+        str(REPO_ROOT / "docs" / "brev_launchable_lifecycle_hold.md"),
+    )
+)
+
+
+@dataclass(frozen=True)
+class Check:
+    name: str
+    status: str
+    detail: str
+
+
+def run_git(*args: str) -> str:
+    result = subprocess.run(
+        ["git", *args],
+        cwd=REPO_ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if result.returncode != 0:
+        return f"<git error: {result.stderr.strip()}>"
+    return result.stdout.strip()
+
+
+def run_script(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [*args],
+        cwd=REPO_ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+
+
+def current_source_payload_sha256() -> str:
+    result = run_script("python3", "scripts/source_payload_fingerprint.py")
+    if result.returncode != 0:
+        return "<unavailable>"
+    return result.stdout.strip()
+
+
+def current_source_payload_scope() -> str:
+    result = run_script("python3", "scripts/source_payload_fingerprint.py", "--scope")
+    if result.returncode != 0:
+        return "<unavailable>"
+    return result.stdout.strip()
+
+
+def contact_gate_status() -> Check:
+    result = run_script("python3", "scripts/check_phase2_contact_gate.py")
+    if result.returncode == 0:
+        pass_lines = [line for line in result.stdout.splitlines() if "PASS: validated" in line]
+        detail = pass_lines[-1] if pass_lines else "Validated by scripts/check_phase2_contact_gate.py."
+        return Check("Phase 2 contact gate", "PASS", detail)
+
+    if "no candidate log exists yet" in result.stdout:
+        detail = "No archived artifacts/launchable_logs/contact_physics_smoke.log exists."
+    elif "source HEAD mismatch" in result.stdout or "source payload mismatch" in result.stdout:
+        detail = "Only stale smoke logs exist; none references the current runtime source payload."
+    elif "FAIL marker present" in result.stdout:
+        detail = "Contact-smoke log contains FAIL markers."
+    elif "missing source payload fingerprint" in result.stdout:
+        detail = "Contact-smoke log exists but lacks source_payload_sha256 evidence."
+    elif "missing required marker" in result.stdout:
+        detail = "Contact-smoke log exists but lacks required PASS markers."
+    else:
+        detail = "No valid contact-smoke PASS log accepted by scripts/check_phase2_contact_gate.py."
+    return Check("Phase 2 contact gate", "BLOCKED", detail)
+
+
+def local_policy_status() -> Check:
+    required_files = (
+        "scripts/run_local_quality_checks.sh",
+        "scripts/check_contact_physics_wiring.py",
+        "scripts/check_phase2_contact_gate.py",
+        "scripts/paid_compute_preflight.sh",
+        "scripts/prepare_contact_smoke_run.sh",
+        "scripts/check_project_policy_compliance.py",
+    )
+    missing = [path for path in required_files if not (REPO_ROOT / path).is_file()]
+    if missing:
+        return Check("Local gates", "BLOCKED", "Missing gate file(s): " + ", ".join(missing))
+    return Check(
+        "Local gates",
+        "READY",
+        "Gate scripts are present; run ./scripts/run_local_quality_checks.sh for enforcement.",
+    )
+
+
+def historical_doc_status() -> Check:
+    markers = {
+        "docs/phase2_cv_summary.md": "Superseded by 2026-06-18 Audit",
+        "docs/phase2_il_contact_policy_plan.md": "Blocked by Contact-Physics Gate",
+        "docs/aws_isaac_launchable_runbook.md": "Contact-Smoke Only",
+    }
+    missing: list[str] = []
+    for rel_path, marker in markers.items():
+        path = REPO_ROOT / rel_path
+        if not path.is_file() or marker not in path.read_text(encoding="utf-8", errors="replace"):
+            missing.append(f"{rel_path}:{marker}")
+    if missing:
+        return Check("Historical docs", "BLOCKED", "Missing current-state marker(s): " + ", ".join(missing))
+    return Check("Historical docs", "READY", "Old Phase 2 docs are marked as historical/superseded.")
+
+
+def tracked_generated_metadata_status() -> Check:
+    output = run_git("ls-files", "*egg-info*")
+    existing = []
+    for rel_path in output.splitlines():
+        if rel_path and (REPO_ROOT / rel_path).exists():
+            existing.append(rel_path)
+    if existing:
+        return Check("Generated metadata", "BLOCKED", "Tracked egg-info files still exist: " + ", ".join(existing))
+    return Check("Generated metadata", "READY", "No existing tracked egg-info files remain.")
+
+
+def brev_lifecycle_hold_status() -> Check:
+    if BREV_LIFECYCLE_HOLD_FILE.is_file():
+        return Check(
+            "Brev lifecycle hold",
+            "BLOCKED",
+            f"Active hold file requires service recovery or RCA_ACK_BREV_LIFECYCLE_RISK=1 before any paid retry: {BREV_LIFECYCLE_HOLD_FILE}",
+        )
+    return Check("Brev lifecycle hold", "READY", "No local Brev/Launchable lifecycle hold file is active.")
+
+
+def latest_contact_smoke_bundle_status() -> Check:
+    bundle_dir = REPO_ROOT / "artifacts" / "launchable"
+    bundles = sorted(bundle_dir.glob("robot-contact-assembly-contact-smoke-*.tar.gz"))
+    if not bundles:
+        return Check("Contact-smoke bundle", "MISSING", "No local contact-smoke bundle exists yet.")
+
+    latest = max(bundles, key=lambda path: path.stat().st_mtime)
+    result = subprocess.run(
+        [
+            "tar",
+            "-xOzf",
+            str(latest),
+            "robot-contact-assembly/.rca_launchable_source_manifest.txt",
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if result.returncode != 0:
+        return Check("Contact-smoke bundle", "STALE", f"Latest bundle has no readable source manifest: {latest}")
+
+    manifest: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        manifest[key] = value
+
+    current_payload = current_source_payload_sha256()
+    current_scope = current_source_payload_scope()
+    bundle_scope = manifest.get("source_payload_scope", "")
+    if bundle_scope != current_scope:
+        return Check(
+            "Contact-smoke bundle",
+            "STALE",
+            f"Latest bundle scope {bundle_scope or '<missing>'} does not match current {current_scope}: {latest}",
+        )
+    bundle_payload = manifest.get("source_payload_sha256", "")
+    if bundle_payload != current_payload:
+        return Check(
+            "Contact-smoke bundle",
+            "STALE",
+            f"Latest bundle payload {bundle_payload or '<missing>'} does not match current {current_payload}: {latest}",
+        )
+    return Check("Contact-smoke bundle", "READY", f"Latest bundle matches current runtime payload scope/hash: {latest}")
+
+
+def dirty_tree_status() -> Check:
+    status = run_git("status", "--short")
+    if status:
+        count = len(status.splitlines())
+        return Check("Git worktree", "DIRTY", f"{count} changed path(s); review before committing.")
+    return Check("Git worktree", "CLEAN", "No uncommitted changes.")
+
+
+def checks() -> list[Check]:
+    return [
+        dirty_tree_status(),
+        local_policy_status(),
+        brev_lifecycle_hold_status(),
+        latest_contact_smoke_bundle_status(),
+        contact_gate_status(),
+        historical_doc_status(),
+        tracked_generated_metadata_status(),
+    ]
+
+
+def next_allowed_action(contact_status: str, lifecycle_hold_status: str) -> str:
+    if contact_status == "PASS":
+        return (
+            "Regenerate exactly one short scripted trace under the validated task, then refresh "
+            "contact-validity and demo-coverage reports before reopening controller/BC/RL work."
+        )
+    if lifecycle_hold_status == "BLOCKED":
+        return (
+            "The latest local change makes the guide-wall-sweep blocked check radius-aware: "
+            "the cylindrical lower-end centerline should sit about one peg radius above the "
+            "wall top during contact, while arm-servo diagnostics still require wall-top plane "
+            "blocking. Keep the Brev lifecycle hold active until local quality passes, the "
+            "current contact-smoke bundle is rebuilt, and `/Users/Shenghan/bin/brev ls instances --json --all` "
+            "returns `{\"workspaces\": null}`. Only then consider one short smoke retry with "
+            "`RCA_ACK_BREV_LIFECYCLE_RISK=1`, watchdog, pullback, immediate deletion, and final empty-org confirmation."
+        )
+    return (
+        "Rerun local quality, rebuild the current contact-smoke bundle, and only then prepare one "
+        "short paid smoke retry with explicit budget, watchdog, pullback, immediate deletion, and "
+        "final empty-org confirmation."
+    )
+
+
+def current_decision(contact_status: str, lifecycle_hold_status: str) -> str:
+    if contact_status == "PASS":
+        if lifecycle_hold_status == "BLOCKED":
+            return (
+                "The Phase 2 contact-smoke gate is satisfied. Do not start new paid Brev work "
+                "until the active lifecycle hold is deliberately cleared or acknowledged for a "
+                "specific short run with explicit budget, TTL, watchdog, artifact pullback, "
+                "immediate deletion, and final empty-org confirmation."
+            )
+        return (
+            "The Phase 2 contact-smoke gate is satisfied. Post-contact diagnostics may resume, "
+            "but any paid GPU work still needs explicit budget, TTL, watchdog, artifact pullback, "
+            "immediate deletion, and final empty-org confirmation."
+        )
+    return (
+        "Do not run controller sweeps, BC, RL, broad scripted probes, or any post-contact paid GPU "
+        "job while the Phase 2 contact gate is BLOCKED."
+    )
+
+
+def render_markdown(all_checks: Iterable[Check]) -> str:
+    check_list = list(all_checks)
+    branch = run_git("branch", "--show-current") or "<unknown>"
+    head = run_git("show", "-s", "--format=%h %s", "HEAD")
+    contact = next((item for item in check_list if item.name == "Phase 2 contact gate"), None)
+    contact_status = contact.status if contact else "BLOCKED"
+    lifecycle_hold = next((item for item in check_list if item.name == "Brev lifecycle hold"), None)
+    lifecycle_hold_status = lifecycle_hold.status if lifecycle_hold else "BLOCKED"
+
+    lines = [
+        "# Current Project Status",
+        "",
+        f"- Repo: `{REPO_ROOT}`",
+        f"- Branch: `{branch}`",
+        f"- HEAD: `{head}`",
+        f"- Runtime source payload scope: `{current_source_payload_scope()}`",
+        f"- Runtime source payload SHA256: `{current_source_payload_sha256()}`",
+        "- Paid compute used by this report: none",
+        "",
+        "## Status Checks",
+        "",
+        "| Check | Status | Detail |",
+        "| --- | --- | --- |",
+    ]
+    for item in check_list:
+        detail = item.detail.replace("|", "\\|")
+        lines.append(f"| {item.name} | {item.status} | {detail} |")
+
+    lines.extend(
+        [
+            "",
+            "## Current Decision",
+            "",
+            current_decision(contact_status, lifecycle_hold_status),
+            "",
+            "## Next Allowed Action",
+            "",
+            next_allowed_action(contact_status, lifecycle_hold_status),
+            "",
+            "## Commands",
+            "",
+            "```bash",
+            "./scripts/brev_paid_safety_status.sh",
+            "./scripts/run_local_quality_checks.sh",
+            "python3 scripts/check_phase2_contact_gate.py",
+            "RCA_BREV_LOGIN_EMAIL=<email> ./scripts/refresh_brev_login.sh",
+            "RCA_BREV_CREDITS_VERIFIED=1 RCA_PAID_BUDGET_EUR=<budget> RCA_PAID_ESTIMATED_EUR_PER_HOUR=<hourly-estimate> ./scripts/check_launchable_retry_readiness.sh",
+            "RCA_BREV_CREDITS_VERIFIED=1 RCA_PAID_BUDGET_EUR=<budget> RCA_PAID_ESTIMATED_EUR_PER_HOUR=<hourly-estimate> ./scripts/prepare_contact_smoke_run.sh",
+            "./scripts/pull_contact_smoke_log.sh <launchable-env-name> /workspace/robot-contact-assembly",
+            "./scripts/archive_contact_smoke_log.sh <pulled-contact_physics_smoke.log>",
+            "```",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--fail-on-blocked",
+        action="store_true",
+        help="Exit nonzero if any check is BLOCKED, STALE, or MISSING.",
+    )
+    args = parser.parse_args()
+
+    all_checks = checks()
+    print(render_markdown(all_checks), end="")
+
+    if args.fail_on_blocked and any(item.status in FAILING_STATUSES for item in all_checks):
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

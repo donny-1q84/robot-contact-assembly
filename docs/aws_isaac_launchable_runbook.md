@@ -1,7 +1,29 @@
 # AWS Isaac Launchable Runbook
 
 Date prepared: 2026-05-24
-Last local update: 2026-06-09
+Last local update: 2026-06-18
+
+## Current Status - Contact-Smoke Only
+
+This runbook contains historical AWS Launchable operations and old paid-run examples. As of the 2026-06-18 audit, the only allowed paid use of this path before the Phase 2 gate passes is the shortest contact-physics smoke validation:
+
+```bash
+./scripts/run_launchable_contact_physics_smoke.sh
+```
+
+Before clicking Create or running any paid wrapper, refresh Brev/NVIDIA CLI auth with `scripts/refresh_brev_login.sh`, then run `scripts/paid_compute_preflight.sh` with an explicit budget, conservative EUR/hour estimate, and TTL. For this one allowed pre-gate run, set `RCA_PAID_RUN_PURPOSE=contact_physics_smoke`. Do not run controller probes, BC, RL, or broad scripted evaluations from this runbook until the pulled smoke log has been installed with `scripts/archive_contact_smoke_log.sh` and `python3 scripts/check_phase2_contact_gate.py` reports PASS from the archived smoke log.
+
+2026-06-20 update: two consecutive official AWS Launchable attempts failed before shell access and required repeated delete/stop cleanup. The active local hold file is `docs/brev_launchable_lifecycle_hold.md`; while it exists, `scripts/paid_compute_preflight.sh` blocks new paid creation unless `RCA_ACK_BREV_LIFECYCLE_RISK=1` is set deliberately after confirming Brev service recovery and empty-org cleanup.
+
+Use `scripts/create_brev_lifecycle_incident_bundle.sh` to package support
+evidence, and `scripts/check_brev_lifecycle_hold_clearance.sh` before any
+human review of the hold. The clearance script is read-only: it confirms the
+visible Brev list is empty and paid preflight remains fail-closed on the hold,
+but it does not remove the hold file.
+If a single retry is deliberately chosen later, run
+`scripts/check_launchable_retry_readiness.sh` first. It is read-only and only
+returns ready when budget, hourly estimate, TTL, empty-org state, bundle
+readiness, and `RCA_ACK_BREV_LIFECYCLE_RISK=1` all pass.
 
 ## Why This Path Exists
 
@@ -36,11 +58,27 @@ Used for rca-reachable-approach-vm / 8bk6tylx0. Results and diagnostics were cop
 the instance was deleted, and the final CLI check returned {"workspaces": null}.
 ```
 
-Before launching, verify locally:
+Before launching, first run the read-only safety snapshot:
 
 ```bash
-/Users/Shenghan/bin/brev ls instances --all
-/Users/Shenghan/bin/brev ls instances --json --all
+cd "/Volumes/Extreme Pro/Projects/robot-contact-assembly"
+./scripts/brev_paid_safety_status.sh
+```
+
+It must show `visible_instances=0` unless a paid job is intentionally active.
+Then verify locally through the paid preflight. If
+`docs/brev_launchable_lifecycle_hold.md` exists, this command is expected to
+block unless a deliberate one-run lifecycle-risk acknowledgement is supplied:
+
+```bash
+cd "/Volumes/Extreme Pro/Projects/robot-contact-assembly"
+RCA_ALLOW_PAID_BREV_CREATE=1 \
+RCA_BREV_CREDITS_VERIFIED=1 \
+RCA_PAID_BUDGET_EUR=<explicit-budget> \
+RCA_PAID_ESTIMATED_EUR_PER_HOUR=<conservative-eur-per-hour> \
+RCA_PAID_MAX_MINUTES=60 \
+RCA_PAID_RUN_PURPOSE=contact_physics_smoke \
+  ./scripts/paid_compute_preflight.sh
 ```
 
 Expected empty state:
@@ -50,18 +88,28 @@ No instances in org NCA-57cf-29515
 {"workspaces": null}
 ```
 
-The local Brev create wrappers intentionally fail closed unless the paid-create acknowledgement is set:
+The local Brev create wrappers intentionally fail closed unless the paid-create acknowledgement and preflight variables are set:
 
 ```bash
 export RCA_ALLOW_PAID_BREV_CREATE=1
+export RCA_BREV_CREDITS_VERIFIED=1
+export RCA_PAID_BUDGET_EUR=<explicit-budget>
+export RCA_PAID_ESTIMATED_EUR_PER_HOUR=<conservative-eur-per-hour>
+export RCA_PAID_MAX_MINUTES=60
+export RCA_PAID_RUN_PURPOSE=contact_physics_smoke
 ```
 
-Only set it after verifying the credit balance, confirming no active instances, and keeping the Brev UI open for manual deletion if CLI auth fails.
+Only set them after verifying the credit balance in the Brev UI, converting the UI/provider price to a conservative EUR/hour estimate, and keeping the Brev UI open for manual deletion if CLI auth fails. The Brev CLI currently has no read-only balance command, so `RCA_BREV_CREDITS_VERIFIED=1` is the manual UI-check marker. The preflight itself confirms Brev CLI auth, visible empty-org state, and that the estimated max cost fits inside the budget.
 
 Before any new paid UI Launchable, also start a local watchdog. If the Launchable name/id is already known, monitor that target:
 
 ```bash
 cd "/Volumes/Extreme Pro/Projects/robot-contact-assembly"
+RCA_ALLOW_PAID_BREV_CREATE=1 \
+RCA_BREV_CREDITS_VERIFIED=1 \
+RCA_PAID_BUDGET_EUR=<explicit-budget> \
+RCA_PAID_ESTIMATED_EUR_PER_HOUR=<conservative-eur-per-hour> \
+RCA_PAID_RUN_PURPOSE=contact_physics_smoke \
 RCA_BREV_WATCHDOG_INSTANCE_NAME=<launchable-instance-name> \
 RCA_BREV_WATCHDOG_MAX_MINUTES=60 \
 scripts/brev_paid_run_watchdog.sh
@@ -71,6 +119,12 @@ If the UI will generate the name and this org is dedicated to the project, start
 
 ```bash
 cd "/Volumes/Extreme Pro/Projects/robot-contact-assembly"
+RCA_ALLOW_PAID_BREV_CREATE=1 \
+RCA_BREV_CREDITS_VERIFIED=1 \
+RCA_PAID_BUDGET_EUR=<explicit-budget> \
+RCA_PAID_ESTIMATED_EUR_PER_HOUR=<conservative-eur-per-hour> \
+RCA_PAID_RUN_PURPOSE=contact_physics_smoke \
+RCA_BREV_WATCHDOG_MAX_MINUTES=60 \
 scripts/start_brev_ui_launchable_watchdog.sh
 ```
 
@@ -78,7 +132,19 @@ This does not make dropped login harmless: when the CLI is logged out, no local 
 
 ## Prepare Upload Bundle
 
-From this repo:
+For the current contact-smoke path, prefer the guarded preparation command:
+
+```bash
+cd "/Volumes/Extreme Pro/Projects/robot-contact-assembly"
+RCA_PAID_BUDGET_EUR=<explicit-budget> \
+RCA_PAID_ESTIMATED_EUR_PER_HOUR=<conservative-eur-per-hour> \
+RCA_BREV_CREDITS_VERIFIED=1 \
+  ./scripts/prepare_contact_smoke_run.sh
+```
+
+It runs local quality, paid preflight, and then writes the exact contact-smoke
+bundle path to upload. If you only need a manual bundle without paid preflight,
+run the lower-level helper directly:
 
 ```bash
 cd "/Volumes/Extreme Pro/Projects/robot-contact-assembly"
@@ -96,6 +162,17 @@ The bundle contains the current working tree plus the required preload trace:
 ```text
 artifacts/preload_traces/2026-05-17T23-32-18Z_seed_42_trace.json
 ```
+
+It also writes a source-evidence manifest into the bundled project:
+
+```text
+/workspace/robot-contact-assembly/.rca_launchable_source_manifest.txt
+```
+
+Because the bundle intentionally excludes `.git/`, the contact-smoke gate uses
+this manifest to trace the archived PASS log back to the local source commit and
+dirty-tree state. A `git_head=unknown` log without this manifest is not accepted
+as sufficient evidence.
 
 ## Launch
 
@@ -146,10 +223,41 @@ contact physics) and must pass before ANY paid controller/BC/RL run:
 
 It presses the welded dynamic peg onto a guide-wall top with the Abs IK play
 task (2 envs to catch per-env joint wiring failures) and marker-checks:
-`attach`, `free-space`, `press-force`, `press-blocked`, `release`,
-`joint-integrity`. A FAIL marker means the fixed-joint attachment or the
-peg-wall collision response is still wrong; stop and fix locally instead of
-launching any further paid work.
+`reset-joints`, `attach`, `free-space`, `free-space-reanchored`,
+`press-force`, `press-tracking`, `press-blocked`, `press-no-clip`, `release`,
+`joint-integrity`, then appends `[contact-smoke] completed: contact physics is
+real` after the wrapper has verified the log. A FAIL marker means the
+fixed-joint attachment, peg-wall collision response, or per-env smoke control
+is still wrong; stop and fix locally instead of launching any further paid work.
+
+When invoking this through `brev exec`, do not let an expected fail-closed
+nonzero exit propagate to the Brev CLI. On 2026-06-20, `brev exec` reconnected
+after a contact-smoke failure and repeated the same remote command once. Use an
+outer shell that records the smoke exit code in the log or a sidecar file but
+returns zero to the CLI, then validate the pulled log locally:
+
+```bash
+docker exec vscode bash -lc 'cd /workspace/robot-contact-assembly; ./scripts/run_launchable_contact_physics_smoke.sh; echo smoke_exit=$?' || true
+```
+
+The archived `artifacts/launchable_logs/contact_physics_smoke.log` must include
+either a non-`unknown` `git_head` or the bundle source manifest block emitted by
+the wrapper. Without that source evidence, the local phase gate remains blocked
+even if the physical PASS markers are present.
+
+The wrapper also appends the editable task-extension install output to the same
+log. If that install step fails, stop there and fix the runtime/package issue;
+do not continue into controller probes or policy work.
+
+After the smoke finishes, pull only the smoke log and immediately validate it:
+
+```bash
+./scripts/pull_contact_smoke_log.sh <launchable-env-name> /workspace/robot-contact-assembly
+```
+
+This is the preferred pre-gate pullback path because it explicitly uses the
+`contact_physics_smoke` remote-operation purpose and then runs
+`scripts/archive_contact_smoke_log.sh` against the pulled file.
 
 Plain Brev AWS VM / Isaac Sim 6.0.0-dev2 note from 2026-06-07:
 
@@ -465,7 +573,7 @@ The reachable joint-limit guard probe has now run:
 
 This was intentionally not an unchanged reachable rerun. It kept early reachable-approach behavior, then applied a larger joint-limit target margin only during insertion/polish/settle/contact-retention and recorded a late hard guard delta through `max_joint_limit_guard_delta_norm`.
 
-For a plain Brev AWS VM run, prefer the guarded paid wrapper:
+Historical wrapper command used for this campaign. Do not run it now without the current `scripts/paid_compute_preflight.sh` and a passed contact gate:
 
 ```bash
 RCA_ALLOW_PAID_BREV_CREATE=1 ./scripts/run_brev_reachable_guard_probe.sh
@@ -532,7 +640,7 @@ The rotation-gated insertion probe was the next local-first candidate:
 
 It reuses the tuned guard parameters, disables insert-entry orientation hold, and enables `--insert-rotation-gated-descent` with `insert_descent_rot_tol=0.35`. This pauses Z descent during high-rotation insert windows while continuing to target the socket orientation.
 
-Paid Brev AWS command used for validation. Do not rerun this unchanged:
+Historical paid Brev AWS command used for validation. Do not rerun this unchanged, and do not run any replacement without the current paid preflight:
 
 ```bash
 RCA_ALLOW_PAID_BREV_CREATE=1 \
@@ -572,7 +680,7 @@ Soft-gated follow-up prepared on 2026-06-08:
 
 `scripts/scripted_agent.py` now supports `--insert-rotation-gate-descent-scale` and `--insert-rotation-gate-min-descent-step`. Defaults preserve the original hard gate (`scale=0.0`). The soft-gated wrapper uses `scale=0.25`, `min_descent_step=0.002`, `insert_descent_rot_tol=0.35`, `hold_orientation_during_insert=0`, and `steps=2400`.
 
-Paid Brev AWS command used for the validation, after confirming `brev ls instances --json --all` was empty:
+Historical paid Brev AWS command used for the validation. Empty-org checking is now handled by `scripts/paid_compute_preflight.sh`; do not rerun this unchanged:
 
 ```bash
 RCA_ALLOW_PAID_BREV_CREATE=1 \
@@ -614,7 +722,7 @@ Depth-aware rotation polish follow-up prepared on 2026-06-08:
 
 `scripts/scripted_agent.py` now supports `--depth-rotation-polish` plus entry/exit tolerances. The wrapper keeps the soft-gated insertion setup, enters rotation polish after XY/Z/contact readiness (`xy<0.006`, `z<0.050`, `contact>=0.5`), holds socket XY, applies `0.001m` preload, targets socket orientation, and uses `--depth-rotation-polish-rot-step 0.035`. It exits if XY exceeds `0.012m` or axial exceeds `0.060m`.
 
-Paid Brev AWS command for the next validation, only after confirming `brev ls instances --json --all` is empty:
+Historical paid Brev AWS command for that validation. It is not a current next step; any future command must pass `scripts/paid_compute_preflight.sh` first:
 
 ```bash
 RCA_ALLOW_PAID_BREV_CREATE=1 \
@@ -652,7 +760,7 @@ Adaptive rotpolish follow-up prepared locally after that result:
 
 This wrapper keeps the soft-gated insertion setup but changes depth polish to `--depth-rotation-polish-orientation-mode stateful-waypoint`, lowers the rotation step to `0.012rad`, lowers preload to `0.0005m`, tightens XY/Z exits to `0.010m`/`0.055m`, and exits polish if contact falls below `0.30`. The purpose is to prevent the previous target-orientation polish from repeatedly cycling between insertion and polish while rotation drifts worse.
 
-Paid Brev AWS command for this short candidate validation, only after confirming `brev ls instances --json --all` is empty:
+Historical paid Brev AWS command for this short candidate validation. It is not a current next step; any future command must pass `scripts/paid_compute_preflight.sh` first:
 
 ```bash
 RCA_ALLOW_PAID_BREV_CREATE=1 \

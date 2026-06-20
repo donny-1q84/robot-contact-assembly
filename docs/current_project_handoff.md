@@ -7,14 +7,348 @@ Date: 2026-06-09
 - Repo path: `/Volumes/Extreme Pro/Projects/robot-contact-assembly`
 - Branch: `master`
 - Remote: `https://github.com/donny-1q84/robot-contact-assembly.git`
-- Latest checked commit: `8d9b3d8 Record Nebius probe lifecycle failure`
-- Local tree now contains uncommitted Launchable compatibility fixes, runbook updates, and helper scripts.
+- Latest checked commit as of 2026-06-18 audit: `92465f4 Fix contact physics: weld dynamic peg to hand, wall-filtered forces`
+- Local tree was clean at the start of the 2026-06-18 audit.
+
+## 2026-06-20 Current PASS Overlay
+
+The Phase 2 contact-physics smoke gate now passes on the official AWS Isaac
+Launchable runtime.
+
+```text
+instance: isaac-launchable-gate-5ecb / ak7egbprx
+run_id: 2026-06-20T13-01-54Z-gate
+provider/type: AWS g6e.4xlarge L40S
+source_payload_sha256: 5ecbb035170e1cbc323d70263d5a7398c0e2a47cc2b2a2f86a7aef010a760e7f
+pulled_archive: artifacts/launchable_logs/pulled_contact_smoke/rca-pull-isaac-launchable-gate-ak7egbprx.tar.gz
+pulled_archive_sha256: 4c595d7098c8b760ba3af603246ccf5c485f3d9251984ce372d9f52eafb3ec92
+canonical_log: artifacts/launchable_logs/contact_physics_smoke.log
+deliverables: artifacts/deliverables/2026-06-20-contact-smoke/
+cleanup: brev ls instances --json --all returned {"workspaces": null}; watchdog confirmed target disappeared
+```
+
+The successful runtime markers were:
+
+```text
+CONTACT-SMOKE attach: PASS
+CONTACT-SMOKE free-space: PASS
+CONTACT-SMOKE free-space-reanchored: PASS
+CONTACT-SMOKE press-control: local-wall-sweep
+CONTACT-SMOKE press-force: PASS (mean wall force [29.153621673583984, 37.27742004394531] N)
+CONTACT-SMOKE press-tracking: PASS (lower-end lateral error [0.005723054055124521, 0.008925105445086956] m)
+CONTACT-SMOKE press-blocked: PASS (lower_end_z - wall_top_z [0.009471744298934937, 0.008838444948196411] m)
+CONTACT-SMOKE press-no-clip: PASS
+CONTACT-SMOKE release: PASS
+CONTACT-SMOKE joint-integrity: PASS
+CONTACT-SMOKE phase-sequence: PASS
+Contact physics smoke completed: all checks passed.
+[contact-smoke] completed: contact physics is real
+```
+
+Validation and cleanup evidence:
+
+```text
+python3 scripts/check_phase2_contact_gate.py --log artifacts/launchable_logs/pulled_contact_smoke/rca-pull-gate/contact_physics_smoke_2026-06-20T13-01-54Z-gate.log --run-local-quality
+  PASS: validated contact-physics smoke evidence
+
+./scripts/run_local_quality_checks.sh
+  passed
+
+./scripts/brev_paid_safety_status.sh
+  status=SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+The smoke did not record an Isaac viewport video. A local log-replay mp4 was
+generated for handoff review at
+`artifacts/deliverables/2026-06-20-contact-smoke/contact_smoke_success_log_replay.mp4`;
+it is an evidence visualization from the successful log, not simulator camera
+footage.
+
+Current decision: the contact-smoke gate is no longer the blocker. The active
+Brev lifecycle hold still means any future paid GPU action needs a specific
+budget, TTL, watchdog, artifact pullback, immediate deletion, and final empty
+org confirmation. The next technical step is a short scripted trace under the
+validated task, followed by refreshed contact-validity/demo-coverage reports
+before reopening controller, BC, or RL work.
+
+## 2026-06-18 Current Overlay
+
+The append-only history below contains useful controller and infrastructure evidence, but its early summary predates the 2026-06-11 contact-physics audit and is superseded by the 2026-06-20 PASS overlay above. The historical pre-PASS state was:
+
+1. The contact-physics fix is implemented locally: dynamic peg welded to the hand, reset-only peg placement, socket walls as colliders, and wall-filtered force observations.
+2. The fix has not yet been validated on an Isaac runtime. No archived `CONTACT-SMOKE ... PASS` log was found locally.
+3. Older "true-contact", strict near-miss, BC, and reset-candidate metrics are diagnostic history only until regenerated under the validated contact model.
+4. `python3 scripts/check_phase2_contact_gate.py` is the fail-closed local phase gate. It must report `BLOCKED` until a valid archived `contact_physics_smoke.log` exists.
+5. `scripts/refresh_brev_login.sh` is the explicit Brev/NVIDIA CLI auth refresh step before paid preflight. It verifies auth with a read-only instance-list query and creates no resources.
+6. `scripts/brev_paid_safety_status.sh` is the read-only Brev safety snapshot. It checks backend health, active org, `brev ls instances --json --all`, watchdog processes, watchdog ledgers, and the active lifecycle hold. When no paid job is intentionally active, it must show `visible_instances=0`.
+7. `scripts/paid_compute_preflight.sh` is the fail-closed paid-compute gate. It requires explicit budget, conservative EUR/hour estimate, manual Brev UI credit verification (`RCA_BREV_CREDITS_VERIFIED=1`), TTL, Brev CLI auth, an empty visible org, estimated max cost inside the budget, and no active `docs/brev_launchable_lifecycle_hold.md` before any paid action.
+8. `RCA_BREV_CREDITS_VERIFIED=1 RCA_PAID_BUDGET_EUR=<budget> RCA_PAID_ESTIMATED_EUR_PER_HOUR=<hourly-estimate> ./scripts/prepare_contact_smoke_run.sh` is the guarded preparation command for the one allowed paid contact-smoke run. It creates the exact current bundle to upload after local quality and paid preflight pass.
+9. `scripts/remote_operation_preflight.sh` guards helpers that operate on an existing Brev environment. Before the contact gate passes, only `RCA_REMOTE_OPERATION_PURPOSE=contact_physics_smoke` is allowed.
+10. `python3 scripts/project_status_report.py` is the read-only current-state snapshot command.
+11. The next paid action, if any, is only the short contact-physics smoke gate with a watchdog and immediate deletion. Do not run training, BC, controller sweeps, or broad scripted probes before that.
+
+## 2026-06-19 Local Guard Overlay
+
+Additional local hardening after the 2026-06-18 audit:
+
+1. `scripts/run_local_quality_checks.sh` no longer writes Python bytecode. It runs with `PYTHONDONTWRITEBYTECODE=1`, checks Python syntax by compiling source strings, and fails if generated cache/metadata (`__pycache__`, `.pyc`, `.DS_Store`, `*.egg-info`) is present.
+2. `scripts/check_project_policy_compliance.py` now scans direct remote operations. Any script using direct `ssh`, `rsync`, `scp`, `sftp`, or `brev exec/copy/port-forward/shell/open` must use `scripts/remote_operation_preflight.sh`, `scripts/remote_common.sh` plus `rca_init_remote_vars`, or the paid-compute preflight.
+3. `scripts/run_remote_eval_final_contact_candidate_bc.sh` now runs remote-operation preflight before uploading its manifest.
+4. `scripts/contact_physics_smoke.py` and the phase gate require `press-no-clip` in addition to attach, free-space, press-force, press-blocked, release, joint-integrity, and wrapper completion markers.
+5. Local preauth bundles match `artifacts/launchable/robot-contact-assembly-contact-smoke-manual-preauth-*.tar.gz`. These packages are only useful after Brev login is restored; for a real paid run, use the exact bundle path printed by `scripts/prepare_contact_smoke_run.sh`.
+6. `scripts/pull_contact_smoke_log.sh` is the preferred pullback step after a remote contact smoke. It is scoped to `artifacts/launchable_logs/contact_physics_smoke.log`, uses the pre-gate `contact_physics_smoke` remote-operation purpose, and then runs the archive verifier.
+7. `scripts/archive_contact_smoke_log.sh` is the local finalization step when the smoke log was obtained by another route. It validates the pulled log before installing it as `artifacts/launchable_logs/contact_physics_smoke.log`, then reruns the phase gate against the archived log.
+
+## 2026-06-20 Launchable Runtime Evidence Overlay
+
+Official AWS Isaac Launchable did reach a real Isaac Lab runtime on:
+
+```text
+instance: isaac-launchable-bcd83f / 9sm5kfu70
+provider/type: AWS g6e.4xlarge L40S
+runtime: nvcr.io/nvidia/isaac-lab:2.3.0 inside the official vscode container
+cleanup: delete requested; watchdog confirmed target disappeared; final Brev list returned {"workspaces": null}
+failure log:
+  artifacts/launchable_logs/pulled_contact_smoke/contact_physics_smoke_isaac-launchable-bcd83f_2026-06-20T03-46-58Z_FAIL.log
+```
+
+The smoke failed on real semantic checks, not on setup:
+
+```text
+attach: FAIL
+free-space: PASS
+press-force: FAIL
+press-blocked: FAIL
+press-no-clip: FAIL
+release: PASS
+joint-integrity: FAIL
+```
+
+The important measurements were:
+
+```text
+after reset hand-peg error: [0.0032, 0.0068] m
+after free-space settle hand-peg error: [0.1104, 0.2561] m
+press wall force: [0.0, 0.0] N
+lower-end sink below wall top: [0.2961, 0.3168] m
+after retreat hand-peg error: [0.0648, 0.1091] m
+```
+
+Interpretation: the Launchable runtime is usable, but the contact shell was still using an invalid pose/quaternion assumption. Isaac Lab 2.x and Isaac Sim APIs use WXYZ quaternions, while the local contact shell still had legacy XYZW helpers and hard-coded rotations. This made action-frame targets, expected hand-to-peg transforms, and MDP peg pose metrics inconsistent once the hand moved.
+
+Local fix after the run:
+
+1. Core task constants now use Isaac Lab WXYZ quaternions.
+2. USD joint authoring now accepts WXYZ and writes scalar-first USD quaternions directly.
+3. MDP pose math and `scripts/contact_physics_smoke.py` now use WXYZ rotate/compose/subtract helpers.
+4. MDP peg pose now prefers the actual `robot` articulation body named `Peg` and only falls back to hand-derived pose for legacy diagnostics.
+5. Smoke diagnostics now log the measured local `hand -> peg` offset for the next runtime validation.
+6. Local quality passes after the fix: `./scripts/run_local_quality_checks.sh`.
+
+The later strict fixed-socket retry on `isaac-launchable-a6354c` / `xxv4vn1te`
+used the WXYZ payload and kept attach/joint integrity valid, but still failed
+before contact:
+
+```text
+CONTACT-SMOKE attach: PASS
+CONTACT-SMOKE free-space: PASS
+CONTACT-SMOKE press-force: FAIL
+CONTACT-SMOKE press-tracking: FAIL (lower-end lateral error about 0.16-0.19m)
+CONTACT-SMOKE press-blocked: FAIL (lower end remained above the wall top)
+CONTACT-SMOKE press-no-clip: PASS
+CONTACT-SMOKE release: PASS
+CONTACT-SMOKE joint-integrity: PASS
+failure log:
+  artifacts/launchable_logs/pulled_contact_smoke/contact_physics_smoke_isaac-launchable-a6354c_2026-06-20T05-12-01Z_FAIL.log
+cleanup:
+  delete requested; `brev ls instances --json --all` returned {"workspaces": null};
+  watchdog printed `target disappeared; cleanup confirmed`
+```
+
+Interpretation: fixed-joint attachment is no longer the blocker. The strict
+fixed-socket smoke still entangled contact-physics validation with long-range
+absolute-IK reachability. Local follow-up changed `scripts/contact_physics_smoke.py`
+to default to `--contact_setup local-guide`, which relocates the kinematic
+socket walls under the current insertion tip and preserves `fixed-socket` as a
+separate reachability diagnostic mode. `scripts/check_contact_physics_wiring.py`
+now requires that local-guide relocation support.
+
+The first `local-guide` runtime retry on `isaac-launchable-b8fc1e` /
+`c51fxe4d3` used payload
+`834a7f478ea8d225c3cd7a828266d5092ba9ae1f2a127411902af91fb1c9cc85`.
+It again proved fixed-joint attachment and the free-space negative control, but
+still failed before wall contact:
+
+```text
+CONTACT-SMOKE contact-setup: local-guide
+CONTACT-SMOKE attach: PASS
+CONTACT-SMOKE free-space: PASS
+CONTACT-SMOKE press-force: FAIL (mean wall force [0.0, 0.0] N)
+CONTACT-SMOKE press-tracking: FAIL (lower-end lateral error [0.2286, 0.2145] m)
+CONTACT-SMOKE press-blocked: FAIL (wall_top_z - lower_end_z [-0.0457, -0.0709] m)
+CONTACT-SMOKE press-no-clip: PASS
+CONTACT-SMOKE release: PASS
+CONTACT-SMOKE joint-integrity: PASS
+failure log:
+  artifacts/launchable_logs/pulled_contact_smoke/contact_physics_smoke_isaac-launchable-b8fc1e_2026-06-20T05-50-21Z_FAIL.log
+cleanup:
+  delete was retried after Brev briefly reported the environment as DEPLOYING again;
+  watchdog printed `target disappeared; cleanup confirmed`; final
+  `brev ls instances --json --all` returned {"workspaces": null}
+```
+
+Interpretation: `local-guide` was still anchored too early. The arm moved
+laterally during free-space settle, so the subsequent press still tested an old
+pre-settle wall target instead of a vertical press from the actual settled lower
+peg end. Local follow-up now re-anchors the guide after free-space settle,
+re-checks free-space force as `CONTACT-SMOKE free-space-reanchored`, and then
+presses straight down from the settled pose.
+
+The phase-sentinel retry on `isaac-launchable-57032f` / `km6cr6mj0` used
+payload `6c7513c22e56819c1402b358e66e5e252eeca83c648dcb3f30e41228b0d35345`
+and first exposed an Isaac Lab/PyTorch inference-mode write failure in the
+kinematic socket-guide root-pose write. After patching that targeted path, the
+smoke reached all phases but still failed the semantic contact checks:
+
+```text
+CONTACT-SMOKE attach: PASS
+CONTACT-SMOKE free-space: PASS
+CONTACT-SMOKE free-space-reanchored: PASS
+CONTACT-SMOKE phase-sequence: PASS
+CONTACT-SMOKE press-force: FAIL (mean wall force [0.0, 0.0] N)
+CONTACT-SMOKE press-tracking: FAIL (lower-end lateral error [0.04027855396270752, 0.36005330085754395] m)
+CONTACT-SMOKE press-blocked: FAIL (wall_top_z - lower_end_z [-0.0764109194278717, 0.190305694937706] m)
+CONTACT-SMOKE press-no-clip: FAIL (lower-end wall penetration [0.0, 0.190305694937706] m)
+CONTACT-SMOKE release: PASS
+CONTACT-SMOKE joint-integrity: PASS
+failure log:
+  artifacts/launchable_logs/pulled_contact_smoke/rca-pull/contact_physics_smoke_2026-06-20T08-29-28Z-1770.log
+cleanup:
+  delete requested and retried while Brev reported DELETING; final
+  `brev ls instances --json --all` returned {"workspaces": null};
+  `./scripts/brev_paid_safety_status.sh` returned SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+The Phase 2 contact gate remains BLOCKED because no current PASS smoke log
+exists yet. Do not run controller sweeps, BC, RL, or broad scripted probes.
+The smoke script's post-free-space control flow now reaches the press phase,
+so local follow-up changed the press phase to use physical lower-end feedback
+instead of a one-shot action-frame target. A future paid smoke is allowed only
+after rebuilding the current bundle, local quality pass, watchdog, pullback,
+immediate deletion, and final empty-org confirmation. Current prepared bundle:
+
+```text
+artifacts/launchable/robot-contact-assembly-contact-smoke-2026-06-20T08-52-37Z.tar.gz
+source_payload_sha256=87e962fe4ab08ceb2650dd9478208005a886e66d5b6288a909c6d11ff1954fb6
+archive_sha256=30ebd5f89285c8313bd5bac23f70e6a626753926f19ca3195ff052b9b3b776b5
+```
+
+The lower-end feedback payload was then run once on `isaac-launchable-b4f35a`
+(`/r6osffjlb` in the Brev CLI output) on AWS g6e.4xlarge L40S. It reached all
+phases and preserved attachment, but still failed contact semantics:
+
+```text
+CONTACT-SMOKE attach: PASS
+CONTACT-SMOKE free-space: PASS
+CONTACT-SMOKE free-space-reanchored: PASS
+CONTACT-SMOKE phase-sequence: PASS
+CONTACT-SMOKE press-force: FAIL (mean wall force [0.0, 0.0] N)
+CONTACT-SMOKE press-tracking: FAIL (lower-end lateral error [0.4718092679977417, 0.15390245616436005] m)
+CONTACT-SMOKE press-blocked: FAIL (wall_top_z - lower_end_z [-0.6918212175369263, -0.03502988815307617] m)
+CONTACT-SMOKE press-no-clip: PASS
+CONTACT-SMOKE release: PASS
+CONTACT-SMOKE joint-integrity: PASS
+failure log:
+  artifacts/launchable_logs/pulled_contact_smoke/rca-pull-b4f35a/contact_physics_smoke_2026-06-20T09-15-45Z-newfeedback.log
+pull archive:
+  artifacts/launchable_logs/pulled_contact_smoke/rca-pull-isaac-launchable-b4f35a-r6osffjlb.tar.gz
+cleanup:
+  final `brev ls instances --json --all` returned {"workspaces": null};
+  watchdog printed `target disappeared; cleanup confirmed`;
+  `./scripts/brev_paid_safety_status.sh` returned SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+Interpretation: the feedback loop was still wrong because it accumulated a
+world target while IK lagged or saturated. The final target wound up far away
+from the robot, so the run was useful as a control-diagnostic failure but not
+as contact proof.
+
+Current local follow-up:
+
+1. `local-guide-reanchor` holds the current physical tip pose, not a lower-end
+   hover point misused as an IK tip target.
+2. The local guide is reanchored from the post-hold physical lower-end pose.
+3. `step_track_lower_end()` now commands the current physical tip plus a
+   bounded lower-end correction each step, preventing cumulative target
+   windup.
+4. Retreat also uses the bounded lower-end servo.
+
+Current prepared bundle after this fix:
+
+```text
+artifacts/launchable/robot-contact-assembly-contact-smoke-2026-06-20T09-32-10Z.tar.gz
+source_payload_sha256=14da96a2a87e74c81220b3da09143b075ea933e33ec56a9f98faf54cdc9a34ef
+archive_sha256=ccaa8a2f9e3e1afd3d05e702d91fd67934d1fc2bde3a7dbb10b163452d0fceea
+local_quality: ./scripts/run_local_quality_checks.sh passed
+```
+
+The later deterministic reset / z-only lateral-lock retry on
+`isaac-launchable-zlock-9b3c` (`hzekq6qqz`) used payload
+`9b3cd761fb8843047260cc4a3be21cefe22268b7e2d85160c2014cbba4ab0182`.
+Pulled evidence:
+
+```text
+log: artifacts/launchable_logs/pulled_contact_smoke/rca-pull-zlock/contact_physics_smoke_2026-06-20T11-10-08Z-zlock.log
+pull_archive: artifacts/launchable_logs/pulled_contact_smoke/rca-pull-isaac-launchable-zlock-hzekq6qqz.tar.gz
+pull_archive_sha256: 2405e40d0477671a38c91a629c339fb9d020843f1e3864897ff3fd4020f20db1
+```
+
+The run improved the smoke controller but still did not prove contact physics:
+
+```text
+CONTACT-SMOKE attach: PASS
+CONTACT-SMOKE free-space: PASS
+CONTACT-SMOKE free-space-reanchored: PASS
+CONTACT-SMOKE phase-sequence: PASS
+CONTACT-SMOKE press-force: FAIL (mean wall force [0.0, 0.0] N)
+CONTACT-SMOKE press-tracking: PASS (lower-end lateral error about 0.0074m)
+CONTACT-SMOKE press-blocked: FAIL (lower end remained about 0.016m above the wall top)
+CONTACT-SMOKE press-no-clip: PASS
+CONTACT-SMOKE release: FAIL (residual wall force [0.4584, 6.8527] N)
+CONTACT-SMOKE joint-integrity: PASS
+```
+
+Interpretation: deterministic reset and z-only lateral locking removed the
+large lateral runaway, but the arm-servo press still entangled the first
+contact-physics gate with Franka IK reachability. Local follow-up now changes
+the default smoke press mechanism to `guide-wall-sweep`: the robot holds the
+reanchored pose while the local kinematic guide sweeps vertically into the
+dynamic peg. This preserves `arm-servo` as a later controller diagnostic but
+makes the Phase 2 gate isolate peg-vs-wall collision response first.
+
+Current prepared bundle after the `guide-wall-sweep` change:
+
+```text
+artifacts/launchable/robot-contact-assembly-contact-smoke-2026-06-20T11-21-30Z.tar.gz
+source_payload_sha256=9a36b8041d8440fe7822c9711c8c4aa6047eb9582ec3b3e2d71f2accc009b1e2
+archive_sha256=3248793a7ebbc52fde17936e6e814962be59fdcb3e093193673b49de174ad0dc
+local_quality: ./scripts/run_local_quality_checks.sh passed
+```
+
+Do not open another paid retry until `hzekq6qqz` is no longer visible in
+`brev ls instances --json --all` and `./scripts/brev_paid_safety_status.sh`
+returns safe/no visible paid instance.
+
+Cleanup after the zlock retry was confirmed: `brev ls instances --json --all`
+returned `{"workspaces": null}`, the watchdog printed `target disappeared;
+cleanup confirmed`, and `./scripts/brev_paid_safety_status.sh` returned
+`SAFE_NO_VISIBLE_PAID_INSTANCE` with no watchdog processes.
 
 ## What This Project Is
 
-This is an Isaac Lab peg-in-hole contact assembly project around a Franka Panda. Phase 1 was a proxy pose-target task. Phase 2 converted the task into a physical peg/socket contact shell with explicit peg geometry, guide-wall socket collisions, socket-frame insertion metrics, and contact-force sensing.
+This is an Isaac Lab peg-in-hole contact assembly project around a Franka Panda. Phase 1 was a proxy pose-target task. Phase 2 is being converted into a physical peg/socket contact shell with explicit peg geometry, guide-wall socket collisions, socket-frame insertion metrics, and contact-force sensing.
 
-The current technical problem is final contact stabilization: the scripted controller can reach a shallow true-contact success and a strict near miss, but it cannot robustly maintain the final contact state under the strict gate.
+The current technical problem is contact-physics validation. Final contact stabilization remains downstream and should not be optimized until the wall-reaction smoke proves the task has real peg-vs-wall collision response.
 
 ## Audit Decision After 2026-06-09 Review
 
@@ -224,7 +558,7 @@ scripts/run_remote_eval_final_contact_candidate_bc.sh <env-name> <remote-root> <
 
 ## Best Robotics Results
 
-Shallow true-contact success:
+Historical shallow contact label, now invalidated as physical-contact proof:
 
 ```text
 run: 2026-05-17T19-47-06Z
@@ -1986,8 +2320,13 @@ source/.../peg_in_hole/assets.py (new)
   the peg inside the env_0 template (before sim start; cloner replicates it
   per env). Joint local pose = PEG_CENTER_BODY_OFFSET_POS/ROT, i.e. the same
   hand-to-peg transform the old kinematic sync enforced (XYZW constants are
-  converted explicitly to USD scalar-first quaternions). The joint sets
-  excludeFromArticulation so the peg stays a standalone RigidObject view.
+  converted explicitly to USD scalar-first quaternions). The initial
+  implementation set excludeFromArticulation so the peg stayed a standalone
+  RigidObject view; after the 2026-06-20 smoke showed that maximal-coordinate
+  model did not constrain the peg, the default changed to
+  exclude_from_articulation=False so the peg participates in the Franka
+  articulation. The smoke script keeps --exclude_peg_from_articulation only as
+  a legacy negative-control/diagnostic switch.
   Gripper hand/finger collisions against the peg are disabled via
   UsdPhysics.FilteredPairsAPI (they interpenetrate by construction and only
   pollute forces/dynamics).
@@ -2024,7 +2363,9 @@ scripts/run_launchable_contact_physics_smoke.sh (new)
   free-space (wall-filtered force ~0 when hovering), press-force
   (sustained reaction >0.5N pressing 20mm into a wall top), press-blocked
   (the peg end stays within 8mm of the wall-top plane instead of passing
-  through), release, joint-integrity. The smoke overrides
+  through), press-no-clip (geometric lower-end wall penetration stays within
+  tolerance), release, joint-integrity, and the wrapper completion marker
+  `[contact-smoke] completed: contact physics is real`. The smoke overrides
   episode_length_s to 60s so the phase sequence cannot be interrupted by
   the play cfg's 240-step timeout.
 ```
@@ -2045,13 +2386,645 @@ review claimed a systemic XYZW/WXYZ mismatch against Isaac Lab math utils;
 that claim is wrong for the deployed runtimes and was refuted with the
 trace check above.
 
+## 2026-06-20 Contact Smoke Follow-up
+
+The official AWS Isaac Launchable smoke was rerun on `isaac-launchable-06320b`
+(`kj53qhjld`) with payload
+`ea1f96b9ec12bb167ab76e5ab75b37c244115c47007acf5e36372d7baeaee5a1`.
+The run used the short contact-smoke path only; no controller sweep, BC, or RL
+job was started. The pulled log is:
+
+```text
+artifacts/launchable_logs/pulled_contact_smoke/contact_physics_smoke_kj53qhjld.log
+artifacts/launchable_logs/contact_physics_smoke_failed_kj53qhjld_2026-06-19T23-47Z.log
+```
+
+Result: still `BLOCKED`. The smoke reproduced the same semantic failure:
+
+```text
+CONTACT-SMOKE attach: FAIL
+CONTACT-SMOKE press-force: FAIL
+CONTACT-SMOKE press-blocked: FAIL
+CONTACT-SMOKE press-no-clip: FAIL
+CONTACT-SMOKE joint-integrity: FAIL
+PhysicsUSD: CreateJoint - found a joint with disjointed body transforms:
+  /World/envs/env_0/Peg/PegHandFixedJoint
+```
+
+Interpretation: do not spend on downstream control. The next local fix is the
+spawn-time fixed-joint seed, not another controller variant. `assets.py` now
+aligns the spawned peg prim to `joint_local_frame * hand_world` before
+authoring `PegHandFixedJoint`, and `scripts/check_contact_physics_wiring.py`
+requires this ordering. Local verification after this patch:
+
+```bash
+./scripts/run_local_quality_checks.sh
+python3 scripts/check_phase2_contact_gate.py --run-local-quality  # expected BLOCKED
+python3 scripts/project_status_report.py --fail-on-blocked        # expected BLOCKED
+```
+
+Current runtime payload after the spawn-time alignment patch:
+
+```text
+1f3f93c468830c9543137257039a2d000027d4da011a6f1d237e195ba1ab7227
+```
+
+The next allowed paid action, after confirming the old Launchable has fully
+disappeared from `brev ls instances --json --all`, is one more contact-smoke
+bundle for this payload under the watchdog/deletion plan. If that smoke still
+shows the disjointed-joint warning or attach failure, stop and add a diagnostic
+that logs the authored USD joint frames and runtime hand/peg poses before any
+further paid run.
+
+Follow-up smoke for payload
+`1f3f93c468830c9543137257039a2d000027d4da011a6f1d237e195ba1ab7227` ran on
+`isaac-launchable-096e3f` (`1ven2jhye`) and also failed. Artifacts:
+
+```text
+artifacts/launchable_logs/pulled_contact_smoke/contact_physics_smoke_1ven2jhye.log
+artifacts/launchable_logs/contact_physics_smoke_failed_1ven2jhye_2026-06-20T00-20Z.log
+```
+
+Key markers:
+
+```text
+CONTACT-SMOKE attach: FAIL (per-env hand-peg error [0.1499068, 0.2825360] m)
+CONTACT-SMOKE free-space: PASS
+CONTACT-SMOKE press-force: FAIL (0 N)
+CONTACT-SMOKE press-blocked: FAIL
+CONTACT-SMOKE press-no-clip: FAIL
+CONTACT-SMOKE release: PASS
+CONTACT-SMOKE joint-integrity: FAIL
+```
+
+Cleanup for `1ven2jhye` is confirmed: the instance was deleted through the Brev
+UI after CLI delete/stop left it stuck in `UNHEALTHY`/`DELETING`; the watchdog
+ended with `target disappeared; cleanup confirmed`, and
+`/Users/Shenghan/bin/brev ls instances --json --all` returned
+`{"workspaces": null}`.
+
+Interpretation update: the spawn-time joint-frame seeding patch did not
+materially change the failure. The same hand/peg separation and zero wall force
+remain, so the most likely fault is that the authored fixed joint is missing,
+mis-targeted after cloning, or not enforced by PhysX, rather than a controller
+or policy issue. `scripts/contact_physics_smoke.py` now logs runtime
+diagnostics for the authored USD joint and hand/peg expected-vs-actual poses.
+Do not open another paid run until either the joint implementation is locally
+changed or the next single contact-smoke run is explicitly treated as the
+diagnostic smoke for those new log fields.
+
+Current runtime payload after adding diagnostics:
+
+```text
+785d9c754cc4eb94bdd6010c424cd8a50a5cd1e91b12c4ceb2c3a8e58674099f
+```
+
+Third 2026-06-20 diagnostic smoke ran on `isaac-launchable-14ab03`
+(`91wizfdos`) with payload
+`da587201cc5a1ad1e643b2c0980980b02d75e75295b098aa9e7f3fcedbd5e85e`.
+The run again used only the short contact-smoke path. Artifacts:
+
+```text
+artifacts/launchable_logs/pulled_contact_smoke/contact_physics_smoke_91wizfdos.log
+artifacts/launchable_logs/contact_physics_smoke_failed_91wizfdos_2026-06-20T01-02Z.log
+```
+
+Key markers:
+
+```text
+CONTACT-SMOKE peg-articulation-model exclude_from_articulation=False
+CONTACT-SMOKE attach: PASS after reset (per-env error about [0.0, 0.00000007] m)
+CONTACT-SMOKE free-space: PASS
+CONTACT-SMOKE press-force: FAIL (0 N)
+CONTACT-SMOKE press-blocked: FAIL
+CONTACT-SMOKE press-no-clip: FAIL
+CONTACT-SMOKE release: PASS
+CONTACT-SMOKE joint-integrity: FAIL after free-space settle
+RigidBodyView contains non-root articulation links whose transforms cannot be set directly
+RigidBodyView contains non-root articulation links whose velocities cannot be set directly
+```
+
+Cleanup for `91wizfdos` is confirmed: the watchdog ended with
+`target disappeared; cleanup confirmed`, the Brev UI returned to the empty
+Environments state, and `/Users/Shenghan/bin/brev ls instances --json --all`
+returned `{"workspaces": null}`.
+
+Interpretation update: `exclude_from_articulation=False` fixed the immediate
+reset-time attachment, but the peg was still registered as an Isaac Lab
+`RigidObjectCfg`. Once the peg participates in the Franka articulation, that
+separate RigidObject view is invalid because it tries to write transforms and
+velocities for a non-root articulation link. This explains the post-settle
+separation and zero wall reaction. The current local fix therefore removes the
+active peg `RigidObjectCfg` and `sync_peg_on_reset` path:
+
+```text
+peg_in_hole_env_cfg.py:
+  peg is now AssetBaseCfg with AttachedPegCylinderCfg, not RigidObjectCfg.
+  sync_peg_on_reset is no longer an active EventTerm.
+
+observations.py:
+  peg root pose is derived from the Franka hand pose and PEG_CENTER_BODY_OFFSET,
+  instead of env.scene["peg"].data.
+
+contact_physics_smoke.py:
+  peg pose diagnostics use the robot articulation if available, otherwise the
+  derived hand offset; the log prints peg_pose_source.
+
+check_contact_physics_wiring.py:
+  fails if the active env registers peg as RigidObjectCfg or reintroduces
+  sync_peg_on_reset before the contact gate passes.
+```
+
+Local verification after this patch:
+
+```bash
+./scripts/run_local_quality_checks.sh  # passed
+python3 scripts/project_status_report.py --fail-on-blocked  # expected BLOCKED
+```
+
+Current runtime payload after removing the invalid peg RigidObject view:
+
+```text
+b2f9fd5642fad1b615f5ff1839b37f294efd6bf213c43e243aa8cb8695d212b5
+```
+
+The next allowed paid action is one single contact-smoke run for payload
+`b2f9fd5642fad1b615f5ff1839b37f294efd6bf213c43e243aa8cb8695d212b5`, after
+`./scripts/run_local_quality_checks.sh`, paid preflight, explicit budget/TTL,
+watchdog start, exact bundle upload, log pullback, and immediate deletion.
+Do not run controller sweeps, BC, RL, or any broader Isaac job until that smoke
+passes.
+
+A later 2026-06-20 UI Launchable attempt for the same payload did not reach
+the project smoke stage:
+
+```text
+prepared bundle:
+  artifacts/launchable/robot-contact-assembly-contact-smoke-2026-06-20T01-21-14Z.tar.gz
+instance:
+  isaac-launchable-b18cd5 / t7f0c8qh0
+provider/type:
+  AWS g6e.4xlarge L40S
+UI price:
+  $3.61/hr
+status:
+  STARTING / BUILDING / NOT READY for about 10 minutes, then deletion requested
+smoke:
+  not run; no bundle uploaded; no project code executed remotely
+cleanup:
+  CLI delete, UI delete confirmation, stop, stop --all, and repeated delete
+  attempts were issued while the workspace moved through UNHEALTHY/DELETING.
+  The watchdog exited with `target disappeared; cleanup confirmed`, and
+  `/Users/Shenghan/bin/brev ls instances --json --all` returned
+  `{"workspaces": null}`.
+```
+
+This attempt should not be interpreted as a robotics result. It only confirms
+another Brev/Launchable lifecycle failure before shell access. If retrying,
+reuse the guarded one-smoke procedure and do not create a second instance while
+any workspace is visible in `brev ls instances --json --all`.
+
+Immediate retry after that also failed before project execution:
+
+```text
+instance:
+  isaac-launchable-7ccc42 / hqo1aftwz
+provider/type:
+  AWS g6e.4xlarge L40S
+UI price:
+  about $3.64-$3.65/hr
+status:
+  STARTING / BUILDING / NOT READY, then UNHEALTHY before shell access
+smoke:
+  not run; no bundle uploaded; no project code executed remotely
+cleanup:
+  CLI delete, stop, delete-by-id, and UI delete confirmation were issued.
+  A short heartbeat cleanup monitor was created as
+  `cleanup-stuck-brev-launchable-hqo1aftwz` while the workspace remained in
+  `DELETING` / `UNHEALTHY`.
+```
+
+Do not open another paid Launchable until `brev ls instances --json --all`
+returns `{"workspaces": null}` and the cleanup heartbeat has confirmed or been
+deleted. Two consecutive AWS Launchable attempts failed before shell access, so
+the next useful action after cleanup is likely a support note or waiting for
+Brev service recovery, not another immediate retry.
+
+Local hardening after this incident:
+
+```text
+docs/brev_launchable_lifecycle_hold.md
+  active hold file documenting the repeated Launchable lifecycle failures
+
+scripts/paid_compute_preflight.sh
+  blocks all paid creation while the hold file exists unless
+  RCA_ACK_BREV_LIFECYCLE_RISK=1 is set deliberately
+
+scripts/project_status_report.py
+  reports `Brev lifecycle hold | BLOCKED` and points the next action away from
+  paid retry while the hold is active
+```
+
+As of the latest local check after the retry cleanup,
+`/Users/Shenghan/bin/brev ls instances --json --all` returned
+`{"workspaces": null}`. The cleanup heartbeat
+`cleanup-stuck-brev-launchable-hqo1aftwz` was deleted after cleanup was
+confirmed.
+
+After the user logged back in on 2026-06-20, the read-only Brev CLI check was
+run again at `2026-06-20T02:11:09Z` and still returned `{"workspaces": null}`.
+`./scripts/check_brev_lifecycle_hold_clearance.sh` and
+`./scripts/run_local_quality_checks.sh` both passed. This confirms auth and
+cleanup state, but it does not clear the lifecycle hold.
+
+`./scripts/brev_paid_safety_status.sh` was added afterward as a single
+read-only Brev safety command. On the same restored login it reported:
+
+```text
+healthcheck=pass
+org_list=pass
+instance_list=pass
+visible_instances=0
+watchdog_processes=none
+manual_delete_alerts=stale_resolved current_visible_instances=0
+status=SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+The stale manual-delete alerts are old watchdog ledgers from June 7 that are
+overridden by the current proven empty org state; they are still listed so they
+can be inspected before any future paid work.
+
+Local review of the existing failed contact-smoke logs is recorded at:
+
+```text
+docs/contact_smoke_failure_review_2026-06-20.md
+```
+
+Key conclusion: all existing failed smoke logs reference older runtime payload
+hashes, so they cannot prove the current payload either way. Their common
+failure signature was hand/peg separation after free-space motion, zero
+wall-filtered force during press, and deep penetration. The current payload
+has already removed the invalid peg `RigidObjectCfg` view and keeps the peg in
+the Franka articulation, but this remains unproven until a fresh Isaac smoke
+for payload `b2f9fd5642fad1b615f5ff1839b37f294efd6bf213c43e243aa8cb8695d212b5`
+passes.
+
+Downstream post-gate helpers were also made compatible with the new no-
+RigidObject peg model:
+
+```text
+scripts/scripted_agent.py
+scripts/evaluate_contact_bc_policy.py
+```
+
+Both now fall back to the calibrated hand-derived action-frame tip pose when
+`env.scene["peg"]` has no RigidObject root-pose data. `scripts/check_contact_physics_wiring.py`
+guards this fallback.
+
+Post-login check on 2026-06-20: `/Users/Shenghan/bin/brev ls instances --json --all`
+returned `{"workspaces": null}` and `./scripts/brev_paid_safety_status.sh`
+reported `status=SAFE_NO_VISIBLE_PAID_INSTANCE`. No paid instance was visible.
+The wiring guard was also tightened to fail on new unallowlisted direct
+`scene["peg"]` / `peg.data.root_*` pose consumers, and
+`./scripts/run_local_quality_checks.sh` passed after the change.
+
+A support follow-up draft with the two failed Launchable attempts and cleanup
+evidence is prepared at:
+
+```text
+docs/brev_support_followup_2026-06-20.md
+```
+
+An incident evidence bundle was generated after cleanup:
+
+```text
+artifacts/brev_lifecycle_incidents/2026-06-20T02-01-55Z/
+artifacts/brev_lifecycle_incidents/2026-06-20T02-01-55Z.tar.gz
+sha256: e44c452a90ca309ff36c557508f6aefe9834ee16083b30570057a5141529315f
+```
+
+Latest local incident evidence bundle after adding the read-only Brev safety
+snapshot:
+
+```text
+artifacts/brev_lifecycle_incidents/2026-06-20T02-19-49Z/
+artifacts/brev_lifecycle_incidents/2026-06-20T02-19-49Z.tar.gz
+sha256: 83f9571d11204b808f30bbf94749f8b4c937c2f41bc8a09c59506f1ab6d7b2a1
+new evidence file: brev_paid_safety_status.txt
+```
+
+Latest local incident evidence bundle after adding the paid preflight
+EUR/hour budget-estimate guard:
+
+```text
+artifacts/brev_lifecycle_incidents/2026-06-20T02-39-30Z/
+artifacts/brev_lifecycle_incidents/2026-06-20T02-39-30Z.tar.gz
+sha256: c2323eb6524ce8220c11e3864082f7b51146fb60c3080138db343a57ecf22e5f
+```
+
+Latest local incident evidence bundle after adding the manual Brev UI
+credit-verification preflight guard:
+
+```text
+artifacts/brev_lifecycle_incidents/2026-06-20T02-57-31Z/
+artifacts/brev_lifecycle_incidents/2026-06-20T02-57-31Z.tar.gz
+sha256: 2df222e569d1a21b5c6803a0aa040a1b94792739f964f476cf8f7e7364e20329
+```
+
+The paid preflight now requires `RCA_PAID_ESTIMATED_EUR_PER_HOUR` and manual
+Brev UI credit verification via `RCA_BREV_CREDITS_VERIFIED=1`, and blocks when
+`hourly_estimate * TTL / 60` exceeds `RCA_PAID_BUDGET_EUR`. The Brev CLI has no
+read-only credit-balance command, so the credit marker is an explicit manual UI
+check. The incident bundle's `paid_preflight_hold_block.txt` confirms the
+active blocker is still the lifecycle hold, not a missing budget parameter.
+
+`scripts/brev_paid_run_watchdog.sh` now records the same cost boundary in
+`watchdog_start.env` (`budget_eur`, `estimated_eur_per_hour`,
+`estimated_max_cost_eur`) and logs it at startup. This does not make CLI logout
+deletion possible, but it makes every guarded paid run auditable against the
+budget and TTL that were accepted before creation.
+
+`scripts/check_launchable_retry_readiness.sh` is a read-only final gate for any
+future one-run Launchable retry. Without `RCA_ACK_BREV_LIFECYCLE_RISK=1` it
+must fail closed on the lifecycle hold; with the acknowledgement, it still
+requires local quality, `SAFE_NO_VISIBLE_PAID_INSTANCE`, `Contact-smoke bundle
+| READY`, Phase 2 contact gate still blocked, manual UI credit verification,
+budget/hourly estimate/TTL preflight, and empty visible org before printing
+`READY_FOR_ONE_CONTACT_SMOKE_RETRY`.
+
+The hold-clearance checker passed only for human review:
+
+```bash
+./scripts/check_brev_lifecycle_hold_clearance.sh
+```
+
+It confirmed `visible_instances=0` and `paid_preflight_hold_block=confirmed`,
+but does not remove the hold. Keep `docs/brev_launchable_lifecycle_hold.md`
+active until Brev service recovery is confirmed or a deliberate single retry is
+chosen with `RCA_ACK_BREV_LIFECYCLE_RISK=1`.
+
+## 2026-06-20 Short Launchable Retry And Smoke Gate Tightening
+
+A single official AWS Isaac Launchable retry was run after local WXYZ fixes,
+using `isaac-launchable-607d2a` / `5lpa3taei` on `g6e.4xlarge` L40S. The run
+was deleted immediately after the smoke failed; both the watchdog and direct
+CLI verification later reported:
+
+```text
+{"workspaces": null}
+```
+
+The complete failed log was pulled without overwriting canonical PASS evidence:
+
+```text
+artifacts/launchable_logs/pulled_contact_smoke/contact_physics_smoke_isaac-launchable-607d2a_2026-06-20T04-36-06Z_FAIL.log
+```
+
+Runtime result:
+
+```text
+source_payload_sha256=e3c3df90cee2e2fd33143270b098f17c4b9131dba232db9482a3ab40c7a10a83
+CONTACT-SMOKE attach: PASS
+CONTACT-SMOKE free-space: PASS
+CONTACT-SMOKE press-force: FAIL
+CONTACT-SMOKE press-blocked: PASS
+CONTACT-SMOKE press-no-clip: PASS
+CONTACT-SMOKE release: PASS
+CONTACT-SMOKE joint-integrity: PASS
+```
+
+Interpretation: WXYZ fixed the old attach/joint-integrity failure. The peg
+tracked the Franka hand to about `1e-7 m` after reset, free-space motion, and
+retreat. The remaining failure was not a proven wall-contact sensor failure:
+the log also showed large lateral slip (`0.20-0.26 m`), and review found that
+`press-blocked` accepted negative `wall_top_z - lower_end_z` values. Negative
+values mean the lower peg end is above the wall top, not blocked against it.
+
+Local follow-up changed the contact smoke and gate:
+
+- `scripts/contact_physics_smoke.py` now emits `CONTACT-SMOKE press-tracking`
+  and fails if the physical lower peg end is not laterally near the commanded
+  wall-contact point.
+- `press-blocked` now requires `abs(wall_top_z - lower_end_z)` within the block
+  tolerance, so hovering above the wall no longer passes as blocked.
+- The smoke no longer adds `PEG_LENGTH_M` to hover/press z targets. The action
+  frame is already the calibrated insertion tip, so adding the peg length used
+  the stale "upper tip" convention and kept the commanded insertion end above
+  the wall.
+- `scripts/check_phase2_contact_gate.py`,
+  `scripts/run_launchable_contact_physics_smoke.sh`, and
+  `scripts/test_local_gates.py` now require the new `press-tracking` marker.
+
+Local verification after the patch:
+
+```text
+./scripts/run_local_quality_checks.sh
+[local-quality] passed
+```
+
+Prepared bundle for that historical reanchor-marker retry:
+
+```text
+artifacts/launchable/robot-contact-assembly-contact-smoke-2026-06-20T06-42-09Z.tar.gz
+Runtime source payload SHA256: 9639dff71de0d493878a6d40d5aa95cf1948c308070cf9092c52c66538fd34e0
+```
+
+Do not use this older bundle for the next run; it predates the phase-sentinel
+instrumentation documented below.
+
+## 2026-06-20 Reanchor-Marker Launchable Retry
+
+A second short official AWS Isaac Launchable retry was run on
+`isaac-launchable-ede7f3` / `ewix5zjtj` after the wrapper was tightened to use
+per-run logs and require the re-anchor marker. It used:
+
+```text
+artifacts/launchable/robot-contact-assembly-contact-smoke-2026-06-20T06-42-09Z.tar.gz
+source_payload_sha256=9639dff71de0d493878a6d40d5aa95cf1948c308070cf9092c52c66538fd34e0
+```
+
+Pulled evidence:
+
+```text
+artifacts/launchable_logs/pulled_contact_smoke/contact_physics_smoke_isaac-launchable-ede7f3_2026-06-20T06-58-21Z_FAIL.log
+artifacts/launchable_logs/pulled_contact_smoke/contact_physics_smoke_runs_isaac-launchable-ede7f3_2026-06-20T06-58-21Z.tsv
+```
+
+Result:
+
+```text
+CONTACT-SMOKE attach: PASS
+CONTACT-SMOKE free-space: PASS
+CONTACT-SMOKE contact-setup: local-guide reanchored: missing
+CONTACT-SMOKE free-space-reanchored: missing
+CONTACT-SMOKE press-force: missing
+```
+
+The wrapper failed closed with:
+
+```text
+missing marker: CONTACT-SMOKE contact-setup: local-guide reanchored
+```
+
+Cleanup was confirmed. `brev delete isaac-launchable-ede7f3 ewix5zjtj` was
+issued immediately after pulling the log; after several minutes in `DELETING`,
+`brev ls instances --json --all` returned `{"workspaces": null}`, and the
+watchdog printed `target disappeared; cleanup confirmed`.
+
+Interpretation: Phase 2 remained BLOCKED. The smoke no longer lost evidence to
+fixed-log overwrites, but the Python smoke exited/returned before the
+post-free-space re-anchor phase.
+
+## 2026-06-20 Phase-Sentinel Local Follow-up
+
+Local follow-up now adds the missing control-flow evidence. The current prepared
+bundle is:
+
+```text
+artifacts/launchable/robot-contact-assembly-contact-smoke-2026-06-20T07-25-33Z.tar.gz
+source_payload_sha256=1d19fecb91790e2762426723e2b5e4daaf296c6787929d8c5ab9d9c514c001c6
+```
+
+`scripts/contact_physics_smoke.py` now emits explicit phase begin/progress/end
+markers for `free-space-settle`, `local-guide-reanchor`, `press-hold`, and
+`retreat-hold`. It emits `CONTACT-SMOKE phase-sequence: PASS` only when all
+required phases complete; otherwise the Python layer itself emits
+`CONTACT-SMOKE phase-sequence: FAIL` and returns nonzero. The wrapper and phase
+gate now require those phase sentinels, and `./scripts/run_local_quality_checks.sh`
+passes.
+
+The follow-up Launchable run on `isaac-launchable-57032f` / `km6cr6mj0`
+confirmed this control-flow instrumentation: after a targeted inference-mode
+root-pose write fix, the smoke reached `phase-sequence: PASS`. It still failed
+the physical press checks with zero mean wall force, lateral errors
+`[0.04027855396270752, 0.36005330085754395] m`, and `press-blocked` /
+`press-no-clip` failures. The pulled evidence is under:
+
+```text
+artifacts/launchable_logs/pulled_contact_smoke/rca-pull/
+```
+
+Cleanup was confirmed with `brev ls instances --json --all` returning
+`{"workspaces": null}` and `./scripts/brev_paid_safety_status.sh` returning
+`SAFE_NO_VISIBLE_PAID_INSTANCE`.
+
+Phase 2 still has no current remote PASS log. The only useful next step is
+local validation of the new lower-end feedback press formulation. Do not run
+another paid retry until local quality passes and the current bundle is rebuilt.
+Controller sweeps, BC, RL, broad scripted probes, and post-contact paid jobs
+remain blocked.
+
+2026-06-20 follow-up: the next current-tip servo Launchable retry
+(`isaac-launchable-26bffe` / `s85xtqx1n`) produced real wall force in env0 but
+failed env1 with lateral drift:
+
+```text
+log: artifacts/launchable_logs/pulled_contact_smoke/rca-pull-26bffe/contact_physics_smoke_2026-06-20T09-52-29Z-currenttip.log
+payload: 14da96a2a87e74c81220b3da09143b075ea933e33ec56a9f98faf54cdc9a34ef
+press-force: FAIL [4.317049980163574, 0.0] N
+press-tracking: FAIL [0.00972306914627552, 0.5869264602661133] m
+cleanup: final `brev ls instances --json --all` returned {"workspaces": null};
+         watchdog printed `target disappeared; cleanup confirmed`;
+         `./scripts/brev_paid_safety_status.sh` returned SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+This changes the next local task: freeze reset joint randomization in
+`scripts/contact_physics_smoke.py` and require the
+`CONTACT-SMOKE reset-joints: deterministic` marker in the wrapper/gate before
+any future remote PASS can count. Also, run future fail-closed smoke commands
+through `brev exec` with an outer zero exit and a recorded inner smoke exit
+code; the 26bffe run showed that `brev exec` can reconnect and repeat a command
+after a nonzero smoke failure.
+
+Current prepared bundle:
+
+```text
+artifacts/launchable/robot-contact-assembly-contact-smoke-2026-06-20T10-14-55Z.tar.gz
+source_payload_sha256=a9745f5634f5f16bfee813da46bba829794e72e1b1d49fd9e98a913608b7124a
+archive_sha256=16d98d08b9fd4935d83de73047bb9b39ded70eeb28a3616510e987a122ee08b9
+```
+
+A Gmail draft was created but not sent:
+
+```text
+draft_id: r-7545863501805331854
+message_id: 19ee2c7896acfa40
+thread_id: 19e4e182e6100df1
+to: brev-support@nvidia.com
+subject: Re: Follow-up: repeated probe-only Brev lifecycle failures in org NCA-57cf-29515
+attachment: artifacts/brev_lifecycle_incidents/2026-06-20T02-01-55Z.tar.gz
+created_utc: 2026-06-20T02:06:33Z
+rechecked_utc: 2026-06-20T02:11:09Z
+send_status: draft exists; not sent
+note: draft attachment is still the earlier 2026-06-20T02-01-55Z bundle unless updated manually
+```
+
+2026-06-20 follow-up: the `guide-wall-sweep` Launchable retry
+(`isaac-launchable-wallsweep-9a36` / `eqb76y582`) used payload
+`9a36b8041d8440fe7822c9711c8c4aa6047eb9582ec3b3e2d71f2accc009b1e2`.
+Pulled evidence:
+
+```text
+log: artifacts/launchable_logs/pulled_contact_smoke/rca-pull-wallsweep/contact_physics_smoke_2026-06-20T11-47-15Z-wallsweep.log
+pull_archive: artifacts/launchable_logs/pulled_contact_smoke/rca-pull-isaac-launchable-wallsweep-eqb76y582.tar.gz
+pull_archive_sha256: 974c383d10ba5f30aca292894ceea7bf16f6a695f76fcbe34f539c193e87c331
+```
+
+Result:
+
+```text
+CONTACT-SMOKE attach: PASS
+CONTACT-SMOKE free-space: PASS
+CONTACT-SMOKE free-space-reanchored: PASS
+CONTACT-SMOKE press-control: local-wall-sweep
+CONTACT-SMOKE press-force: PASS (mean wall force [29.153621673583984, 37.27742004394531] N)
+CONTACT-SMOKE press-tracking: PASS (lower-end lateral error [0.005723054055124521, 0.008925105445086956] m)
+CONTACT-SMOKE press-blocked: FAIL (wall_top_z - lower_end_z [-0.009471744298934937, -0.008838444948196411] m)
+CONTACT-SMOKE press-no-clip: PASS
+CONTACT-SMOKE release: PASS
+CONTACT-SMOKE joint-integrity: PASS
+CONTACT-SMOKE phase-sequence: PASS
+```
+
+Interpretation: wall contact forces are now real and substantial, so the
+previous zero-force blocker is gone. The smoke still does not prove the
+intended blocked-contact geometry because the dynamic peg lower end rides
+slightly above the wall top while the guide is swept upward into it. Phase 2
+therefore remains BLOCKED. Do not run controller sweeps, BC, RL, or more paid
+post-contact work until the local smoke fixture/blocked-contact assertion is
+fixed and a future short Launchable smoke produces `press-blocked: PASS`.
+
+Cleanup was confirmed after deletion briefly cycled through `DELETING` and
+`DEPLOYING`: a retry returned `instance ... not found`, `brev ls instances
+--json --all` returned `{"workspaces": null}`, `./scripts/brev_paid_safety_status.sh`
+returned `SAFE_NO_VISIBLE_PAID_INSTANCE`, and the watchdog printed
+`target disappeared; cleanup confirmed`.
+
+Local follow-up: `scripts/contact_physics_smoke.py` now makes the
+`guide-wall-sweep` blocked check radius-aware. The Launchable log showed
+`lower_end_z - wall_top_z` around `8.8-9.5 mm`, which matches the
+`PEG_RADIUS_M=10 mm` cylindrical centerline offset. The `arm-servo` diagnostic
+path still requires the lower end near the wall-top plane, but the default
+contact-physics gate now checks the correct cylinder-vs-wall edge relation.
+`scripts/check_contact_physics_wiring.py` guards this radius-aware check.
+
+Current prepared bundle after the radius-aware blocked check:
+
+```text
+artifacts/launchable/robot-contact-assembly-contact-smoke-2026-06-20T12-05-01Z.tar.gz
+source_payload_sha256=3ac9064fda3bc0c88aee7c3770f3a8f6087e56158fa22beb81ff75fae74e69fb
+archive_sha256=641df0fd25f0e50ff3176b9dab917aa4709edfba0f9ce74a85f48948d9eb7456
+local_quality: ./scripts/run_local_quality_checks.sh passed
+brev_safety: ./scripts/brev_paid_safety_status.sh returned SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
 ## Recommended Next Steps
 
-0. Before anything else: apply the environment contact-physics fix from the
-   2026-06-11 audit above and validate it with the wall-reaction smoke.
-   All downstream recommendations assume a physically valid task.
+0. The environment contact-physics smoke is now validated on the official AWS
+   Isaac Launchable runtime. Do not rerun the smoke just to reconfirm it unless
+   runtime source payload changes or the archived evidence becomes stale.
 1. Do not run a full Isaac install/evaluation through the current Brev GCP path.
-2. Treat the AWS Isaac Launchable as technically validated but expensive; do not create another paid Brev/AWS/GPU environment unless there is an explicit budget and a deletion monitor is active.
+2. Treat the AWS Isaac Launchable as technically validated but expensive; do not create another paid Brev/AWS/GPU environment unless `scripts/paid_compute_preflight.sh` passes with an explicit budget, conservative EUR/hour estimate, TTL, valid Brev CLI auth, empty visible org, and estimated max cost inside the budget.
    Local create scripts now also require `RCA_ALLOW_PAID_BREV_CREATE=1` before they will call `brev create`, and the paid CLI wrappers start `scripts/brev_paid_run_watchdog.sh` before creation. For UI Launchable runs, run `scripts/start_brev_ui_launchable_watchdog.sh` before clicking Create, or start `scripts/brev_paid_run_watchdog.sh` with a target name/id immediately after creation.
 3. Do not run another paid sweep on the current scripted handoff / `preload-direction` family; full-quaternion, axis-aware, XY-retention, and joint-step limiter variants all failed closed before a useful post-handoff eval.
 4. Keep Brev support focused on the separate `CreateWorkspace unexpected EOF` CLI create failure; that failure happens before SSH/Isaac/ports and is not explained by Launchable runtime behavior.
@@ -2091,7 +3064,9 @@ RCA_LAUNCHABLE_HANDOFF_REPLAY_MAX_AXIAL_DRIFT=0.02
 RCA_LAUNCHABLE_HANDOFF_REPLAY_MAX_ROT_DRIFT=0.25
 ```
 
-9. If a new controller is implemented, run the Launchable smoke first, then a short eval with marker checks and immediate deletion.
+9. If a new controller is implemented, start with one short scripted trace and
+   refreshed contact-validity/demo-coverage reports under the validated task.
+   Only then consider a short eval with marker checks and immediate deletion.
 10. Only run temporal residual-current BC after the demonstration labels show sustained post-contact behavior. Use `scripts/analyze_contact_demo_coverage.py` with local traces plus Launchable archives before any paid learned-policy run; the 2026-06-09 combined report still shows zero target-gate passing steps across 38 traces.
 11. For the next local implementation, use `scripts/select_final_contact_reset_candidates.py` and `artifacts/reports/final_contact_reset_candidates_2026-06-09.json` as the seed source for a reset-based final-contact stabilizer/evaluator. Do not treat those candidates as success labels unless a future report contains `target_gate_success > 0`.
 12. `scripts/evaluate_contact_bc_policy.py` can now consume the candidate manifest directly via `--preload-candidate-json`; use this for future stabilizer baselines so the handoff seed is reproducible.

@@ -2,6 +2,8 @@
 set -euo pipefail
 
 REPO_DIR="${RCA_LAUNCHABLE_REPO_DIR:-/workspace/robot-contact-assembly}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"${SCRIPT_DIR}/launchable_post_contact_gate.sh" "${REPO_DIR}"
 ARTIFACT_ROOT="${RCA_LAUNCHABLE_ARTIFACT_ROOT:-${REPO_DIR}/artifacts}"
 ISAAC_PYTHON="${RCA_ISAAC_PYTHON:-/isaac-sim/python.sh}"
 RUN_ID="$(date -u +"%Y-%m-%dT%H-%M-%SZ")"

@@ -3,7 +3,10 @@ set -euo pipefail
 
 ENV_NAME="${1:-isaac-l40s}"
 REMOTE_ROOT="${2:-/home/ubuntu/projects/robot-contact-assembly}"
-LOCAL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOCAL_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+"${SCRIPT_DIR}/remote_operation_preflight.sh"
 
 echo "[sync] local repo:  ${LOCAL_ROOT}"
 echo "[sync] remote repo: ${ENV_NAME}:${REMOTE_ROOT}/repo/robot-contact-assembly"

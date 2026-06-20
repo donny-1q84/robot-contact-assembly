@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
+"${SCRIPT_DIR}/remote_operation_preflight.sh"
+
 ENV_NAME="${1:-isaac-l40s}"
 REMOTE_ROOT="${2:-/home/ubuntu/projects/robot-contact-assembly}"
 REMOTE_COMPOSE_ROOT="${3:-/home/ubuntu/isaac-compose}"

@@ -3,17 +3,18 @@
 import math
 
 # These constants are empirical frame-calibration values for the current contact shell.
-# Keep the numeric values stable unless a remote Launchable gate re-calibrates them.
-IDENTITY_QUAT = (0.0, 0.0, 0.0, 1.0)
+# Isaac Lab 2.x and Isaac Sim APIs use WXYZ quaternions. Keep hard-coded rotations
+# in WXYZ unless a runtime migration explicitly changes the project convention.
+IDENTITY_QUAT = (1.0, 0.0, 0.0, 0.0)
 
 # Controller-side tip frame used by the relative IK action.
 PEG_TIP_BODY_OFFSET_POS = (0.0, 0.0, 0.1034)
 PEG_TIP_YAW_OFFSET_RAD = 0.8544625639915466
 PEG_TIP_BODY_OFFSET_ROT = (
+    math.cos(0.5 * PEG_TIP_YAW_OFFSET_RAD),
     0.0,
     0.0,
     math.sin(0.5 * PEG_TIP_YAW_OFFSET_RAD),
-    math.cos(0.5 * PEG_TIP_YAW_OFFSET_RAD),
 )
 
 # Physical peg geometry. The runtime sync path uses the controller tip frame as the

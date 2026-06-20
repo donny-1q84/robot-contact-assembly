@@ -1,14 +1,25 @@
 # Phase 2 IL / Learned Contact Policy Plan
 
+## Current Status - Blocked by Contact-Physics Gate
+
+This plan is historical and must not be executed as the next paid step. The 2026-06-11 contact-physics audit invalidated the old shallow-contact and near-miss labels as proof of wall reaction. The current gate is:
+
+```bash
+./scripts/run_local_quality_checks.sh
+python3 scripts/check_phase2_contact_gate.py
+```
+
+Until the contact gate reports PASS from an archived Isaac runtime `contact_physics_smoke.log`, do not train BC, run RL, extract new success/reset labels, or open a paid GPU job except the short `RCA_PAID_RUN_PURPOSE=contact_physics_smoke` validation. After that smoke, use `./scripts/pull_contact_smoke_log.sh <launchable-env-name> /workspace/robot-contact-assembly` to pull/archive the only allowed pre-gate artifact.
+
 ## Decision
 
-Stop spending GPU time on one-off scripted contact-retention heuristics. The current scripted branch has already produced:
+Historical pre-audit decision, now superseded: stop spending GPU time on one-off scripted contact-retention heuristics. At the time, the scripted branch appeared to have produced:
 
 - one shallow true-contact success
 - a strict near miss within `0.20 mm` lateral and `0.0012 rad` rotation
-- enough traces to show the remaining blocker is coupled contact control, not environment setup
+- enough traces to suggest a coupled-control blocker
 
-The next technical step is to bootstrap a learned final-contact policy from the scripted traces.
+Current decision: do not bootstrap a learned final-contact policy from these traces until the contact-physics smoke passes and the trace labels are regenerated under the validated wall-filtered contact model.
 
 ## Dataset Source
 
@@ -190,7 +201,7 @@ Prepared guarded remote wrapper:
 scripts/run_phase2_contact_bc_best_window_smoke_gate.sh
 ```
 
-This wrapper trains the best-window BC checkpoint and evaluates it with scripted trace preload through step `1543`, so it should be the next paid GPU run if we decide to compare learned refinement.
+Historical note: this wrapper trained the best-window BC checkpoint and evaluated it with scripted trace preload through step `1543`. It is no longer a valid next paid GPU run until the contact-physics gate passes and labels are regenerated.
 
 Completed staged best-window smoke:
 
@@ -246,13 +257,13 @@ action_dim: 7
 action_mode: residual-current
 ```
 
-The next paid learned-policy run, if used, should be:
+Historical pre-audit paid learned-policy candidate:
 
 ```bash
 scripts/run_phase2_contact_bc_residual_current_smoke_gate.sh
 ```
 
-This tests whether predicting small joint corrections from the current state is more stable than predicting absolute joint targets.
+This was intended to test whether predicting small joint corrections from the current state is more stable than predicting absolute joint targets. Do not run it now unless the contact-physics gate has passed and the dataset has been regenerated.
 
 Remote status:
 
@@ -565,7 +576,7 @@ joint_delta =
 
 with `--max-action-delta 0.02`.
 
-Updated priority:
+Historical priority, superseded by the 2026-06-18 contact-physics gate:
 
 The first `preload-direction` GPU attempt also aborted during Brev provisioning:
 
@@ -583,8 +594,8 @@ This is not a controller result. It indicates the compute backend is currently t
 Updated priority:
 
 1. Do not open another Brev GPU instance immediately.
-2. Keep `preload-direction` as the next robotics eval once the GPU backend is stable.
-3. Before the next paid Isaac run, do a tiny provider smoke that only creates, SSH-probes, and deletes the chosen instance:
+2. Do not keep `preload-direction` as the next robotics eval; the next paid action is only the contact-physics smoke.
+3. Do not run provider smokes or Isaac workload probes until the paid preflight passes; the old provider-smoke wrapper is retained for infrastructure history:
 
 ```bash
 scripts/run_brev_probe_only_gate.sh

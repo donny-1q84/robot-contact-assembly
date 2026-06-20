@@ -14,6 +14,8 @@ INSTANCE_NAME="${RCA_BREV_WATCHDOG_INSTANCE_NAME:-${RCA_BREV_INSTANCE_NAME:-}}"
 INSTANCE_ID="${RCA_BREV_WATCHDOG_INSTANCE_ID:-${RCA_BREV_INSTANCE_ID:-}}"
 SCOPE="${RCA_BREV_WATCHDOG_SCOPE:-target}"
 MAX_MINUTES="${RCA_BREV_WATCHDOG_MAX_MINUTES:-${RCA_BREV_MAX_MINUTES:-}}"
+BUDGET_EUR="${RCA_PAID_BUDGET_EUR:-}"
+ESTIMATED_EUR_PER_HOUR="${RCA_PAID_ESTIMATED_EUR_PER_HOUR:-${RCA_BREV_UI_PRICE_EUR_PER_HOUR:-}}"
 WAIT_FOR_APPEAR="${RCA_BREV_WATCHDOG_WAIT_FOR_APPEAR:-1}"
 WAIT_MAX_MINUTES="${RCA_BREV_WATCHDOG_WAIT_MAX_MINUTES:-30}"
 POLL_SECONDS="${RCA_BREV_WATCHDOG_POLL_SECONDS:-120}"
@@ -166,6 +168,26 @@ run_with_timeout() {
   return "${status}"
 }
 
+estimated_max_cost_eur() {
+  if [[ -z "${BUDGET_EUR}" || -z "${ESTIMATED_EUR_PER_HOUR}" ]]; then
+    printf '<not-recorded>\n'
+    return 0
+  fi
+  if [[ ! "${ESTIMATED_EUR_PER_HOUR}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    printf '<invalid-hourly-estimate>\n'
+    return 0
+  fi
+  ESTIMATED_EUR_PER_HOUR="${ESTIMATED_EUR_PER_HOUR}" \
+  MAX_MINUTES="${MAX_MINUTES}" \
+  python3 - <<'PY'
+import os
+
+hourly = float(os.environ["ESTIMATED_EUR_PER_HOUR"])
+minutes = int(os.environ["MAX_MINUTES"])
+print(f"{hourly * minutes / 60.0:.4f}")
+PY
+}
+
 query_instances_json() {
   if [[ -n "${RCA_BREV_WATCHDOG_SAMPLE_JSON:-}" ]]; then
     printf '%s\n' "${RCA_BREV_WATCHDOG_SAMPLE_JSON}"
@@ -175,11 +197,16 @@ query_instances_json() {
 }
 
 write_start_metadata() {
+  local estimated_max_cost
+  estimated_max_cost="$(estimated_max_cost_eur)"
   cat > "${LEDGER_DIR}/watchdog_start.env" <<EOF
 run_id=${RUN_ID}
 scope=${SCOPE}
 instance_name=${INSTANCE_NAME}
 instance_id=${INSTANCE_ID}
+budget_eur=${BUDGET_EUR:-<not-recorded>}
+estimated_eur_per_hour=${ESTIMATED_EUR_PER_HOUR:-<not-recorded>}
+estimated_max_cost_eur=${estimated_max_cost}
 max_minutes=${MAX_MINUTES}
 wait_for_appear=${WAIT_FOR_APPEAR}
 wait_max_minutes=${WAIT_MAX_MINUTES}
@@ -406,14 +433,16 @@ wait_until_absent_after_delete() {
 }
 
 main() {
-  local started_epoch first_seen_epoch wait_deadline deadline lines status age remaining
+  local started_epoch first_seen_epoch wait_deadline deadline lines status age remaining estimated_cost
   started_epoch="$(date +%s)"
   first_seen_epoch=0
   wait_deadline=$((started_epoch + WAIT_MAX_MINUTES * 60))
+  estimated_cost="$(estimated_max_cost_eur)"
 
   write_start_metadata
   record_event "started" "scope=${SCOPE} label=${LEDGER_LABEL}"
   log "watching scope=${SCOPE} label=${LEDGER_LABEL} max_minutes=${MAX_MINUTES} ledger=${LEDGER_DIR}"
+  log "cost_boundary budget_eur=${BUDGET_EUR:-<not-recorded>} estimated_eur_per_hour=${ESTIMATED_EUR_PER_HOUR:-<not-recorded>} estimated_max_cost_eur=${estimated_cost}"
   log "dashboard=${DASHBOARD_URL}"
 
   while true; do

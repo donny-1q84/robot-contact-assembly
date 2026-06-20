@@ -35,10 +35,6 @@ from .constants import (
     PEG_CENTER_BODY_OFFSET_ROT,
     PEG_LENGTH_M,
     PEG_RADIUS_M,
-    PEG_ROOT_FROM_TIP_POS,
-    PEG_ROOT_FROM_TIP_ROT,
-    PEG_TIP_BODY_OFFSET_POS,
-    PEG_TIP_BODY_OFFSET_ROT,
     SOCKET_FRAME_POS,
     SOCKET_FRAME_ROT,
     SOCKET_GUIDE_DEPTH_M,
@@ -76,13 +72,14 @@ class PegInHoleSceneCfg(InteractiveSceneCfg):
 
     robot: ArticulationCfg = MISSING
 
-    # The peg is a DYNAMIC body welded to the hand by a fixed joint authored in
-    # the spawner. It must never be kinematic: the 2026-06-11 audit showed the
-    # kinematic peg passed through the kinematic walls with zero reaction, so
-    # the task had no real contact physics.
-    peg = RigidObjectCfg(
+    # The peg is a DYNAMIC collider welded to the hand by a fixed joint
+    # authored in the spawner. It is intentionally not a RigidObjectCfg: once
+    # the peg participates in the Franka articulation, Isaac Lab's RigidObject
+    # view tries to write non-root articulation-link transforms and breaks the
+    # smoke semantics. Observations derive the peg pose from the hand frame.
+    peg = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/Peg",
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.45, 0.0, 0.35), rot=IDENTITY_QUAT),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.45, 0.0, 0.35), rot=IDENTITY_QUAT),
         spawn=AttachedPegCylinderCfg(
             radius=PEG_RADIUS_M,
             height=PEG_LENGTH_M,
@@ -100,7 +97,8 @@ class PegInHoleSceneCfg(InteractiveSceneCfg):
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.23, 0.46, 0.82)),
             activate_contact_sensors=True,
             joint_local_pos0=PEG_CENTER_BODY_OFFSET_POS,
-            joint_local_rot0_xyzw=PEG_CENTER_BODY_OFFSET_ROT,
+            joint_local_rot0_wxyz=PEG_CENTER_BODY_OFFSET_ROT,
+            exclude_from_articulation=False,
         ),
     )
 
@@ -339,23 +337,6 @@ class EventCfg:
         params={
             "position_range": (0.9, 1.1),
             "velocity_range": (0.0, 0.0),
-        },
-    )
-    # Best-effort placement so the fixed joint starts near zero error after the
-    # arm joints are reset. The joint itself enforces the hand-peg transform
-    # during simulation; there must be NO per-step teleport event, because
-    # teleporting a joint-constrained dynamic body would fight the solver and
-    # erase contact impulses (the failure mode behind the 2026-06-11 audit).
-    sync_peg_on_reset = EventTerm(
-        func=mdp.sync_peg_to_hand,
-        mode="reset",
-        params={
-            "robot_cfg": SceneEntityCfg("robot", body_names=MISSING),
-            "peg_cfg": SceneEntityCfg("peg"),
-            "body_offset": PEG_TIP_BODY_OFFSET_POS,
-            "body_rot_offset": PEG_TIP_BODY_OFFSET_ROT,
-            "peg_root_from_tip_pos": PEG_ROOT_FROM_TIP_POS,
-            "peg_root_from_tip_rot": PEG_ROOT_FROM_TIP_ROT,
         },
     )
 

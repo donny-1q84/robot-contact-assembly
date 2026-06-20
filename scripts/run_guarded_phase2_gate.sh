@@ -26,14 +26,12 @@ DIRECT_SSH_PROBE_ATTEMPTS="${RCA_GATE_DIRECT_SSH_PROBE_ATTEMPTS:-6}"
 DIRECT_SSH_PROBE_INTERVAL_SECONDS="${RCA_GATE_DIRECT_SSH_PROBE_INTERVAL_SECONDS:-10}"
 SSH_CONNECT_TIMEOUT="${RCA_GATE_SSH_CONNECT_TIMEOUT:-20}"
 SSH_COMMAND_TIMEOUT="${RCA_GATE_SSH_COMMAND_TIMEOUT:-60}"
-DELETE_ON_EXIT="${RCA_GATE_DELETE_ON_EXIT:-1}"
-KEEP_ON_FAILURE="${RCA_GATE_KEEP_ON_FAILURE:-0}"
 ALLOW_DIRTY="${RCA_ALLOW_DIRTY:-0}"
 ALLOW_PAID_BREV_CREATE="${RCA_ALLOW_PAID_BREV_CREATE:-0}"
-WATCHDOG_ENABLED="${RCA_GATE_WATCHDOG_ENABLED:-1}"
 WATCHDOG_MAX_MINUTES="${RCA_GATE_WATCHDOG_MAX_MINUTES:-120}"
 WATCHDOG_POLL_SECONDS="${RCA_GATE_WATCHDOG_POLL_SECONDS:-120}"
 WATCHDOG_WAIT_MAX_MINUTES="${RCA_GATE_WATCHDOG_WAIT_MAX_MINUTES:-$(( (CREATE_TIMEOUT + 599) / 60 + 10 ))}"
+WATCHDOG_START_GRACE_SECONDS="${RCA_GATE_WATCHDOG_START_GRACE_SECONDS:-2}"
 WATCHDOG_DASHBOARD_URL="${RCA_GATE_WATCHDOG_DASHBOARD_URL:-https://brev.nvidia.com/org/org-3BaYGdtoRGmgc77Z7NHHhPSD254/environments}"
 
 TASK_NAME="${RCA_GATE_TASK:-RCA-PegInHole-Franka-IK-Rel-Contact-Play-v0}"
@@ -219,7 +217,7 @@ require_paid_brev_create_ack() {
 
   cat >&2 <<'EOF'
 [guarded-gate] refusing to create a paid Brev instance.
-[guarded-gate] Set RCA_ALLOW_PAID_BREV_CREATE=1 only after confirming credits/budget and a manual deletion path in the Brev UI.
+[guarded-gate] Set RCA_ALLOW_PAID_BREV_CREATE=1 and RCA_BREV_CREDITS_VERIFIED=1 only after confirming credits/budget and a manual deletion path in the Brev UI.
 EOF
   return 2
 }
@@ -267,11 +265,6 @@ delete_target_instance() {
 }
 
 start_billing_watchdog() {
-  if [[ "${WATCHDOG_ENABLED}" != "1" ]]; then
-    log "billing watchdog disabled by RCA_GATE_WATCHDOG_ENABLED=${WATCHDOG_ENABLED}"
-    return 0
-  fi
-
   local watchdog_dir launcher_log
   watchdog_dir="${LOCAL_RUN_DIR}/billing_watchdog"
   launcher_log="${watchdog_dir}/watchdog_launcher.log"
@@ -289,7 +282,20 @@ start_billing_watchdog() {
     "${SCRIPT_DIR}/brev_paid_run_watchdog.sh" >"${launcher_log}" 2>&1 &
   WATCHDOG_PID="$!"
   printf '%s\n' "${WATCHDOG_PID}" > "${watchdog_dir}/watchdog.pid"
+  verify_watchdog_alive "${WATCHDOG_PID}" "${launcher_log}"
   disown "${WATCHDOG_PID}" 2>/dev/null || true
+}
+
+verify_watchdog_alive() {
+  local pid="$1"
+  local launcher_log="$2"
+
+  sleep "${WATCHDOG_START_GRACE_SECONDS}"
+  if ! kill -0 "${pid}" 2>/dev/null; then
+    log "billing watchdog exited before instance creation; refusing paid create"
+    cat "${launcher_log}" >&2 2>/dev/null || true
+    exit 2
+  fi
 }
 
 wait_for_ready() {
@@ -415,7 +421,7 @@ cleanup() {
     bash "${SCRIPT_DIR}/pull_artifacts.sh" "${INSTANCE_NAME}" "${REMOTE_ROOT}" "${REPO_ROOT}/artifacts" || true
   fi
 
-  if [[ "${CREATED_INSTANCE}" == "1" && "${DELETE_ON_EXIT}" == "1" && ( "${KEEP_ON_FAILURE}" != "1" || "${status}" == "0" ) ]]; then
+  if [[ "${CREATED_INSTANCE}" == "1" ]]; then
     delete_target_instance || true
     if wait_for_empty_org; then
       log "confirmed no visible instances after delete"
@@ -425,8 +431,7 @@ cleanup() {
       run_brev_json_all || true
     fi
   else
-    log "skipping delete: CREATED_INSTANCE=${CREATED_INSTANCE} DELETE_ON_EXIT=${DELETE_ON_EXIT} KEEP_ON_FAILURE=${KEEP_ON_FAILURE} status=${status}"
-    run_brev_ls_all || true
+    log "no Brev instance was created"
   fi
 
   cat > "${LOCAL_RUN_DIR}/gate_metadata.env" <<EOF
@@ -440,7 +445,7 @@ task_name=${TASK_NAME}
 num_envs=${NUM_ENVS}
 steps=${STEPS}
 build_stuck_seconds=${BUILD_STUCK_SECONDS}
-watchdog_enabled=${WATCHDOG_ENABLED}
+watchdog_enabled=1
 watchdog_max_minutes=${WATCHDOG_MAX_MINUTES}
 watchdog_poll_seconds=${WATCHDOG_POLL_SECONDS}
 watchdog_pid=${WATCHDOG_PID}
@@ -509,6 +514,14 @@ main() {
     echo "[guarded-gate] repo has uncommitted changes; commit first or set RCA_ALLOW_DIRTY=1" >&2
     return 2
   fi
+
+  log "preflight: paid compute guard"
+  RCA_PAID_RUN_PURPOSE="${RCA_PAID_RUN_PURPOSE:-post_contact_gate}" \
+  RCA_PAID_INSTANCE_NAME="${INSTANCE_NAME}" \
+  RCA_PAID_MAX_MINUTES="${WATCHDOG_MAX_MINUTES}" \
+  RCA_BREV_CREDITS_VERIFIED="${RCA_BREV_CREDITS_VERIFIED:-0}" \
+  RCA_BREV_CLI="${BREV_BIN}" \
+    "${SCRIPT_DIR}/paid_compute_preflight.sh"
 
   log "preflight: current Brev instances"
   run_brev_ls_all || true
