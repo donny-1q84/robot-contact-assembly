@@ -64,6 +64,26 @@ generated for handoff review at
 it is an evidence visualization from the successful log, not simulator camera
 footage.
 
+A follow-up real Isaac viewport recording was captured on a separate official
+AWS Isaac Launchable run:
+
+```text
+instance: isaac-launchable-e91de9 / 4akhlpjad
+run_id: 2026-06-20T14-08-28Z-real-video
+task: RCA-PegInHole-Franka-IK-Abs-Contact-Play-v0
+video_backend: viewport, Gym RecordVideo
+video: artifacts/deliverables/2026-06-20-real-isaac-video/real_isaac_robot_arm_viewport_30s.mp4
+video_probe: 1280x720, 30fps, 901 frames, 30.033333s
+video_sha256: 2dc1dfd4affe26e165afef481e757d9ab411a25d0d1e5a3e90cbb3fa46e2db60
+pulled_archive: artifacts/deliverables/2026-06-20-real-isaac-video/rca-real-isaac-video-4akhlpjad.tar.gz
+pulled_archive_sha256: 8b2f59ed542f551d4e050fb49d10ceea191f8d8999f5748f249489b80f71f81b
+cleanup: brev ls instances --json --all returned {"workspaces": null}; watchdog confirmed target disappeared
+```
+
+This mp4 is real simulator viewport/camera footage from Isaac/RTX. It is
+included only for visual review of the mechanical scene and scripted arm motion;
+it is not a success metric for peg insertion.
+
 Current decision: the contact-smoke gate is no longer the blocker. The active
 Brev lifecycle hold still means any future paid GPU action needs a specific
 budget, TTL, watchdog, artifact pullback, immediate deletion, and final empty

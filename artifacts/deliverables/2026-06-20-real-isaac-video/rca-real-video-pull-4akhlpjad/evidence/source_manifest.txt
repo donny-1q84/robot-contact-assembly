@@ -1,0 +1,10 @@
+created_utc=2026-06-20T13-49-49Z
+source_repo=/Volumes/Extreme Pro/Projects/robot-contact-assembly
+git_head=045655ab825b11537bfa07577571553a8b1eaa79
+git_branch=codex/contact-smoke-gate-pass
+git_dirty=0
+source_payload_scope=runtime-v1
+source_payload_sha256=5ecbb035170e1cbc323d70263d5a7398c0e2a47cc2b2a2f86a7aef010a760e7f
+git_status_short_begin
+(clean)
+git_status_short_end
