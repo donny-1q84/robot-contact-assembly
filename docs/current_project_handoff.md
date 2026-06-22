@@ -1,14 +1,66 @@
 # Current Project Handoff
 
-Date: 2026-06-09
+Date: 2026-06-22
 
 ## Repository State
 
 - Repo path: `/Volumes/Extreme Pro/Projects/robot-contact-assembly`
-- Branch: `master`
+- Branch: `codex/contact-smoke-gate-pass`
 - Remote: `https://github.com/donny-1q84/robot-contact-assembly.git`
 - Latest checked commit as of 2026-06-18 audit: `92465f4 Fix contact physics: weld dynamic peg to hand, wall-filtered forces`
 - Local tree was clean at the start of the 2026-06-18 audit.
+
+## 2026-06-21 Peg-In-Hole Success Trace Overlay
+
+The current post-smoke scripted insertion trace now passes the strict semantic
+success gates. This is the first trace in the current validated contact-physics
+runtime that proves sustained peg-in-hole insertion.
+
+```text
+trace: artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json
+summary: artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_summary.json
+deliverable: artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/
+first_success_step: 167
+final_success_rate: 1.0
+final_lateral: 0.0015925065381452441 m
+final_axial: 0.007546612061560154 m
+final_rot: 0.054073676466941833 rad
+final_contact_force_magnitude: 0.5527539253234863 N
+cleanup: ./scripts/brev_paid_safety_status.sh reported SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+Validation evidence:
+
+```text
+python3 scripts/check_peg_in_hole_video_candidate.py artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json
+  PASS: video_candidate_pass=True, first_video_sustained_step=166
+
+python3 scripts/check_final_contact_boundary_diagnostic.py artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json
+  PASS: first_sustained_success_step=178, unsafe_boundary_descent_count=0, pop_event_count=0
+
+python3 scripts/audit_trace_frame_alignment.py artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json
+  PASS
+
+python3 scripts/check_scripted_action_response_trace.py artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json --min-command-norm 0.0002 --stop-after-first-success
+  PASS
+```
+
+A local diagnostic video was rendered from the passing trace:
+
+```text
+artifacts/videos/trace_rendered/2026-06-21T20-05-25Z/peg_in_hole_trace_render.mp4
+artifacts/videos/trace_rendered/2026-06-21T20-05-25Z/peg_in_hole_trace_render.summary.json
+```
+
+This MP4 is not Isaac viewport footage. It is a trace-rendered diagnostic
+visualization that shows top-down XY, axial descent, rotation, contact force,
+and final `SUCCESS TRUE`. The success claim is the trace plus validator output,
+not the visualization itself.
+
+To prevent repeating the previous paid-run mistake, the paid video wrapper now
+refuses `screen` or `viewport` recording when
+`RCA_ISAACLAB_RUNTIME_PROFILE=trace-only`. Trace-only is for semantic/headless
+validation; full UI recording requires a full Isaac runtime profile.
 
 ## 2026-06-20 Current PASS Overlay
 
@@ -84,12 +136,319 @@ This mp4 is real simulator viewport/camera footage from Isaac/RTX. It is
 included only for visual review of the mechanical scene and scripted arm motion;
 it is not a success metric for peg insertion.
 
-Current decision: the contact-smoke gate is no longer the blocker. The active
-Brev lifecycle hold still means any future paid GPU action needs a specific
-budget, TTL, watchdog, artifact pullback, immediate deletion, and final empty
-org confirmation. The next technical step is a short scripted trace under the
-validated task, followed by refreshed contact-validity/demo-coverage reports
-before reopening controller, BC, or RL work.
+## 2026-06-20 Peg-In-Hole Video Candidate Overlay
+
+The current goal is a real Isaac viewport video that visibly shows successful
+peg-in-hole insertion. Existing 2026-06-20 `success_demo` traces do not satisfy
+that goal: the best offset run reached lateral `0.004551m` but remained
+axially high at `0.032649m`, while the close-depth runs reached about
+`0.0079m` axial error but stayed laterally outside the hole at about `0.0086m`.
+Do not label those mp4/trace artifacts as successful insertion.
+
+The follow-up paid video-candidate run on `rca-peg-video-candidate-vm`
+(`dzek7kcvq`) also failed the semantic insertion check. Artifacts were pulled
+locally under:
+
+```text
+artifacts/videos/trace_only/2026-06-20T20-01-02Z/
+artifacts/videos/trace_only/2026-06-20T20-03-01Z/
+artifacts/videos/trace_only/2026-06-20T20-04-09Z/
+artifacts/videos/scripted_screen/2026-06-20T19-54-53Z/
+artifacts/videos/scripted_screen/2026-06-20T19-56-47Z/
+```
+
+The best fresh trace was
+`artifacts/videos/trace_only/2026-06-20T20-04-09Z/video_trace.json`:
+
+```text
+success_step: null
+final_success_rate: 0.0
+initial_lateral: 0.009844m
+best_lateral: 0.005550m
+initial_axial: 0.059494m
+best_axial: 0.030969m
+best_rot: 0.013093rad
+max_contact_force_magnitude: 1.211N
+```
+
+`scripts/check_peg_in_hole_video_candidate.py` correctly rejected it:
+
+```text
+task_gate_pass=False
+video_candidate_pass=False
+fail: task gate never reached sustained configured success tolerances
+fail: pose never reached stricter guide-clearance lateral tolerance
+fail: trace does not show enough visible insertion descent from above the socket
+```
+
+Decision: stop treating viewport-video capture as the main project route. The
+video route is useful only after a trace already passes the semantic insertion
+checker. Continuing to tune the same scripted/video wrapper is likely to repeat
+the old dead-end loop.
+
+The fail-closed validator is:
+
+```bash
+python3 scripts/check_peg_in_hole_video_candidate.py <video_trace.json>
+```
+
+It requires the task success gate, guide-clearance-level lateral alignment,
+visible insertion descent, orientation readiness, and wall-contact evidence.
+`scripts/run_remote_record_scripted_video.sh` now always writes
+`video_trace.json`; set `RCA_VALIDATE_PEG_VIDEO_CANDIDATE=1` to make the remote
+recording fail if the trace is not a valid insertion candidate.
+
+The most recent one-shot paid wrapper was:
+
+```bash
+RCA_ALLOW_PAID_BREV_CREATE=1 \
+RCA_BREV_CREDITS_VERIFIED=1 \
+RCA_ACK_BREV_LIFECYCLE_RISK=1 \
+RCA_PAID_BUDGET_EUR=<explicit-budget> \
+RCA_PAID_ESTIMATED_EUR_PER_HOUR=<conservative-eur-per-hour> \
+scripts/recreate_brev_and_record_peg_video_candidate.sh
+```
+
+The wrapper created one `g6e.xlarge` candidate VM with a watchdog, installed the
+Isaac runtime, and pulled trace/video artifacts. IsaacLab's native `--video`
+path triggered `omni.replicator.core` / `warp.context` failures in this runtime,
+so the useful evidence came from trace-only runs rather than a verified success
+mp4.
+
+Current decision: the contact-smoke gate is no longer the blocker, and one fresh
+post-smoke trace has now confirmed the controller is still the blocker. The
+active Brev lifecycle hold still means any future paid GPU action needs a
+specific budget, TTL, watchdog, artifact pullback, immediate deletion, and final
+empty-org confirmation. The next technical step is now a structurally different
+trace-only controller validation, not a video run:
+
+```bash
+scripts/run_remote_final_contact_servo_trace.sh <env-name> /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose
+```
+
+This wrapper keeps the old success/video checker standards, but enables
+`--final-contact-servo` and `--joint-cache-live-polish` so the late-contact
+phase uses measured physical-tip socket-frame XY error instead of replaying the
+same cached joint descent through polish.
+
+The current route audit is documented in:
+
+```text
+docs/peg_in_hole_success_video_audit_2026-06-20.md
+```
+
+The first final-contact-servo trace-only validation ran on
+`rca-final-contact-servo-vm` / `a19458wmx` and was rejected by the same
+semantic checker:
+
+```text
+trace: artifacts/videos/trace_only/2026-06-20T20-56-43Z/video_trace.json
+summary: artifacts/videos/trace_only/2026-06-20T20-56-43Z/video_summary.json
+task_gate_pass: False
+video_candidate_pass: False
+best_lateral: 0.006714m
+best_axial: 0.030362m
+best_rot: 0.006569rad
+max_contact_force_magnitude: 1.352N
+final_contact_servo_step_count: 0
+cleanup: independent brev ls returned {"workspaces": null}; brev safety returned SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+This failed run is still useful: it shows the controller reached the polish /
+near-seat region with contact, but the new final-contact branch never activated.
+The immediate bug was the entry gate in `scripts/scripted_agent.py`: it required
+`insert_mask & polish_state`, while the trace had `polish_state=True` for all
+steps and `insert_mask=False` for all steps. The local fix widens the
+final-contact-servo phase mask to `insert_mask | polish_state` while retaining
+the XY/Z/rotation entry and exit thresholds.
+
+Next action after cleanup confirmation: run local quality, then decide whether
+one more short trace-only paid validation is justified. Do not record a viewport
+video unless the trace first passes `scripts/check_peg_in_hole_video_candidate.py`.
+
+The patched final-contact-servo validation then ran on
+`rca-final-contact-servo-vm` / `p5kzgtfdv`:
+
+```text
+trace: artifacts/videos/trace_only/2026-06-20T21-34-52Z/video_trace.json
+summary: artifacts/videos/trace_only/2026-06-20T21-34-52Z/video_summary.json
+task_gate_pass: False
+video_candidate_pass: False
+best_lateral: 0.001174m
+best_axial: 0.000013m
+best_rot: 0.010770rad
+max_contact_force_magnitude: 8.715N
+final_contact_servo_step_count: 701
+```
+
+This proves the final-contact branch now activates and can independently hit
+the best XY, axial, rotation, and contact conditions, but not all at the same
+sustained time. The closest simultaneous window was step `787`, phase
+`final-contact-servo`, with lateral `0.0057m`, axial `0.0080m`, rotation
+`0.0190rad`, and contact `1.242N`: about `0.7mm` outside the strict XY gate.
+After that, XY improved below the success gate while axial error grew again.
+
+The next attempted local fix made final-contact servo use the same signed
+`mdp.tip_to_socket_position()` metric as the success checker for all XYZ
+corrections. That full metric-error route was validated once and failed worse:
+
+```text
+trace: artifacts/videos/trace_only/2026-06-20T22-10-50Z/video_trace.json
+summary: artifacts/videos/trace_only/2026-06-20T22-10-50Z/video_summary.json
+instance: rca-final-contact-servo-vm / yht02yf57
+task_gate_pass: False
+video_candidate_pass: False
+best_lateral: 0.007921m
+best_axial: 0.031092m
+best_rot: 0.008429rad
+max_contact_force_magnitude: 1.066N
+final_contact_servo_step_count: 26
+cleanup: independent brev ls returned {"workspaces": null}; brev safety returned SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+Trace inspection shows the branch no longer holds the near-contact servo state:
+`success_xy_ready=0`, `success_axial_ready=0`, and final-contact-servo is active
+only briefly. Do not rerun the full `--final-contact-servo-metric-error` route
+unchanged.
+
+The narrower metric-Z-only route was then validated on
+`rca-final-contact-servo-vm` / `3so4zayge` and also failed:
+
+```text
+trace: artifacts/videos/trace_only/2026-06-20T23-26-30Z/video_trace.json
+summary: artifacts/videos/trace_only/2026-06-20T23-26-30Z/video_summary.json
+task_gate_pass: False
+video_candidate_pass: False
+best_lateral: 0.007897m
+best_axial: 0.028896m
+best_rot: 0.008192rad
+max_contact_force_magnitude: 26.991N
+success_xy_ready: 0 steps
+success_axial_ready: 0 steps
+final_contact_servo_step_count: 54
+cleanup: independent brev ls returned {"workspaces": null}; brev safety returned SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+Do not rerun metric-Z-only unchanged. The latest trace exposed a controller /
+metric source mismatch: the task success metric uses the articulated `Peg` body
+through `mdp.tip_to_socket_position()`, while the scripted controller's
+`_physical_peg_tip_pose_w()` could fall back to the calibrated action frame.
+The local fix now makes `_physical_peg_tip_pose_w()` prefer the same articulated
+`Peg` body source before any legacy scene-asset or action-frame fallback.
+`scripts/run_remote_final_contact_servo_trace.sh` no longer enables
+`--final-contact-servo-metric-z` by default; set
+`RCA_FINAL_CONTACT_SERVO_METRIC_Z=1` only for an explicit rerun diagnostic.
+
+The canonical-tip validation after that local source fix ran on
+`rca-final-contact-canonical2-vm` / `j2ktmtkoc` and failed the same semantic
+checker:
+
+```text
+trace: artifacts/videos/trace_only/2026-06-21T00-34-31Z/video_trace.json
+summary: artifacts/videos/trace_only/2026-06-21T00-34-31Z/video_summary.json
+task_gate_pass: False
+video_candidate_pass: False
+best_lateral: 0.001173m
+best_axial: 0.000015m
+best_rot: 0.010770rad
+max_contact_force_magnitude: 8.714N
+success_xy_ready: 391 steps, first 809
+success_axial_ready: 98 steps, first 690, last 787
+success_contact_ready: 670 steps, first 520
+success: 0 steps
+cleanup: brev ls instances --json --all returned {"workspaces": null}; brev safety returned SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+The closest simultaneous step was still step `787`, phase
+`final-contact-servo`, with lateral `0.0057m`, axial `0.0080m`, rotation
+`0.0190rad`, and contact `1.237N`. After that point, XY moved into the
+success window, but axial error moved back out to about `0.040m` by the end.
+
+Current decision: do not record a viewport video from this route and do not run
+broad paid sweeps of the scripted/video wrapper. The canonical-tip/no-metric-Z
+route is closed as a success-video candidate. The subsequent hold-Z validation
+also failed:
+
+```text
+artifact: artifacts/videos/trace_only/2026-06-21T01-17-49Z/video_trace.json
+result: peg-video-candidate FAIL
+best_lateral: 0.007927m
+best_axial: 0.004304m
+best_rot: 0.010770rad
+max_contact_force_magnitude: 8.714N
+success_xy_ready: 0 steps
+success_axial_ready: 510 steps, first 690, last 1199
+success_contact_ready: 170 steps, first 520
+success: 0 steps
+```
+
+That trace is still useful because it isolates the next controller mismatch:
+hold-Z kept the axial metric inside the success window, but the legacy
+final-contact XY source was nearly zero while `mdp.tip_to_socket_position()`
+still reported about `9.7mm` lateral error at the end. The next local candidate
+is now `--final-contact-servo-metric-xy` plus hold-Z, not another plain hold-Z
+rerun. It uses the task success metric only for final-contact XY centering while
+leaving axial motion under the existing guarded descent/hold-Z policy. Only
+after local quality passes and Brev safety returns
+`SAFE_NO_VISIBLE_PAID_INSTANCE` should one short trace-only paid validation be
+considered.
+
+That metric-XY plus hold-Z validation then ran on
+`rca-final-contact-metricxy-holdz-vm` / `qmo9s7hiu` and failed:
+
+```text
+trace: artifacts/videos/trace_only/2026-06-21T01-56-21Z/video_trace.json
+summary: artifacts/videos/trace_only/2026-06-21T01-56-21Z/video_summary.json
+task_gate_pass: False
+video_candidate_pass: False
+best_lateral: 0.000550m
+best_axial: 0.029598m
+best_rot: 0.009174rad
+max_contact_force_magnitude: 11.841N
+success_xy_ready: 409 steps, first 791, last 1199
+success_axial_ready: 0 steps
+success_contact_ready: 173 steps, first 603, last 785
+success: 0 steps
+cleanup: brev ls instances --json --all returned {"workspaces": null}; brev safety returned SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+This closes the metric-XY route as a success-video candidate. It fixed lateral
+centering but did not produce insertion: axial depth never got closer than
+about `29.6mm`, contact readiness ended before XY was ready, and rotation drifted
+past the success gate by the late steps. Do not run another near-duplicate
+final-contact-servo trace or any viewport video from this branch. The next work
+should change the insertion/control formulation itself: for example, a stateful
+socket-frame insertion controller that jointly holds XY, axial depth, contact,
+and orientation, with a negative control, before any further paid run.
+
+That next local controller candidate is now implemented but not yet remotely
+validated. The new `--socket-insertion-servo` route:
+
+1. uses `mdp.tip_to_socket_position()` for socket-frame XY correction,
+2. refuses to spend socket-axis insertion depth unless XY and rotation are both
+   inside configured descent tolerances,
+3. steps orientation statefully toward the socket target instead of freezing the
+   drifting current orientation,
+4. applies a small contact preload only when axial depth is already ready but
+   contact evidence is missing.
+
+The pure command rule lives in `scripts/socket_insertion_servo_logic.py` and is
+covered by offline negative controls in `scripts/test_local_gates.py`.
+`./scripts/run_local_quality_checks.sh` passes after the implementation. The
+prepared paid path is:
+
+```bash
+RCA_ALLOW_PAID_BREV_CREATE=1 \
+RCA_BREV_CREDITS_VERIFIED=1 \
+RCA_ACK_BREV_LIFECYCLE_RISK=1 \
+RCA_PAID_BUDGET_EUR=<explicit-budget> \
+RCA_PAID_ESTIMATED_EUR_PER_HOUR=<conservative-eur-per-hour> \
+./scripts/recreate_brev_and_run_socket_insertion_servo_trace.sh rca-socket-insertion-servo-vm
+```
+
+Run this only after `./scripts/brev_paid_safety_status.sh` reports
+`SAFE_NO_VISIBLE_PAID_INSTANCE`. Do not record a viewport video unless that
+trace passes `scripts/check_peg_in_hole_video_candidate.py`.
 
 ## 2026-06-18 Current Overlay
 
@@ -3073,7 +3432,7 @@ scripts/run_brev_reachable_guard_probe.sh
 RCA_ALLOW_DIRTY=1 scripts/run_brev_probe_direct_ssh_gate.sh
 ```
 
-7. Do not rerun root-frame waypoint, orientation-current waypoint, full-target Abs IK, the single-joint `panda_joint4=-2.6` initial-posture diagnostic, no-wall-collision target diagnostics, simple target-offset variants, native IK solver-method variants, the current JointPos nullspace matrix, the current JointPos rotate-descend wrapper, `reachable-approach` unchanged, the strong reachable guard unchanged, the tuned reachable guard unchanged, the rotation-gated reachable guard unchanged, the soft-gated reachable guard unchanged, the depth-aware rotation polish wrapper unchanged, adaptive rotpolish unchanged, or near-depth rotgate unchanged. The no-wall run was worse than full-target baseline, the contact-force signal is not wall-only, target offsets did not improve true socket XY, `dls/pinv/svd/trans` all failed closed with the same `panda_joint4` signature, the JointPos nullspace probe did not activate its nullspace term while regressing depth, rotate-descend either fell into XY recovery or drifted laterally when recovery was disabled, reachable-approach still failed strict handoff while consuming `panda_joint4` margin, the strong guard preserved too much margin while stalling axial progress, the tuned guard improved depth but still missed z/contact/rotation gates, the rotation gate protected margin by over-freezing descent, the soft gate reached depth/contact but still missed rotation and late XY retention, depth-aware rotation polish preserved XY/Z but worsened rotation, adaptive rotpolish only slightly improved selected rotation while worsening final rotation, and near-depth rotgate still missed depth/rotation/contact together. No prepared non-duplicate scripted-controller candidate remains; the next work should change the formulation rather than launch another paid scripted probe.
+7. Do not rerun root-frame waypoint, orientation-current waypoint, full-target Abs IK, the single-joint `panda_joint4=-2.6` initial-posture diagnostic, no-wall-collision target diagnostics, simple target-offset variants, native IK solver-method variants, the current JointPos nullspace matrix, the current JointPos rotate-descend wrapper, `reachable-approach` unchanged, the strong reachable guard unchanged, the tuned reachable guard unchanged, the rotation-gated reachable guard unchanged, the soft-gated reachable guard unchanged, the depth-aware rotation polish wrapper unchanged, adaptive rotpolish unchanged, near-depth rotgate unchanged, the old scripted/video candidate wrapper unchanged, the final-contact-servo route unchanged, or the socket-insertion-servo route unchanged. The no-wall run was worse than full-target baseline, the contact-force signal is not wall-only, target offsets did not improve true socket XY, `dls/pinv/svd/trans` all failed closed with the same `panda_joint4` signature, the JointPos nullspace probe did not activate its nullspace term while regressing depth, rotate-descend either fell into XY recovery or drifted laterally when recovery was disabled, reachable-approach still failed strict handoff while consuming `panda_joint4` margin, the strong guard preserved too much margin while stalling axial progress, the tuned guard improved depth but still missed z/contact/rotation gates, the rotation gate protected margin by over-freezing descent, the soft gate reached depth/contact but still missed rotation and late XY retention, depth-aware rotation polish preserved XY/Z but worsened rotation, adaptive rotpolish only slightly improved selected rotation while worsening final rotation, near-depth rotgate still missed depth/rotation/contact together, metric-XY plus hold-Z centered laterally but never reached axial readiness, and socket-insertion-servo found a metric/task-frame mismatch while never reaching contact. No prepared scripted-controller trace route is currently approved as an unchanged next paid run.
    The legacy historical-replay script now fails closed unless `RCA_ALLOW_HISTORICAL_PRELOAD_REPLAY=1` is set for a deliberate replay-drift diagnostic.
 8. Keep the fresh-preload guards enabled unless there is a specific diagnostic reason:
 
@@ -3084,15 +3443,1012 @@ RCA_LAUNCHABLE_HANDOFF_REPLAY_MAX_AXIAL_DRIFT=0.02
 RCA_LAUNCHABLE_HANDOFF_REPLAY_MAX_ROT_DRIFT=0.25
 ```
 
-9. If a new controller is implemented, start with one short scripted trace and
-   refreshed contact-validity/demo-coverage reports under the validated task.
-   Only then consider a short eval with marker checks and immediate deletion.
-10. Only run temporal residual-current BC after the demonstration labels show sustained post-contact behavior. Use `scripts/analyze_contact_demo_coverage.py` with local traces plus Launchable archives before any paid learned-policy run; the 2026-06-09 combined report still shows zero target-gate passing steps across 38 traces.
-11. For the next local implementation, use `scripts/select_final_contact_reset_candidates.py` and `artifacts/reports/final_contact_reset_candidates_2026-06-09.json` as the seed source for a reset-based final-contact stabilizer/evaluator. Do not treat those candidates as success labels unless a future report contains `target_gate_success > 0`.
-12. `scripts/evaluate_contact_bc_policy.py` can now consume the candidate manifest directly via `--preload-candidate-json`; use this for future stabilizer baselines so the handoff seed is reproducible.
-13. `scripts/extract_final_contact_candidate_dataset.py` generated a candidate-window temporal residual-current dataset from the manifest. Use it only as a stabilization/reset prior unless new data adds strict-success samples.
-14. Training `artifacts/policies/phase2_contact_bc_final_contact_candidates/bc_mlp.pt` has not been completed locally because PyTorch is unavailable in the host Python. Run `scripts/train_contact_bc_policy.py` in the Isaac/PyTorch runtime if a local prior checkpoint is needed.
-15. Use `scripts/run_remote_train_final_contact_candidate_bc.sh` and `scripts/run_remote_eval_final_contact_candidate_bc.sh` only on an already-running Isaac/PyTorch environment. They do not provision Brev and therefore should be paired with the existing paid-run watchdog only if a new environment has been deliberately created elsewhere.
+9. A viewport video is blocked. The guarded trace-only run
+   `artifacts/videos/trace_only/2026-06-21T02-49-00Z/video_trace.json` failed
+   `scripts/check_peg_in_hole_video_candidate.py`; Brev cleanup was confirmed
+   with `{"workspaces": null}` and `SAFE_NO_VISIBLE_PAID_INSTANCE`. The follow-up
+   socket-servo trace
+   `artifacts/videos/trace_only/2026-06-21T05-53-23Z/video_trace.json` fixed the
+   WXYZ frame-audit issue (`scripts/audit_trace_frame_alignment.py` passed), but
+   it still recorded only one step and failed the peg-video candidate check. More
+   importantly, `scripts/check_scripted_action_response_trace.py` fails it:
+   the commanded action-frame delta was approximately
+   `[+0.00014, -0.00012, -0.00149]`, while the actual post-action delta was
+   `[-0.01179, +0.00047, +0.00766]` with cosine `-0.622`. The current
+   socket-servo/joint-IK route is therefore a rejected control-interface route,
+   not a video-ready near success. This motivated the dedicated action-semantics
+   probe below; do not keep adding late flags to the existing socket-servo path.
+10. The old relative-IK raw-action calibration is not an approved shortcut.
+    Running `scripts/check_action_calibration_summary.py` on
+    `artifacts/calibration/relative_ik_action/latest_seed_42.json` fails because
+    zero-action drift is about `0.0148m`, Z raw action dominantly moves world X
+    instead of world Z, and multiple raw axes map dominantly to world X.
+    `scripts/run_remote_action_calibration.sh` now validates new calibration
+    summaries by default. A future calibration can feed insertion control only
+    if it passes this checker and the subsequent trace passes
+    `scripts/check_scripted_action_response_trace.py`.
+11. The guarded action-semantics probes have now run and failed. The first trace
+    `artifacts/videos/trace_only/2026-06-21T06-48-58Z/video_trace.json` used a
+    world-frame command delta of `[0, 0, -0.0015]`, but
+    `scripts/check_scripted_action_response_trace.py` reported `bad_steps=4/8`,
+    `min_cosine=-0.535`, and a worst actual TCP delta of about
+    `[-0.01195, +0.00038, +0.00758]`. This proves the current joint-IK wrapper
+    is not a trustworthy insertion-control surface. Do not rerun
+    `scripts/recreate_brev_and_run_action_semantics_probe_trace.sh` unchanged.
+    The follow-up suite after the local XYZW inverse repair also failed at the
+    down probe before it could justify an up probe:
+    `artifacts/videos/trace_only/2026-06-21T07-31-53Z/video_trace.json`
+    reported `bad_steps=6/8`, `min_cosine=-0.559`, and a worst actual TCP delta
+    of about `[-0.01120, +0.00071, +0.00756]` for the same `[0,0,-0.0015]`
+    command. That closes the XYZW-inverse repair as an approved paid path. Do
+    not run a viewport video, another unchanged insertion trace, or the same
+    action-semantics suite again. The next work must be local-first control
+    interface replacement plus a positive and negative semantic gate before any
+    new paid runtime action. The current replacement candidate is empirical
+    JointPositionAction response control: `scripts/calibrate_joint_position_action.py`
+    measures the 3x7 action-frame response matrix for small absolute joint-target
+    offsets, `scripts/joint_response_control.py` converts a requested world-frame
+    TCP delta into a bounded minimum-norm joint delta, and
+    `scripts/run_remote_joint_response_calibration.sh` can run that calibration
+    inside an already-created Isaac runtime. This still needs remote semantic
+    validation before any insertion trace or viewport video is allowed.
+    The first paid joint-response semantics attempt on 2026-06-21
+    (`rca-joint-response-semantics-vm` / `ba96pfju9`) did not reach robot
+    semantics. It failed immediately in `scripts/calibrate_joint_position_action.py`
+    because IsaacLab 7 no longer exports
+    `isaaclab_tasks.utils.add_launcher_args`. The only pulled artifact was:
+
+```text
+artifacts/calibration/joint_position_action/2026-06-21T08-19-02Z/seed_42.log
+```
+
+    Cleanup was confirmed by the wrapper and an independent safety check:
+    Brev returned `{"workspaces": null}`, no watchdog process remained, and
+    `scripts/brev_paid_safety_status.sh` reported
+    `SAFE_NO_VISIBLE_PAID_INSTANCE`. This is not evidence that joint-response
+    control failed; it is only an API-compatibility failure before calibration.
+    The local fix now makes `scripts/calibrate_joint_position_action.py` use the
+    same `AppLauncher + parse_env_cfg` fallback already used by
+    `scripts/scripted_agent.py`, and `PYTHONDONTWRITEBYTECODE=1
+    ./scripts/run_local_quality_checks.sh` passes after the fix. If another paid
+    retry is approved, it must be one short joint-response calibration plus
+    down/up semantic probe only; still do not record video or run an insertion
+    trace until those semantic probes pass.
+    The second paid joint-response semantics attempt on 2026-06-21
+    (`rca-joint-response-semantics-vm` / `gml9m5csj`) also did not reach robot
+    semantics. It reused the already-created paid instance and failed during
+    calibration startup with Isaac/Kit aborting after warning that `pxr` modules
+    were loaded before `SimulationApp`:
+
+```text
+artifacts/calibration/joint_position_action/2026-06-21T08-50-32Z/seed_42.log
+free(): invalid pointer
+[Warning] [simulation_app.simulation_app] Modules: ['pxr', ...] were loaded before SimulationApp was started
+/isaac-sim/python.sh: line 73: 2074 Aborted (core dumped)
+```
+
+    No `seed_42.json`, down/up semantic trace, insertion trace, or video was
+    produced. Artifacts were pulled, deletion was retried until
+    `/Users/Shenghan/bin/brev ls instances --json --all` returned
+    `{"workspaces": null}`, `scripts/brev_paid_safety_status.sh` reported
+    `SAFE_NO_VISIBLE_PAID_INSTANCE`, and the stale local watchdog was stopped.
+    The local fix removes the module-scope
+    `import robot_contact_assembly_tasks.tasks` from
+    `scripts/calibrate_joint_position_action.py` so task registration happens
+    only inside the launcher context. `scripts/test_local_gates.py` now has an
+    AST static gate to prevent that module-scope import from returning, and
+    `PYTHONDONTWRITEBYTECODE=1 ./scripts/run_local_quality_checks.sh` passes.
+    This is still launch-order evidence, not evidence that empirical
+    joint-response control itself works or fails. The next paid action, if any,
+    remains one short calibration + down/up semantic probe after confirming
+    `SAFE_NO_VISIBLE_PAID_INSTANCE`; do not record a viewport video first.
+    The third paid joint-response semantics attempt on 2026-06-21
+    (`rca-joint-response-semantics-vm` / `k8sp0dux8`) reached the real semantic
+    gate and failed it. The launch-order fixes worked: calibration produced
+    `artifacts/calibration/joint_position_action/2026-06-21T09-20-16Z/seed_42.json`,
+    and `scripts/joint_response_control.py` predicted both `[0,0,-0.0015]`
+    and `[0,0,+0.0015]` with cosine about `1.0` and negligible residual. The
+    real down rollout nevertheless failed:
+
+```text
+trace: artifacts/videos/trace_only/2026-06-21T09-21-19Z/video_trace.json
+action-response: FAIL
+bad_steps: 6/8
+bad_fraction: 0.75
+min_cosine: -0.5655236741426465
+worst command_delta: [0.0, 0.0, -0.0015000104904174805]
+worst actual_delta: [-0.011340349912643433, +0.0007162163965404034, +0.007791638374328613]
+cleanup: wrapper confirmed {"workspaces": null}; safety reported SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+    Interpretation: the empirical matrix is not enough because the scripted
+    rollout was not running the same experiment as the calibration. Calibration
+    resets, reads the current joint positions, holds those positions for
+    settling, then applies a fixed joint offset for multiple steps. The scripted
+    trace used zero-action warmup, which is a dangerous nonzero command for a
+    7D JointPositionAction task, and then measured one-step sequential deltas
+    while the arm was still drifting. The immediate local fix changes
+    `scripts/scripted_agent.py` so 7D action warmup and demo-reanchor settle use
+    hold-current joint targets instead of all-zero joint targets; the same file
+    now prints `hold-current-joints` for that warmup mode. `scripts/test_local_gates.py`
+    has a static gate for this. `PYTHONDONTWRITEBYTECODE=1
+    ./scripts/run_local_quality_checks.sh` passes after the fix.
+
+    Do not rerun the previous joint-response semantic suite unchanged. The next
+    remote action, if one is justified, must be a tiny down/up semantic probe of
+    the hold-current warmup fix only, still with budget/TTL/watchdog/artifact
+    pullback/deletion. Do not run insertion, RL/IL, VLM, ROS, or viewport video
+    before this action-semantics gate passes.
+    The follow-up hold-current validation on 2026-06-21
+    (`rca-joint-response-holdwarmup-vm` / `5iyt1bhxd`) passed the minimal
+    down/up action-semantics gate and cleaned up safely. Evidence:
+
+```text
+calibration: artifacts/calibration/joint_position_action/2026-06-21T09-47-57Z/seed_42.json
+down trace:  artifacts/videos/trace_only/2026-06-21T09-49-17Z/video_trace.json
+up trace:    artifacts/videos/trace_only/2026-06-21T09-49-34Z/video_trace.json
+down check:  bad_steps=0/8, min_cosine=0.999734, action-response PASS
+up check:    bad_steps=0/8, action-response PASS
+cleanup:     wrapper confirmed {"workspaces": null}; safety reported SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+    This is the first successful post-contact-gate control-interface semantic
+    result. It proves that 7D JointPositionAction can produce small commanded
+    action-frame down/up motion when the warmup holds current joints instead of
+    commanding all-zero joint targets. It does not prove insertion success and
+    does not justify a viewport video yet. The task traces still show
+    `action_tip_alignment` around `0.049m`, so a normal insertion controller
+    that targets the action frame directly at the socket can still be
+    structurally wrong for the actual peg-tip/socket success metric.
+
+    Next work: implement and locally gate a metric-tip residual controller that
+    converts task-space peg-tip/socket residuals into small joint-response
+    commands while preserving the hold-current warmup. The next paid run, if
+    any, should be one trace-only insertion attempt with that metric-tip
+    controller plus the existing semantic/video-candidate validators. Do not
+    start RL/IL/VLM/ROS or viewport video until a trace shows sustained
+    peg-tip/socket insertion semantics.
+12. Only run temporal residual-current BC after the demonstration labels show sustained post-contact behavior. Use `scripts/analyze_contact_demo_coverage.py` with local traces plus Launchable archives before any paid learned-policy run; the 2026-06-09 combined report still shows zero target-gate passing steps across 38 traces.
+13. For the next local implementation, use `scripts/select_final_contact_reset_candidates.py` and `artifacts/reports/final_contact_reset_candidates_2026-06-09.json` as the seed source for a reset-based final-contact stabilizer/evaluator. Do not treat those candidates as success labels unless a future report contains `target_gate_success > 0`.
+14. `scripts/evaluate_contact_bc_policy.py` can now consume the candidate manifest directly via `--preload-candidate-json`; use this for future stabilizer baselines so the handoff seed is reproducible.
+15. `scripts/extract_final_contact_candidate_dataset.py` generated a candidate-window temporal residual-current dataset from the manifest. Use it only as a stabilization/reset prior unless new data adds strict-success samples.
+16. Training `artifacts/policies/phase2_contact_bc_final_contact_candidates/bc_mlp.pt` has not been completed locally because PyTorch is unavailable in the host Python. Run `scripts/train_contact_bc_policy.py` in the Isaac/PyTorch runtime if a local prior checkpoint is needed.
+17. Use `scripts/run_remote_train_final_contact_candidate_bc.sh` and `scripts/run_remote_eval_final_contact_candidate_bc.sh` only on an already-running Isaac/PyTorch environment. They do not provision Brev and therefore should be paired with the existing paid-run watchdog only if a new environment has been deliberately created elsewhere.
+
+## 2026-06-21 Joint-Response Socket-Insertion Result
+
+The next structural route moved away from ambiguous IK commands and calibrated
+the actual `JointPositionAction` response before running socket-insertion
+servo. This is a real improvement over the previous routes: the remote
+calibration proves that small requested Z motion maps to the expected physical
+tip motion.
+
+Calibration evidence:
+
+```text
+calibration: artifacts/calibration/joint_position_action/2026-06-21T10-21-39Z/seed_42.json
+down_check: pass_gate=True cosine=0.9999999999999946 residual_norm=1.7823301472130166e-10
+up_check: pass_gate=True cosine=0.9999999999999946 residual_norm=1.7823301472130166e-10
+```
+
+The first guarded joint-response socket trace ran on
+`rca-joint-response-socket-servo-vm` / `3evn0rn85`:
+
+```text
+trace: artifacts/videos/trace_only/2026-06-21T10-22-58Z/video_trace.json
+summary: artifacts/videos/trace_only/2026-06-21T10-22-58Z/video_summary.json
+action_response_check: PASS bad_steps=0/101 min_cosine=0.45986878917803237
+trace_frame_alignment_check: PASS
+task_gate_pass: False
+video_candidate_pass: False
+initial_lateral: 0.000158m
+best_lateral: 0.000158m
+initial_axial: 0.049638m
+best_axial: 0.008006m
+best_rot: 0.000488rad
+max_contact_force_magnitude: 1.626N
+```
+
+This reached the contact boundary with good lateral alignment, correct frame
+semantics, and real contact force, but it still did not reach sustained task
+success. The trace event log records a pop immediately after the near-boundary
+state: step `101` moved to lateral `0.031609m`, axial `0.017230m`, and rotation
+`0.066278rad`. The current blocker is therefore no longer "does the action
+interface move the robot?" but "can the final insertion controller stay stable
+through guide contact?"
+
+A second guarded run on `rca-joint-response-socket-soft-vm` / `lkllxgfml` used
+smaller Z/preload steps, held orientation when already aligned, and flushed the
+trace every step:
+
+```text
+calibration: artifacts/calibration/joint_position_action/2026-06-21T10-49-58Z/seed_42.json
+trace dir: artifacts/videos/trace_only/2026-06-21T10-51-20Z/
+result: no video_summary.json
+trace_events: control_loop_setup, control_loop_enter, step_begin=0 only
+cleanup: brev ls instances --json --all returned {"workspaces": null}
+brev safety: SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+This second run is not evidence that the soft controller failed insertion. It
+is an execution/runtime failure: Isaac entered the control loop but did not
+record a completed first step before timeout cleanup. Do not count it as a
+semantic controller result.
+
+Current decision: do not record a viewport video and do not start RL/IL/VLM on
+top of this environment yet. The semantic smoke is still blocked at the final
+insertion dynamics. The next local-first step is to add a deterministic,
+short-horizon final-contact diagnostic around the 8mm axial boundary: hold XY
+and orientation fixed, descend/preload in very small increments, log contact
+normal/lateral error every step, and include a negative control where socket
+walls or contact sensors cannot produce the same success signal. Only if that
+diagnostic passes should another paid trace be run.
+
+That local diagnostic and the first controller safety fix are now implemented:
+
+```text
+script: scripts/check_final_contact_boundary_diagnostic.py
+logic: scripts/socket_insertion_servo_logic.py
+gate: scripts/test_local_gates.py
+```
+
+The diagnostic automatically merges `trace_events.jsonl` rows when a remote
+run did not flush the last step into `video_trace.json`. Against the known
+`2026-06-21T10-22-58Z` trace it fails closed with:
+
+```text
+unsafe_boundary_descent_count=2
+pop_event_count=1
+first_unsafe_boundary_descent: step 99, axial 0.008118m, offset_z -0.001500m
+first_pop_event: step 100 -> 101, lateral 0.000790m -> 0.031609m, axial 0.008006m -> 0.017230m
+```
+
+`SocketInsertionServoConfig` now has a contact-boundary mode: when XY and
+rotation are ready, real contact force is present, and axial error is within
+`success_z_tolerance + contact_boundary_tolerance`, the controller uses
+`contact_boundary_step` rather than the normal `z_step`. The joint-response
+remote wrapper sets the first guarded default to:
+
+```text
+RCA_SOCKET_INSERTION_SERVO_CONTACT_BOUNDARY_TOL=0.0010
+RCA_SOCKET_INSERTION_SERVO_CONTACT_BOUNDARY_STEP=0.00005
+```
+
+This is still not proof of success. It is the local semantic guard needed before
+another paid trace. The next paid trace is justified only after local quality
+passes and Brev safety is green, and it must include the boundary diagnostic as
+a validator before any viewport video attempt.
+
+A guarded paid trace was attempted after the contact-boundary micro-step change:
+
+```text
+instance: rca-joint-response-boundary-vm / o69gah0k8
+calibration: artifacts/calibration/joint_position_action/2026-06-21T11-36-56Z/seed_42.json
+trace dir: artifacts/videos/trace_only/2026-06-21T11-38-02Z/
+result: no video_summary.json or video_trace.json
+trace_events: control_loop_setup, control_loop_enter, step_begin=0 only
+```
+
+Do not interpret this as an insertion-controller result. It is the same
+runtime/execution failure pattern as `2026-06-21T10-51-20Z`: Isaac entered the
+control loop but did not complete the first step. The next paid action should
+not be another controller retry. First fix the first-step observability and
+runtime diagnosis path.
+
+That diagnostic hardening is now in place locally:
+
+```text
+scripts/scripted_agent.py: fine-grained step_phase events for the first N steps
+scripts/run_remote_scripted_trace_only.sh: defaults RCA_SCRIPTED_WATCHDOG_SECONDS=120 and RCA_TRACE_PHASE_STEPS=5
+```
+
+The next minimal remote trace should be a short diagnostics run, not a full
+video or RL run: confirm whether the first-step stall is in pose sampling,
+target computation, insertion metrics, contact-force reads, action computation,
+or `env.step`. Only after that path returns to producing summaries should the
+contact-boundary controller be judged.
+
+The first short step-0 diagnostic trace ran on `rca-step0-diagnostic-vm` /
+`8szk4nfe5`:
+
+```text
+calibration: artifacts/calibration/joint_position_action/2026-06-21T12-14-25Z/seed_42.json
+trace dir: artifacts/videos/trace_only/2026-06-21T12-15-37Z/
+video_summary.json: missing
+video_trace.json: missing
+trace_events: setup, enter, step_begin=0, begin, pose sampling, target pose,
+  insertion metrics, tip_to_socket_position, pre_contact_force, metrics_ready
+cleanup: target disappeared; scripts/brev_paid_safety_status.sh returned SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+This narrows the missing-trace failure to after `metrics_ready` and before
+`before_env_step`. That is inside per-step action/phase computation, not Isaac
+startup, pose sampling, insertion metrics, tip-to-socket metrics, or
+contact-force reads. The code is now locally hardened again:
+
+```text
+scripts/scripted_agent.py:
+  - writes partial summary/trace artifacts even when zero trace rows exist
+  - records last_step_started and last_trace_phase in partial summaries
+  - adds step_phase markers across ready masks, insert state, polish/settle,
+    final-contact servo, socket-insertion servo, and control-action solve
+./scripts/run_local_quality_checks.sh: passed
+./scripts/brev_paid_safety_status.sh: SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+Project-level decision: the original "language-conditioned contact-rich
+assembly system" is still feasible, but the current milestone is lower in the
+stack. Do not move to RL/IL/VLM, public claims, or success-video capture until
+the semantic peg-in-hole trace passes. A simulator success will still not be a
+drop-in controller for arbitrary real arms; it should become a portable system
+architecture plus a robot-specific adapter, calibration, safety, and revalidation
+workflow.
+
+A second short paid diagnostic trace after the zero-row partial writer narrowed
+the stall further:
+
+```text
+instance: rca-step0-phase-diagnostic-vm / oliz8h0yt
+calibration: artifacts/calibration/joint_position_action/2026-06-21T12-52-12Z/seed_42.json
+trace dir: artifacts/videos/trace_only/2026-06-21T12-53-30Z/
+video_summary.json: missing
+video_trace.json: missing
+trace_events: reached step 0 phase before_socket_insertion_servo_command
+cleanup: org cleanup confirmed with {"workspaces": null}
+brev safety: SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+This means the failure is no longer the broad `metrics_ready -> before_env_step`
+gap. It is inside the socket-insertion-servo command block before the step row
+is appended. Because the process still produced no `atexit` summary, the likely
+termination path is a signal/timeout or hard Kit/runtime exit rather than a
+normal Python exception.
+
+The local diagnostic hardening after this run:
+
+```text
+scripts/scripted_agent.py:
+  - installs SIGTERM/SIGINT handlers that write partial summary/trace artifacts
+  - marks partial artifacts finalized to avoid duplicate atexit writes
+  - splits socket-insertion-servo command into sub-phases for config, offset,
+    socket-frame rotation, target update, quaternion update, and GPU metric
+    reductions
+scripts/test_local_gates.py:
+  - statically guards the signal handlers and new phase markers
+./scripts/run_local_quality_checks.sh: passed
+git diff --check: passed
+```
+
+The next paid run, if any, should still be short and diagnostic-only. Its job is
+to determine whether the command-block failure is in the pure servo offset
+calculation, quaternion/target update, or CUDA metric reductions. It should not
+attempt viewport video until a fresh trace writes `video_trace.json` and passes
+the action-response, frame-alignment, contact-boundary, and video-candidate
+checks.
+
+The next diagnostic confirmed the exact command-block sub-phase:
+
+```text
+instance: rca-socket-command-diagnostic-vm / iw1712l9s
+calibration: artifacts/calibration/joint_position_action/2026-06-21T13-23-02Z/seed_42.json
+trace dir: artifacts/videos/trace_only/2026-06-21T13-24-14Z/
+video_summary.json: missing
+video_trace.json: missing
+last trace event: step 0 phase before_socket_insertion_servo_metric_reductions
+cleanup: org cleanup confirmed with {"workspaces": null}
+brev safety: SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+The socket-insertion-servo target command itself completed: config, offset
+calculation, socket-frame rotation, target update, and quaternion update all
+emitted `after_*` phase markers. The remaining stall was the summary-only CUDA
+scalar reductions used to update `socket_insertion_servo_max_lateral`,
+`socket_insertion_servo_min_axial`, and `socket_insertion_servo_max_xy_offset`.
+Those statistics are not needed to generate the control command and can be
+derived from full trace rows later.
+
+Local fix after this run:
+
+```text
+scripts/scripted_agent.py:
+  - removed the socket-servo command-block masked CUDA max/min reductions
+  - records skipped_socket_insertion_servo_metric_reductions instead
+scripts/test_local_gates.py:
+  - guards the skip so this diagnostic-only reduction is not reintroduced
+```
+
+The next paid diagnostic should verify that the rollout now reaches
+`before_env_step`, `after_env_step`, and `trace_row_appended` for at least step
+0. Only after that should the run length be increased back toward a successful
+semantic trace and then a viewport video.
+
+That diagnostic has now passed its narrow gate:
+
+```text
+instance: rca-joint-response-step5-vm / 3meqf97mn
+calibration: artifacts/calibration/joint_position_action/2026-06-21T14-00-29Z/seed_42.json
+trace dir: artifacts/videos/trace_only/2026-06-21T14-01-40Z/
+video_summary.json: present
+video_trace.json: present
+trace rows: 5
+last trace events: before_env_step -> after_env_step -> trace_row_appended -> final_artifacts_written
+cleanup: org cleanup confirmed with {"workspaces": null}
+brev safety: SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+This is not a peg-in-hole success and not a viewport-video candidate. The run was
+intentionally limited to 5 steps with peg-video-candidate validation disabled,
+so the trace stayed in `settle`:
+
+```text
+success_step: null
+final_success_rate: 0.0
+best_lateral: 0.000147m
+best_axial: 0.048662m
+first phase: settle
+last phase: settle
+```
+
+The important result is structural: removing the summary-only CUDA reductions
+cleared the previous step-0 stall, and the runner can again produce
+`video_summary.json`, `video_trace.json`, and `trace_events.jsonl` under the
+official AWS Isaac Launchable runtime.
+
+The run also exposed a cost/latency issue. `RCA_ISAACLAB_RUNTIME_PROFILE=trace-only`
+was correctly passed into the remote container and skipped the extra explicit
+contrib/RL/rsl-rl/h5py install block, but `./isaaclab.sh --install
+assets,physx,tasks` still installed a broad IsaacLab source set including RL and
+video-related dependencies because those tokens are not valid narrow install
+targets for this IsaacLab version. Before more repeated paid diagnostics, either
+use a pre-warmed environment/cache or replace that install step with a truly
+narrow task-runtime setup.
+
+The wrapper wording was also fixed locally after this diagnostic: if
+peg-video-candidate validation is disabled, it now reports only that the trace
+runner completed, not that the trace was a video candidate. Keep this guard,
+because diagnostic traces must not be promoted into success evidence.
+
+The next longer semantic trace was stopped early after enough evidence was
+collected:
+
+```text
+instance: rca-joint-response-semantic-vm / bk3cajkvf
+calibration: artifacts/calibration/joint_position_action/2026-06-21T14-30-42Z/seed_42.json
+trace dir: artifacts/videos/trace_only/2026-06-21T14-31-43Z/
+steps recorded: 489
+success_step: null
+final_success_rate: 0.0
+best_axial: 0.0080797076m at step 182
+final_axial: 0.0087215072m
+best_lateral: 0.0001472154m
+final_lateral: 0.0005120616m
+max_contact_force_magnitude: 1.3475245
+last_phase: settle
+cleanup: org cleanup confirmed with {"workspaces": null}
+brev safety: SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+This is not a success trace and not a video candidate. It is useful because the
+failure is no longer gross approach, missing contact, or a step-0 crash: the
+best state missed the 8mm axial success threshold by about 0.08mm, then drifted
+back out. Trace fields also exposed that `socket_insertion_servo_state=True`
+while `socket_insertion_servo_active=False`; code review found
+`socket_insertion_servo_rotate_mask = socket_insertion_servo_mask` followed by
+in-place `&=` filters, which mutated the main activation mask before trace row
+recording and some downstream orientation logic. This was fixed locally by
+cloning the rotate mask, and `scripts/test_local_gates.py` now guards against
+the alias.
+
+Local follow-up after this trace:
+
+```text
+scripts/scripted_agent.py:
+  - clone socket_insertion_servo_mask before deriving the rotate-only sub-mask
+scripts/socket_insertion_servo_logic.py:
+  - raise contact_boundary_step default from 0.00005m to 0.00015m
+scripts/run_remote_socket_insertion_servo_trace.sh:
+  - default RCA_SOCKET_INSERTION_SERVO_CONTACT_BOUNDARY_STEP to 0.00015m
+scripts/run_remote_joint_response_socket_insertion_servo_trace.sh:
+  - default RCA_JOINT_RESPONSE_SOCKET_CONTACT_BOUNDARY_STEP to 0.00015m
+scripts/check_final_contact_boundary_diagnostic.py:
+  - allow the same 0.00015m boundary micro-step in validation
+scripts/test_local_gates.py:
+  - guards the mask clone
+  - verifies the boundary micro-step is still clipped to metric_z - success_z_tol
+./scripts/run_local_quality_checks.sh: passed
+git diff --check: passed
+```
+
+This keeps the success threshold unchanged. The intent is only to let the
+contact-boundary servo correct the observed 0.08mm near-miss in one bounded
+micro-step; the pure servo logic still clamps the boundary z offset to the
+remaining distance above the success threshold rather than blindly descending by
+the full configured step.
+
+A new paid run is now technically justified only as a short, budget-capped
+semantic validation of this exact change. Do not record viewport video unless
+the validator-enabled trace first proves sustained peg-in-hole success.
+
+That short validation has now been run and failed closed:
+
+```text
+instance: rca-boundary-step015-vm / t7ree4ri7
+calibration: artifacts/calibration/joint_position_action/2026-06-21T15-11-06Z/seed_42.json
+trace dir: artifacts/videos/trace_only/2026-06-21T15-12-20Z/
+steps recorded: 500
+success_step: null
+final_success_rate: 0.0
+best_axial: 0.0080776298m at step 172
+final_axial: 0.0087595545m
+best_lateral: 0.0001472154m
+final_lateral: 0.0005570633m
+best_rot: 0.0003452670rad
+final_rot: 0.0607439503rad
+max_contact_force_magnitude: 1.2441853N
+cleanup: org cleanup confirmed with {"workspaces": null}
+brev safety: SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+This invalidates the simple "larger contact-boundary micro-step will cross the
+last 0.08mm" hypothesis. The trace still never reached sustained success, and
+the best axial miss is effectively unchanged from the previous semantic trace.
+The controller then drifted back out to about 8.76mm axial error.
+
+The validators identify the next blocker more specifically:
+
+```text
+action_response_check: FAIL
+  bad_steps: 47 / 309 assessed
+  worst step: 426
+  worst phase: socket-insertion-servo
+  min_cosine: -0.7645606147
+
+final_contact_boundary_check: FAIL
+  unsafe_boundary_descent_count: 35
+  first unsafe boundary descent: step 158, axial 0.0082480386m, offset_z -0.0005000000m
+  fail: no sustained task-success window at the contact boundary
+  fail: controller used a normal descent step after contact near the axial boundary
+
+peg_video_candidate_check: FAIL
+  task_gate_pass: False
+  video_candidate_pass: False
+  fail: task gate never reached sustained configured success tolerances
+  fail: pose never reached stricter guide-clearance lateral tolerance
+
+trace_frame_alignment_check: PASS
+```
+
+Do not rerun the `0.00015m` boundary-step branch unchanged and do not record a
+viewport video from it. The next work is local-first: fix the command/response
+semantics around socket-insertion-servo at the contact boundary, and make the
+near-boundary controller enter the micro-step branch before any normal
+`-0.0005m` descent after contact. A future paid run is justified only after a
+local diagnostic proves that the contact-boundary phase selection and
+action-response checks should change in the expected direction.
+
+Local follow-up after that failure:
+
+```text
+scripts/socket_insertion_servo_logic.py:
+  - keeps the task success contact threshold at 0.5N
+  - adds contact_boundary_min_force, default 0.25N, used only inside the
+    near-axial contact-boundary band
+  - adds contact_boundary_xy_gain/contact_boundary_xy_clamp, default 0, so
+    boundary micro-steps freeze XY instead of scrubbing laterally after contact
+
+scripts/scripted_agent.py:
+  - exposes the new contact-boundary force/XY parameters
+  - records socket_insertion_servo_boundary_contact_ready in trace rows
+
+scripts/check_final_contact_boundary_diagnostic.py:
+  - evaluates boundary rows from decision-time pre_contact_force_magnitude when
+    available, instead of judging the controller by post-step contact it could
+    not yet observe
+  - adds --boundary-contact-min-force, default 0.25N
+
+scripts/run_remote_socket_insertion_servo_trace.sh:
+scripts/run_remote_joint_response_socket_insertion_servo_trace.sh:
+  - pass the new boundary defaults to the remote trace runner
+```
+
+Offline replay of the old `2026-06-21T15-12-20Z` trace through the pure servo
+logic is only a directional check, not success evidence. It shows the new local
+decision rule addresses the specific failure mode:
+
+```text
+old-like logic: near_rows=345, boundary=307, normal_descend=38, unsafe=38, boundary_xy_nonzero=307
+new logic:      near_rows=345, boundary=341, normal_descend=4,  unsafe=4,  boundary_xy_nonzero=0
+```
+
+The remaining four normal descents are the initial no-pre-contact probe rows
+before contact becomes observable to the controller. This is acceptable for a
+next short semantic validation, but still not proof of success.
+
+Validation:
+
+```text
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/test_local_gates.py
+  [gate-tests] passed
+
+PYTHONDONTWRITEBYTECODE=1 ./scripts/run_local_quality_checks.sh
+  [local-quality] passed
+
+git diff --check
+  passed
+```
+
+Next allowed paid action, if any: one short validator-enabled joint-response
+socket-insertion trace with the new boundary-contact/XY-freeze defaults, only
+after `./scripts/brev_paid_safety_status.sh` reports
+`SAFE_NO_VISIBLE_PAID_INSTANCE`. Do not record viewport video unless that trace
+passes action-response, final-contact-boundary, frame-alignment, and
+peg-video-candidate validators.
+
+2026-06-21 follow-up trace with the boundary-contact/XY-freeze defaults failed
+closed but exposed a more important structural mismatch:
+
+```text
+instance: rca-boundary-freezexy-vm / ii96h00e2
+trace dir: artifacts/videos/trace_only/2026-06-21T15-59-31Z/
+best_axial: 0.008009647950530052m at step 280
+final_axial: 0.008044378831982613m
+best_lateral: 0.00014721538173034787m
+max_contact_force_magnitude: 1.900056004524231N at step 266
+success_step: null
+cleanup: workspaces null; SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+The run reached the geometric boundary and real contact, but failed the
+contact-aware gate:
+
+```text
+action_response_check: FAIL, bad_steps=1, worst step=396
+final_contact_boundary_check: FAIL, pop_event_count=2
+peg_video_candidate_check: FAIL
+trace_frame_alignment_check: PASS
+```
+
+The key finding is that the Isaac task's built-in
+`terminations.insertion_success` is geometry-only: it checks lateral, axial,
+and rotation tolerances, but not contact force. Our video/semantic gate
+requires contact force as well. Near step 280, the scripted trace was within
+about 0.01mm of the axial threshold with contact present; immediately after
+that, the arm jumped back toward a reset/default posture. That makes the
+internal geometry-only termination/reset a likely source of the observed pop,
+and it means scripted validation must not rely on the environment's built-in
+success termination.
+
+Local fix after this run:
+
+```text
+scripts/scripted_agent.py:
+  - adds --disable-insertion-success-termination, default on
+  - adds --keep-insertion-success-termination for explicit opt-in to old behavior
+  - sets env_cfg.terminations.insertion_success = None before gym.make when disabled
+  - records insertion_success_termination_disabled in trace rows and summary
+
+scripts/test_local_gates.py:
+  - adds static checks for the termination-disable guard
+```
+
+Validation:
+
+```text
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/test_local_gates.py
+  [gate-tests] passed
+
+PYTHONDONTWRITEBYTECODE=1 ./scripts/run_local_quality_checks.sh
+  [local-quality] passed
+
+git diff --check
+  passed
+```
+
+Next paid action, if any: one short validator-enabled joint-response
+socket-insertion trace with the same boundary-contact/XY-freeze defaults and
+the now-default disabled insertion-success termination. The run is justified
+only after `./scripts/brev_paid_safety_status.sh` reports
+`SAFE_NO_VISIBLE_PAID_INSTANCE`. Do not record viewport video until the
+contact-aware validators pass.
+
+2026-06-21 follow-up trace with built-in insertion-success termination disabled
+failed closed but substantially narrowed the remaining blocker:
+
+```text
+instance: rca-disable-reset-vm / 8us3zypas
+trace dir: artifacts/videos/trace_only/2026-06-21T16-45-23Z/
+success_step: 166
+final_success_rate: 1.0
+best_axial: 0.007974937558174133m at step 166
+best_lateral: 0.00014721538173034787m at step 0
+final_lateral: 0.0009611804271116853m
+final_rot: 0.05461684986948967rad
+max_contact_force_magnitude: 0.8971468210220337N at step 158
+cleanup: workspaces null; SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+Validators:
+
+```text
+action_response_check: PASS
+trace_frame_alignment_check: PASS
+peg_video_candidate_check: FAIL
+final_contact_boundary_check: FAIL
+unsafe_boundary_descent_count: 0
+pop_event_count: 0
+```
+
+This confirms the geometry-only reset was a real blocker: once disabled, the
+trace reached a contact-aware success step without branch pop. The remaining
+failure is that `scripts/scripted_agent.py` stopped immediately on the first
+success step, while the strict video/boundary validators require a sustained
+window of five steps. The trace had only two axial-ready rows near the end
+(`165` and `166`), so it could not pass a sustained-window check even though
+the last row itself was successful.
+
+Local fix after this run:
+
+```text
+scripts/scripted_agent.py:
+  - adds --success-hold-steps, default 1 for legacy behavior
+  - after first success, values >1 replace actions with hold-current-joints
+    (or zero relative action) until the required consecutive success window is
+    observed or the rollout ends
+  - records success_hold_count, success_hold_steps,
+    success_hold_exit_step, and post_success_hold_step_count
+
+scripts/run_remote_joint_response_socket_insertion_servo_trace.sh:
+  - passes --success-hold-steps ${RCA_JOINT_RESPONSE_SOCKET_SUCCESS_HOLD_STEPS:-5}
+
+scripts/test_local_gates.py:
+  - checks the post-success hold guard and wrapper default
+```
+
+Validation:
+
+```text
+PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile scripts/scripted_agent.py scripts/test_local_gates.py
+  passed
+
+git diff --check
+  passed
+
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/test_local_gates.py
+  [gate-tests] passed
+
+PYTHONDONTWRITEBYTECODE=1 ./scripts/run_local_quality_checks.sh
+  [local-quality] passed
+```
+
+Next paid action, if any: one short validator-enabled joint-response trace with
+the post-success hold default. It is technically justified because the previous
+run reached first semantic success and failed only because the scripted loop
+exited before the sustained window could exist. Still do not record viewport
+video until the trace passes action-response, final-contact-boundary,
+frame-alignment, and peg-video-candidate validators.
+
+2026-06-21 success-hold trace failed closed and exposed a second control-loop
+issue:
+
+```text
+instance: rca-success-hold-vm / nv7l10123
+trace dir: artifacts/videos/trace_only/2026-06-21T17-16-33Z/
+success_step: 166
+success_hold: 0/5
+final_lateral: 0.007539698854088783m
+final_axial: 0.0044609056785702705m
+final_rot: 0.049713972955942154rad
+max_contact_force_magnitude: 0.8971468210220337N at step 158
+cleanup: workspaces null; SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+Validators:
+
+```text
+peg_video_candidate_check: PASS
+trace_frame_alignment_check: PASS
+action_response_check: FAIL
+  bad_fraction=0.26666666666666666
+  worst step=181, cosine=-0.9009444702808566
+final_contact_boundary_check: FAIL
+  fail: no sustained task-success window at the contact boundary
+```
+
+The root cause is not a new cloud/runtime failure. The trace showed that once a
+first success was reached, the follow-up hold mode froze joint targets. In the
+contact-rich socket, pure joint freezing let contact force decay immediately
+(`step 167` fell below the 0.5N success threshold) and the tip then drifted
+laterally out of the success window. The action-response failure after success
+is also polluted by this freeze, because the trace still recorded servo targets
+while the actual action had been overwritten with a hold-current command.
+
+Local follow-up fix:
+
+```text
+scripts/socket_insertion_servo_logic.py:
+  - adds maintain_contact_preload to keep a tiny axial preload in the success
+    window instead of switching to hold_z as soon as contact is above threshold
+
+scripts/scripted_agent.py:
+  - adds --socket-insertion-servo-maintain-contact-preload
+  - when success-hold is active with socket insertion servo, lets the servo keep
+    running in maintain-contact-preload mode instead of overwriting actions with
+    hold-current joints
+  - records post_success_hold_mode in trace rows/events
+
+scripts/run_remote_joint_response_socket_insertion_servo_trace.sh:
+  - defaults RCA_JOINT_RESPONSE_SOCKET_MAINTAIN_CONTACT_PRELOAD to 1
+
+scripts/test_local_gates.py:
+  - adds an offline negative/positive control for maintain-contact preload
+  - checks the wrapper default and scripted-agent trace fields
+```
+
+Validation:
+
+```text
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/test_local_gates.py
+  [gate-tests] passed
+
+PYTHONDONTWRITEBYTECODE=1 ./scripts/run_local_quality_checks.sh
+  [local-quality] passed
+
+git diff --check
+  passed
+
+./scripts/brev_paid_safety_status.sh
+  status=SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+Next paid action, if any: one short trace-only semantic validation with
+maintain-contact preload enabled. It should still use the same cleanup/budget
+plan and should not attempt viewport recording until the semantic validators
+pass.
+
+2026-06-21 maintain-contact-preload validation made semantic progress but still
+failed closed:
+
+```text
+instance: rca-maintain-preload-vm / o5mt17y59
+trace dir: artifacts/videos/trace_only/2026-06-21T18-01-55Z/
+success_step: 166
+success_hold: 5/5
+success_hold_exit_step: 186
+final_lateral: 0.0006703325198031962m
+final_axial: 0.007980781607329845m
+final_rot: 0.05415081977844238rad
+max_contact_force_magnitude: 1.1637400388717651N at step 171
+cleanup: workspaces null; SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+Gate results:
+
+```text
+peg_video_candidate_check: PASS
+trace_frame_alignment_check: PASS
+action_response_check: FAIL
+  bad_fraction=0.011235955056179775
+  bad_steps=2
+  worst step=178, cosine=-0.3543077607795342
+final_contact_boundary_check: FAIL
+  first_sustained_success_step=182
+  unsafe_boundary_descent_count=4
+  first unsafe boundary step=169
+```
+
+Interpretation: the previous contact-decay issue is fixed. The controller now
+reaches semantic success and keeps the success window for five steps. The
+remaining blocker is finer: while holding contact near the 8mm axial boundary,
+`maintain_contact_preload` still used the normal preload step (`0.0002m`) and
+normal XY correction. The boundary validator requires only micro-steps
+(`<=0.00015m`) near this contact boundary and rejects the trace when a post-step
+metric falls just outside the success axial tolerance.
+
+Local follow-up fix:
+
+```text
+scripts/socket_insertion_servo_logic.py:
+  - when maintain_contact_preload is active and contact is already ready, use
+    boundary XY gain/clamp instead of the normal XY correction
+  - cap the maintained preload at contact_boundary_step instead of
+    contact_preload_step
+  - expose maintained_contact_preload in the pure logic masks
+
+scripts/test_local_gates.py:
+  - checks that maintained contact uses a boundary micro-preload
+  - checks that maintained contact does not continue applying normal XY
+    corrections
+```
+
+Local validation:
+
+```text
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/test_local_gates.py
+  [gate-tests] passed
+
+PYTHONDONTWRITEBYTECODE=1 ./scripts/run_local_quality_checks.sh
+  [local-quality] passed
+
+git diff --check
+  passed
+
+./scripts/brev_paid_safety_status.sh
+  status=SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+Next paid action, if any: one short trace-only semantic validation with the
+maintained-contact micro-preload fix. Do not record a viewport video until all
+four trace validators pass.
+
+## 2026-06-21 Micro-Preload Trace Failed Boundary Hold
+
+The follow-up validator-enabled trace ran on `rca-micro-preload-vm / 50vq3fdu3`
+and cleanup was confirmed:
+
+```text
+trace dir: artifacts/videos/trace_only/2026-06-21T18-36-03Z/
+success_step: 166
+success_hold: 0/5
+success_hold_exit_step: None
+final_lateral: 0.0016100112115964293m
+final_axial: 0.00805152952671051m
+final_rot: 0.06043585017323494rad
+max_contact_force_magnitude: 2.071620225906372N
+cleanup: workspaces null; SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+Gate results:
+
+```text
+action_response_check: PASS
+peg_video_candidate_check: PASS
+trace_frame_alignment_check: PASS
+final_contact_boundary_check: FAIL
+  first_sustained_success_step=None
+  unsafe_boundary_descent_count=12
+  first unsafe boundary step=282
+```
+
+Interpretation: the previous action-response failure is fixed. The remaining
+failure is now narrower: at the axial boundary, measured contact force flickers
+between low-but-real contact and task-success contact. Low-but-real contact
+frames (`pre_contact_force_magnitude >= 0.25N` but `< 0.5N`) still used the
+normal `contact_preload_step` (`0.0002m`), which pushed the post-step axial
+metric just outside the 8mm success tolerance.
+
+Local follow-up fix:
+
+```text
+scripts/socket_insertion_servo_logic.py:
+  - low-but-real contact preload in the success axial window now uses boundary
+    XY gain/clamp and contact_boundary_step
+  - exposes contact_boundary_preload in the pure logic masks
+
+scripts/scripted_agent.py:
+  - records socket_insertion_servo_maintained_contact_preload
+  - records socket_insertion_servo_contact_boundary_preload
+
+scripts/test_local_gates.py:
+  - covers low-but-real contact using boundary micro-preload
+  - checks boundary preload disables normal XY corrections
+```
+
+Local validation:
+
+```text
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/test_local_gates.py
+  [gate-tests] passed
+
+PYTHONDONTWRITEBYTECODE=1 ./scripts/run_local_quality_checks.sh
+  [local-quality] passed
+
+./scripts/brev_paid_safety_status.sh
+  status=SAFE_NO_VISIBLE_PAID_INSTANCE
+```
+
+Next paid action, if any: one short trace-only semantic validation with the
+low-contact boundary-preload fix. Still do not record a viewport video until
+all four validators pass on the same trace.
 
 ## Main Files To Read First
 

@@ -16,6 +16,7 @@ rsync -az --delete \
   --exclude 'artifacts/' \
   --exclude 'logs/' \
   --exclude '__pycache__/' \
+  --exclude '*.egg-info/' \
   --exclude '*.pyc' \
   --exclude '.DS_Store' \
   "${LOCAL_ROOT}/" "${ENV_NAME}:${REMOTE_ROOT}/repo/robot-contact-assembly/"

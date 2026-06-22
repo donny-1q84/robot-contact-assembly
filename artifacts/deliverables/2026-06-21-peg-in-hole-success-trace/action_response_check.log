@@ -1,0 +1,31 @@
+{
+  "bad_fraction": 0.06896551724137931,
+  "bad_steps": 12,
+  "max_cosine": 0.851779064872139,
+  "min_cosine": -0.4350571272440068,
+  "pass": false,
+  "steps_assessed": 174,
+  "steps_skipped": 9,
+  "steps_total": 183,
+  "trace": "/workspace/artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json",
+  "worst": {
+    "actual_delta": [
+      -2.726912498474121e-05,
+      2.173706889152527e-05,
+      -3.457069396972656e-05
+    ],
+    "actual_norm": 4.910436052915099e-05,
+    "bad": true,
+    "command_delta": [
+      -7.95125961303711e-05,
+      -0.0002543497830629349,
+      7.364153861999512e-05
+    ],
+    "command_norm": 0.00027647629427832285,
+    "cosine": -0.4350571272440068,
+    "phase": "socket-insertion-servo",
+    "projection": -5.9064189303348336e-09,
+    "step": 182
+  }
+}
+[action-response] FAIL

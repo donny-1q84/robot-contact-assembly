@@ -10,7 +10,11 @@ Robot assembly project built around a narrow Isaac Lab `peg-in-hole` workflow. P
 - Control: relative differential IK and joint-position contact-control variants
 - Policy: PPO (`rsl_rl`) plus scripted and BC/IL baselines
 - Execution model: local planning and artifact archive + remote Brev GPU runtime
-- Current blocking status: the contact-physics fix is implemented locally, but not yet validated on a real Isaac runtime. Until `scripts/run_launchable_contact_physics_smoke.sh` passes, the pulled log is installed with `scripts/archive_contact_smoke_log.sh`, and `scripts/check_phase2_contact_gate.py` reports PASS, all older Phase 2 "true-contact", near-miss, BC, and reset-candidate metrics are diagnostic history only.
+- Current blocking status: the old contact-physics blocker is cleared and the current post-smoke scripted insertion trace succeeds under the official AWS Isaac Launchable runtime. `scripts/check_phase2_contact_gate.py` validates `artifacts/launchable_logs/contact_physics_smoke.log`, and `scripts/check_peg_in_hole_video_candidate.py` validates `artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json`.
+- Current success trace: `artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json` reaches sustained insertion success at step `167`, with final lateral `0.00159m`, axial `0.00755m`, rotation `0.0541rad`, contact force `0.553N`, and final success rate `1.0`.
+- Evidence package: `artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/` contains the success trace, validation logs, contact-smoke log, SHA256 checksums, and `peg_in_hole_trace_render.mp4`. The MP4 is a trace-rendered diagnostic visualization, not Isaac viewport footage.
+- Latest structural audit: `scripts/audit_trace_frame_alignment.py` covers socket-frame rotation and task-metric/physical-tip consistency, while `scripts/check_scripted_action_response_trace.py` guards control-response direction. The passing final trace also passes `scripts/check_final_contact_boundary_diagnostic.py`, which checks contact-boundary descent, sustained success, and pop events.
+- Paid-compute safety: the final cleanup snapshot reports `SAFE_NO_VISIBLE_PAID_INSTANCE`. Future paid GPU work should still use explicit budgets, watchdogs, artifact pullback, and deletion confirmation.
 - Current runtime shell: dynamic peg rigid body welded to the hand, fixed guide-socket contact walls, wall-filtered contact-force observations, and physical socket-frame success logic
 
 ## Phase 1 Scope

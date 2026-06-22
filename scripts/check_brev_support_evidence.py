@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Validate the Brev support draft's referenced local evidence bundle."""
+"""Validate the Brev support draft's referenced local evidence bundle.
+
+The incident bundle lives under ignored local artifacts. Fresh checkouts should
+still be able to run the offline quality gate; when the local-only bundle is not
+present, this checker records a skip instead of failing the whole gate.
+"""
 
 from __future__ import annotations
 
@@ -12,6 +17,7 @@ import tarfile
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DRAFT = REPO_ROOT / "docs/brev_support_followup_2026-06-20.md"
+LOCAL_INCIDENT_DIR = REPO_ROOT / "artifacts" / "brev_lifecycle_incidents"
 
 
 def fail(message: str) -> None:
@@ -38,6 +44,14 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def is_local_incident_archive(path: Path) -> bool:
+    try:
+        path.resolve().relative_to(LOCAL_INCIDENT_DIR.resolve())
+    except ValueError:
+        return False
+    return True
 
 
 def parse_current_archive(text: str) -> tuple[Path, str]:
@@ -100,6 +114,11 @@ def main() -> int:
     archive, expected_sha = parse_current_archive(draft_text)
 
     if not archive.is_file():
+        if is_local_incident_archive(archive):
+            print("[brev-support-evidence] skipped: referenced local incident archive is not present")
+            print(f"[brev-support-evidence] draft={draft}")
+            print(f"[brev-support-evidence] archive={archive}")
+            return 0
         fail(f"referenced evidence archive is missing: {archive}")
 
     actual_sha = sha256_file(archive)

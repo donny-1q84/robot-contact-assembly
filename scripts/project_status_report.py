@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -95,6 +96,103 @@ def contact_gate_status() -> Check:
     else:
         detail = "No valid contact-smoke PASS log accepted by scripts/check_phase2_contact_gate.py."
     return Check("Phase 2 contact gate", "BLOCKED", detail)
+
+
+def post_smoke_trace_status() -> Check:
+    trace_root = REPO_ROOT / "artifacts" / "videos" / "trace_only"
+    summaries = sorted(trace_root.glob("*/video_summary.json"), key=lambda path: path.stat().st_mtime)
+    if not summaries:
+        return Check(
+            "Post-smoke insertion trace",
+            "MISSING",
+            "No post-smoke trace-only video_summary.json exists yet; regenerate one short scripted trace before route decisions.",
+        )
+
+    latest = summaries[-1]
+    try:
+        data = json.loads(latest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return Check("Post-smoke insertion trace", "STALE", f"Latest trace summary is unreadable: {latest} ({exc})")
+
+    success_step = data.get("success_step")
+    final_success = float(data.get("final_success_rate") or 0.0)
+    if success_step is not None or final_success > 0.0:
+        return Check(
+            "Post-smoke insertion trace",
+            "PASS",
+            f"Latest trace reports insertion success at {latest}: success_step={success_step}, final_success_rate={final_success:.3f}.",
+        )
+
+    best_lateral = data.get("best_lateral")
+    best_axial = data.get("best_axial")
+    best_rot = data.get("best_rot")
+    max_contact = data.get("max_contact_force_magnitude")
+    return Check(
+        "Post-smoke insertion trace",
+        "BLOCKED",
+        "Latest trace exists but failed insertion; use it as controller/route evidence, not as a video success: "
+        f"{latest} best_lateral={best_lateral} best_axial={best_axial} best_rot={best_rot} max_contact={max_contact}.",
+    )
+
+
+def _json_prefix(text: str) -> dict:
+    decoder = json.JSONDecoder()
+    value, _ = decoder.raw_decode(text.lstrip())
+    if not isinstance(value, dict):
+        raise ValueError("JSON prefix is not an object")
+    return value
+
+
+def action_semantics_probe_status() -> Check:
+    trace_root = REPO_ROOT / "artifacts" / "videos" / "trace_only"
+    traces = sorted(trace_root.glob("*/video_trace.json"), key=lambda path: path.stat().st_mtime)
+    for trace in reversed(traces):
+        try:
+            trace_data = json.loads(trace.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        rows = trace_data.get("steps") if isinstance(trace_data, dict) else trace_data
+        if not isinstance(rows, list):
+            continue
+        if not any(
+            isinstance(row, dict)
+            and (row.get("phase") == "action-semantics-probe" or row.get("action_semantics_probe"))
+            for row in rows
+        ):
+            continue
+
+        log = trace.with_name("action_response_check.log")
+        if log.is_file():
+            try:
+                data = _json_prefix(log.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError, ValueError) as exc:
+                return Check("Action semantics probe", "STALE", f"Latest probe log is unreadable: {log} ({exc})")
+        else:
+            result = run_script("python3", "scripts/check_scripted_action_response_trace.py", str(trace))
+            try:
+                data = _json_prefix(result.stdout)
+            except (json.JSONDecodeError, ValueError) as exc:
+                return Check("Action semantics probe", "STALE", f"Could not parse action-response output for {trace}: {exc}")
+
+        worst = data.get("worst") if isinstance(data.get("worst"), dict) else {}
+        command_delta = worst.get("command_delta")
+        actual_delta = worst.get("actual_delta")
+        min_cosine = data.get("min_cosine")
+        bad_steps = data.get("bad_steps")
+        steps_assessed = data.get("steps_assessed")
+        detail = (
+            f"Latest action-semantics probe: {trace}; bad_steps={bad_steps}/{steps_assessed}, "
+            f"min_cosine={min_cosine}, command_delta={command_delta}, actual_delta={actual_delta}."
+        )
+        if data.get("pass"):
+            return Check("Action semantics probe", "PASS", detail)
+        return Check("Action semantics probe", "BLOCKED", detail)
+
+    return Check(
+        "Action semantics probe",
+        "MISSING",
+        "No action-semantics-probe trace exists yet; do not infer controller semantics from insertion traces alone.",
+    )
 
 
 def local_policy_status() -> Check:
@@ -217,13 +315,61 @@ def checks() -> list[Check]:
         brev_lifecycle_hold_status(),
         latest_contact_smoke_bundle_status(),
         contact_gate_status(),
+        post_smoke_trace_status(),
+        action_semantics_probe_status(),
         historical_doc_status(),
         tracked_generated_metadata_status(),
     ]
 
 
-def next_allowed_action(contact_status: str, lifecycle_hold_status: str) -> str:
+def next_allowed_action(
+    contact_status: str,
+    lifecycle_hold_status: str,
+    post_trace_status: str,
+    action_probe_status: str,
+) -> str:
     if contact_status == "PASS":
+        if post_trace_status == "PASS":
+            return (
+                "The Phase 2 contact-smoke gate, action/trace validators, and post-smoke insertion "
+                "trace are satisfied. The current required evidence is packaged in "
+                "artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/. Do not open another "
+                "paid GPU run for this milestone unless the explicit next goal is a full Isaac "
+                "viewport/camera recording, with a full runtime profile and a fresh budget/cleanup plan."
+            )
+        if action_probe_status == "BLOCKED":
+            return (
+                "Do not run a viewport video, another unchanged socket-insertion/final-contact trace, "
+                "or the same action-semantics probe again. The latest action-semantics probe directly "
+                "failed scripts/check_scripted_action_response_trace.py: a commanded world-Z down delta "
+                "produced a large off-axis/opposite TCP movement. Next work is local-first control "
+                "interface replacement: use scripts/calibrate_joint_position_action.py plus "
+                "scripts/joint_response_control.py to build an empirical JointPositionAction "
+                "response matrix, then use scripts/run_remote_joint_response_semantics_probe_suite.sh "
+                "to prove both down/up semantic commands before any insertion trace. The XYZW "
+                "action-frame inverse repair has already failed remote validation, "
+                "so the old down/up suite is no longer an approved next paid action unless the "
+                "controller itself changes first."
+            )
+        if action_probe_status == "PASS":
+            return (
+                "Use the passing action-semantics probe as the new controller gate, then regenerate "
+                "one short insertion trace under the same controller before any viewport video."
+            )
+        if post_trace_status == "BLOCKED":
+            return (
+                "Do not run a viewport video or another unchanged socket-insertion/final-contact "
+                "paid trace. The latest socket-insertion-servo trace now passes the WXYZ frame "
+                "audit, but fails scripts/check_scripted_action_response_trace.py: the commanded "
+                "insertion delta moved the action frame in the wrong direction. Next work is "
+                "control-interface first: any candidate controller must pass an action-response "
+                "gate, and any relative-IK calibration must pass "
+                "scripts/check_action_calibration_summary.py before it can feed insertion control. "
+                "The next guarded paid diagnostic is the down/up suite "
+                "scripts/recreate_brev_and_run_action_semantics_probe_suite.sh, not a video run. "
+                "Only after that semantic trace passes should final insertion phase ownership be "
+                "replaced or one guarded paid insertion trace be considered."
+            )
         return (
             "Regenerate exactly one short scripted trace under the validated task, then refresh "
             "contact-validity and demo-coverage reports before reopening controller/BC/RL work."
@@ -245,8 +391,37 @@ def next_allowed_action(contact_status: str, lifecycle_hold_status: str) -> str:
     )
 
 
-def current_decision(contact_status: str, lifecycle_hold_status: str) -> str:
+def current_decision(
+    contact_status: str,
+    lifecycle_hold_status: str,
+    post_trace_status: str,
+    action_probe_status: str,
+) -> str:
     if contact_status == "PASS":
+        if post_trace_status == "PASS":
+            return (
+                "The Phase 2 contact-smoke gate and post-smoke insertion trace are satisfied. "
+                "The current milestone is no longer blocked on controller insertion evidence; the "
+                "remaining optional gap is only real Isaac viewport/camera footage of the same semantic setup."
+            )
+        if action_probe_status == "BLOCKED":
+            return (
+                "The Phase 2 contact-smoke gate is satisfied, but the dedicated action-semantics "
+                "probe failed. The remaining blocker is the control/action interface, not contact "
+                "physics and not video capture. Continuing to tune the current insertion script "
+                "would repeat the old loop."
+            )
+        if action_probe_status == "PASS":
+            return (
+                "The Phase 2 contact-smoke gate and action-semantics probe are satisfied. The next "
+                "evidence gap is a short insertion trace under the same passing controller."
+            )
+        if post_trace_status == "BLOCKED":
+            return (
+                "The Phase 2 contact-smoke gate is satisfied, and the fresh post-smoke trace shows the "
+                "remaining blocker is controller/task formulation rather than contact-physics validation. "
+                "Viewport video capture is not the main route until a semantic trace already passes."
+            )
         if lifecycle_hold_status == "BLOCKED":
             return (
                 "The Phase 2 contact-smoke gate is satisfied. Do not start new paid Brev work "
@@ -273,6 +448,10 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
     contact_status = contact.status if contact else "BLOCKED"
     lifecycle_hold = next((item for item in check_list if item.name == "Brev lifecycle hold"), None)
     lifecycle_hold_status = lifecycle_hold.status if lifecycle_hold else "BLOCKED"
+    post_trace = next((item for item in check_list if item.name == "Post-smoke insertion trace"), None)
+    post_trace_status = post_trace.status if post_trace else "MISSING"
+    action_probe = next((item for item in check_list if item.name == "Action semantics probe"), None)
+    action_probe_status = action_probe.status if action_probe else "MISSING"
 
     lines = [
         "# Current Project Status",
@@ -298,11 +477,11 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "",
             "## Current Decision",
             "",
-            current_decision(contact_status, lifecycle_hold_status),
+            current_decision(contact_status, lifecycle_hold_status, post_trace_status, action_probe_status),
             "",
             "## Next Allowed Action",
             "",
-            next_allowed_action(contact_status, lifecycle_hold_status),
+            next_allowed_action(contact_status, lifecycle_hold_status, post_trace_status, action_probe_status),
             "",
             "## Commands",
             "",
@@ -310,6 +489,18 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "./scripts/brev_paid_safety_status.sh",
             "./scripts/run_local_quality_checks.sh",
             "python3 scripts/check_phase2_contact_gate.py",
+            "python3 scripts/check_peg_in_hole_video_candidate.py artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json",
+            "python3 scripts/check_final_contact_boundary_diagnostic.py artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json",
+            "python3 scripts/audit_trace_frame_alignment.py artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json",
+            "python3 scripts/check_scripted_action_response_trace.py artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json --min-command-norm 0.0002 --stop-after-first-success",
+            "python3 scripts/render_trace_video.py artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json artifacts/videos/trace_rendered/2026-06-21T20-05-25Z/peg_in_hole_trace_render.mp4",
+            "python3 scripts/check_action_calibration_summary.py artifacts/calibration/relative_ik_action/latest_seed_42.json",
+            "python3 scripts/joint_response_control.py artifacts/calibration/joint_position_action/latest_seed_42.json --desired-delta 0,0,-0.0015",
+            "./scripts/run_remote_joint_response_calibration.sh <env-name> /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose",
+            "./scripts/run_remote_joint_response_semantics_probe_suite.sh <env-name> /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose",
+            "./scripts/recreate_brev_and_run_joint_response_semantics_probe_suite.sh",
+            "# no unchanged socket-insertion/final-contact/action-semantics paid trace is currently approved",
+            "# do not rerun ./scripts/recreate_brev_and_run_action_semantics_probe_suite.sh unchanged",
             "RCA_BREV_LOGIN_EMAIL=<email> ./scripts/refresh_brev_login.sh",
             "RCA_BREV_CREDITS_VERIFIED=1 RCA_PAID_BUDGET_EUR=<budget> RCA_PAID_ESTIMATED_EUR_PER_HOUR=<hourly-estimate> ./scripts/check_launchable_retry_readiness.sh",
             "RCA_BREV_CREDITS_VERIFIED=1 RCA_PAID_BUDGET_EUR=<budget> RCA_PAID_ESTIMATED_EUR_PER_HOUR=<hourly-estimate> ./scripts/prepare_contact_smoke_run.sh",

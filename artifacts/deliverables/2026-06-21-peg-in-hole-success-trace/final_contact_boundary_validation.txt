@@ -1,0 +1,6 @@
+[final-contact-boundary] PASS: artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json
+  first_sustained_success_step=178
+  boundary_row_count=21
+  unsafe_boundary_descent_count=0
+  contact_boundary_micro_step_count=6
+  pop_event_count=0

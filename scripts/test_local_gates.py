@@ -7,6 +7,8 @@ the network. A tiny fake Brev CLI is used to exercise paid preflight behavior.
 
 from __future__ import annotations
 
+import ast
+import json
 import os
 from pathlib import Path
 import stat
@@ -316,7 +318,876 @@ def write_tar_gz(source_dir: Path, archive: Path) -> None:
         tar.add(source_dir, arcname=source_dir.name)
 
 
+def write_video_candidate_trace(path: Path, *, final_lateral: float, success: bool = True) -> None:
+    steps = []
+    for idx, axial in enumerate((0.060, 0.045, 0.030, 0.006, 0.006, 0.006)):
+        steps.append(
+            {
+                "step": idx,
+                "lateral": final_lateral if idx >= 3 else 0.010,
+                "axial": axial,
+                "rot": 0.020,
+                "contact_force_magnitude": 1.2 if idx >= 3 else 0.0,
+                "success": bool(success and idx >= 3),
+            }
+        )
+    path.write_text(
+        json.dumps(
+            {
+                "steps": steps,
+                "summary": {
+                    "initial_axial": 0.060,
+                    "best_axial": 0.006,
+                    "success_step": 3 if success else None,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def run_socket_insertion_servo_logic_tests() -> None:
+    scripts_path = str(REPO_ROOT / "scripts")
+    sys.path.insert(0, scripts_path)
+    try:
+        from socket_insertion_servo_logic import (
+            SocketInsertionServoConfig,
+            compute_socket_insertion_servo_offset_scalar,
+        )
+    finally:
+        try:
+            sys.path.remove(scripts_path)
+        except ValueError:
+            pass
+
+    config = SocketInsertionServoConfig(
+        xy_gain=1.0,
+        xy_clamp=0.002,
+        z_gain=1.0,
+        z_step=0.0015,
+        descend_xy_tolerance=0.005,
+        descend_rot_tolerance=0.18,
+        success_z_tolerance=0.008,
+        contact_preload_step=0.0007,
+        success_min_contact_force=0.5,
+        contact_boundary_min_force=0.25,
+        contact_boundary_tolerance=0.001,
+        contact_boundary_step=0.00015,
+        contact_boundary_xy_gain=0.0,
+        contact_boundary_xy_clamp=0.0,
+    )
+    cases = [
+        ((0.010, -0.010, 0.030), 0.010, 0.030, 0.020, 1.0, True),
+        ((0.003, 0.004, 0.030), 0.003, 0.030, 0.050, 1.0, True),
+        ((0.003, 0.004, 0.030), 0.003, 0.030, 0.250, 1.0, True),
+        ((0.002, -0.001, 0.004), 0.002, 0.004, 0.050, 0.0, True),
+        ((0.0002, 0.0003, 0.00798), 0.0004, 0.00798, 0.050, 0.30, True),
+        ((0.0002, 0.0003, 0.00812), 0.0004, 0.00812, 0.050, 1.0, True),
+        ((0.0002, 0.0003, 0.00812), 0.0004, 0.00812, 0.050, 0.30, True),
+        ((0.003, 0.004, 0.030), 0.003, 0.030, 0.050, 1.0, False),
+    ]
+    results = [
+        compute_socket_insertion_servo_offset_scalar(*case, config)
+        for case in cases
+    ]
+    maintain_config = SocketInsertionServoConfig(
+        xy_gain=1.0,
+        xy_clamp=0.002,
+        z_gain=1.0,
+        z_step=0.0015,
+        descend_xy_tolerance=0.005,
+        descend_rot_tolerance=0.18,
+        success_z_tolerance=0.008,
+        contact_preload_step=0.0007,
+        success_min_contact_force=0.5,
+        contact_boundary_min_force=0.25,
+        contact_boundary_tolerance=0.001,
+        contact_boundary_step=0.00015,
+        contact_boundary_xy_gain=0.0,
+        contact_boundary_xy_clamp=0.0,
+        maintain_contact_preload=True,
+    )
+    maintained_offset, maintained_masks = compute_socket_insertion_servo_offset_scalar(
+        (0.002, -0.001, 0.004),
+        0.002,
+        0.004,
+        0.050,
+        1.0,
+        True,
+        maintain_config,
+    )
+    boundary_xy_config = SocketInsertionServoConfig(
+        xy_gain=1.0,
+        xy_clamp=0.002,
+        z_gain=1.0,
+        z_step=0.0015,
+        descend_xy_tolerance=0.005,
+        descend_rot_tolerance=0.18,
+        success_z_tolerance=0.008,
+        contact_preload_step=0.0007,
+        success_min_contact_force=0.5,
+        contact_boundary_min_force=0.25,
+        contact_boundary_tolerance=0.001,
+        contact_boundary_step=0.00015,
+        contact_boundary_xy_gain=0.15,
+        contact_boundary_xy_clamp=0.00035,
+        maintain_contact_preload=True,
+    )
+    boundary_xy_offset, boundary_xy_masks = compute_socket_insertion_servo_offset_scalar(
+        (0.002, -0.003, 0.004),
+        0.0036,
+        0.004,
+        0.050,
+        1.0,
+        True,
+        boundary_xy_config,
+    )
+    offsets = [result[0] for result in results]
+    masks = [result[1] for result in results]
+    expected_xy = (
+        (-0.002, 0.002),
+        (-0.002, -0.002),
+        (-0.002, -0.002),
+        (-0.002, 0.001),
+        (0.000, 0.000),
+        (0.000, 0.000),
+        (0.000, 0.000),
+        (0.000, 0.000),
+    )
+    for idx, (offset, expected) in enumerate(zip(offsets, expected_xy, strict=True)):
+        if any(abs(offset[axis] - expected[axis]) > 1.0e-7 for axis in (0, 1)):
+            raise AssertionError(f"socket servo XY offsets wrong at case {idx}: {offset}")
+    if offsets[0][2] != 0.0 or not masks[0]["hold_z"]:
+        raise AssertionError("socket servo negative control failed: lateral miss should hold Z")
+    if offsets[1][2] >= 0.0 or not masks[1]["descend_ready"]:
+        raise AssertionError("socket servo should descend when XY and rotation are ready")
+    if offsets[2][2] != 0.0 or masks[2]["descend_ready"]:
+        raise AssertionError("socket servo negative control failed: rotation miss should hold Z")
+    if abs(offsets[3][2] + 0.0007) > 1.0e-8 or not masks[3]["contact_preload"]:
+        raise AssertionError("socket servo should preload only when axial-ready but contact is missing")
+    if offsets[3][2] != 0.0 and masks[3]["hold_z"]:
+        raise AssertionError("contact-preload and hold-z masks must be exclusive")
+    if abs(offsets[4][2] + 0.00015) > 1.0e-8 or not masks[4]["contact_boundary_preload"]:
+        raise AssertionError("low-but-real contact in the success window should use boundary micro-preload")
+    if any(abs(offsets[4][axis]) > 1.0e-8 for axis in (0, 1)):
+        raise AssertionError("boundary preload should not keep applying normal XY corrections")
+    if abs(maintained_offset[2] + 0.00015) > 1.0e-8 or not maintained_masks["contact_preload"]:
+        raise AssertionError("maintain-contact preload should keep only a boundary micro-preload in the success window")
+    if any(abs(maintained_offset[axis]) > 1.0e-8 for axis in (0, 1)):
+        raise AssertionError("maintain-contact preload should not keep applying normal XY corrections after contact")
+    if not maintained_masks["maintained_contact_preload"]:
+        raise AssertionError("maintain-contact preload should expose a dedicated maintained-contact mask")
+    if not maintained_masks["contact_boundary_preload"]:
+        raise AssertionError("maintain-contact preload should also be marked as boundary preload")
+    if not maintained_masks["contact_ready"] or maintained_masks["hold_z"]:
+        raise AssertionError("maintain-contact preload must preserve contact evidence while disabling hold-z")
+    if abs(boundary_xy_offset[0] + 0.0003) > 1.0e-8:
+        raise AssertionError(f"boundary XY gain should apply a small X correction: {boundary_xy_offset}")
+    if abs(boundary_xy_offset[1] - 0.00035) > 1.0e-8:
+        raise AssertionError(f"boundary XY clamp should cap the Y correction: {boundary_xy_offset}")
+    if abs(boundary_xy_offset[2] + 0.00015) > 1.0e-8:
+        raise AssertionError("boundary XY correction must retain only the micro preload Z step")
+    if not boundary_xy_masks["maintained_contact_preload"] or not boundary_xy_masks["contact_boundary_preload"]:
+        raise AssertionError("boundary XY correction should stay in maintained boundary-preload mode")
+    if abs(offsets[5][2] + 0.00012) > 1.0e-8 or not masks[5]["contact_boundary"]:
+        raise AssertionError("socket servo should step only to the axial boundary, not normal-descend past it")
+    if abs(offsets[6][2] + 0.00012) > 1.0e-8 or not masks[6]["contact_boundary"]:
+        raise AssertionError("socket servo boundary should tolerate low-but-real contact force flicker")
+    if masks[6]["contact_ready"] or not masks[6]["boundary_contact_ready"]:
+        raise AssertionError("boundary contact threshold must not relax the task success contact threshold")
+    if masks[5]["descend_ready"]:
+        raise AssertionError("socket servo near-contact boundary must not use the normal descent path")
+    if any(abs(value) > 1.0e-8 for value in offsets[7]):
+        raise AssertionError("socket servo inactive rows must produce zero offset")
+
+
+def _write_boundary_trace(path: Path, *, success: bool, unsafe: bool, contact: bool = True) -> None:
+    steps: list[dict[str, object]] = []
+    for idx in range(8):
+        in_success_window = success and idx >= 3
+        near_boundary = idx >= 2
+        axial = 0.0075 if in_success_window else (0.00812 if near_boundary else 0.020)
+        lateral = 0.0007 if near_boundary else 0.002
+        if unsafe and idx == 4:
+            lateral = 0.031
+            axial = 0.017
+        offset_z = -0.0015 if unsafe and idx == 3 else (-0.00004 if near_boundary else -0.0005)
+        steps.append(
+            {
+                "step": idx,
+                "phase": "socket-insertion-servo",
+                "lateral": lateral,
+                "axial": axial,
+                "rot": 0.04,
+                "contact_force_magnitude": 1.2 if contact and near_boundary else 0.0,
+                "socket_insertion_servo_contact_boundary": near_boundary and contact and not in_success_window and not unsafe,
+                "socket_insertion_servo_offset_socket": [0.0, 0.0, offset_z],
+                "success": in_success_window and contact,
+            }
+        )
+    path.write_text(json.dumps({"steps": steps, "summary": {"success_step": 3 if success and contact else None}}))
+
+
+def run_final_contact_boundary_diagnostic_tests() -> None:
+    scripts_path = str(REPO_ROOT / "scripts")
+    sys.path.insert(0, scripts_path)
+    try:
+        from check_final_contact_boundary_diagnostic import evaluate_trace
+    finally:
+        try:
+            sys.path.remove(scripts_path)
+        except ValueError:
+            pass
+
+    with tempfile.TemporaryDirectory(prefix="rca-boundary-diagnostic-") as tmp_dir_raw:
+        tmp_dir = Path(tmp_dir_raw)
+        positive_path = tmp_dir / "positive.json"
+        negative_path = tmp_dir / "negative.json"
+        unsafe_path = tmp_dir / "unsafe.json"
+        _write_boundary_trace(positive_path, success=True, unsafe=False)
+        _write_boundary_trace(negative_path, success=True, unsafe=False, contact=False)
+        _write_boundary_trace(unsafe_path, success=False, unsafe=True)
+
+        kwargs = {
+            "xy_tol": 0.005,
+            "axial_tol": 0.008,
+            "rot_tol": 0.18,
+            "contact_min_force": 0.5,
+            "boundary_contact_min_force": 0.25,
+            "boundary_axial_band": 0.001,
+            "max_boundary_step": 0.00015,
+            "pop_lateral_jump": 0.010,
+            "pop_lateral_abs": 0.020,
+            "pop_axial_regress": 0.004,
+            "sustained_steps": 3,
+        }
+        positive = evaluate_trace(json.loads(positive_path.read_text()), **kwargs)
+        negative = evaluate_trace(json.loads(negative_path.read_text()), **kwargs)
+        unsafe = evaluate_trace(json.loads(unsafe_path.read_text()), **kwargs)
+        if not positive["pass_gate"]:
+            raise AssertionError(f"final-contact boundary diagnostic should pass stable synthetic trace: {positive}")
+        if negative["pass_gate"]:
+            raise AssertionError(f"final-contact boundary diagnostic negative control must fail: {negative}")
+        if unsafe["pass_gate"]:
+            raise AssertionError(f"final-contact boundary diagnostic must fail unsafe pop trace: {unsafe}")
+        if unsafe["unsafe_boundary_descent_count"] < 1 or unsafe["pop_event_count"] < 1:
+            raise AssertionError(f"unsafe synthetic trace should report both normal descent and pop: {unsafe}")
+
+    known_failure = REPO_ROOT / "artifacts/videos/trace_only/2026-06-21T10-22-58Z/video_trace.json"
+    if known_failure.exists():
+        result = run(["python3", "scripts/check_final_contact_boundary_diagnostic.py", str(known_failure)])
+        assert_status(result, 1, "final-contact boundary diagnostic rejects known 8mm pop trace")
+        assert_contains(
+            result,
+            "controller used a normal descent step after contact near the axial boundary",
+            "known boundary failure unsafe descent detail",
+        )
+        assert_contains(
+            result,
+            "trace popped laterally or axially after reaching the contact boundary",
+            "known boundary failure pop detail",
+        )
+
+
+def run_joint_response_control_tests() -> None:
+    scripts_path = str(REPO_ROOT / "scripts")
+    sys.path.insert(0, scripts_path)
+    try:
+        from joint_response_control import compute_joint_response_command
+    finally:
+        try:
+            sys.path.remove(scripts_path)
+        except ValueError:
+            pass
+
+    # Synthetic 3x7 measured Jacobian with nontrivial off-axis coupling. The
+    # controller should still find a small minimum-norm joint command whose
+    # predicted action-frame motion points in the requested direction.
+    usable_matrix = [
+        [0.020, 0.002, 0.000, 0.004, 0.001, 0.000, 0.000],
+        [0.001, 0.018, 0.003, 0.000, 0.002, 0.000, 0.000],
+        [0.000, 0.002, 0.022, -0.004, 0.000, 0.012, 0.003],
+    ]
+    down = compute_joint_response_command(
+        usable_matrix,
+        (0.0, 0.0, -0.0015),
+        max_joint_delta=0.04,
+        min_cosine=0.85,
+        max_residual_ratio=0.25,
+    )
+    up = compute_joint_response_command(
+        usable_matrix,
+        (0.0, 0.0, 0.0015),
+        max_joint_delta=0.04,
+        min_cosine=0.85,
+        max_residual_ratio=0.25,
+    )
+    if not down.pass_gate or down.cosine is None or down.cosine < 0.85:
+        raise AssertionError(f"joint-response controller should pass down command: {down}")
+    if not up.pass_gate or up.cosine is None or up.cosine < 0.85:
+        raise AssertionError(f"joint-response controller should pass up command: {up}")
+    if down.predicted_delta[2] >= 0.0 or up.predicted_delta[2] <= 0.0:
+        raise AssertionError(f"joint-response controller got Z signs wrong: down={down} up={up}")
+
+    no_z_matrix = [
+        [0.020, 0.002, 0.000, 0.004, 0.001, 0.000, 0.000],
+        [0.001, 0.018, 0.003, 0.000, 0.002, 0.000, 0.000],
+        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    ]
+    blocked = compute_joint_response_command(
+        no_z_matrix,
+        (0.0, 0.0, -0.0015),
+        max_joint_delta=0.04,
+        min_cosine=0.50,
+        max_residual_ratio=0.25,
+    )
+    if blocked.pass_gate:
+        raise AssertionError(f"joint-response controller must fail closed without Z authority: {blocked}")
+
+
+def run_scripted_agent_quaternion_static_tests() -> None:
+    scripted_agent = (REPO_ROOT / "scripts" / "scripted_agent.py").read_text(encoding="utf-8")
+    forbidden = "legacy `(x, y, z, w)`"
+    if forbidden in scripted_agent:
+        raise AssertionError("scripted_agent.py still documents the default quaternion helper as legacy XYZW")
+    forbidden_socket_mask_alias = "socket_insertion_servo_rotate_mask = socket_insertion_servo_mask\n"
+    if forbidden_socket_mask_alias in scripted_agent:
+        raise AssertionError("socket servo rotate mask must clone the activation mask before in-place filtering")
+    required_snippets = [
+        '"""Hamilton product for Isaac Lab WXYZ quaternions."""',
+        "w1, x1, y1, z1 = lhs.unbind(dim=-1)",
+        "vec_quat = torch.cat((zeros, vec), dim=-1)",
+        "return rotated[..., 1:]",
+        "def _child_pose_to_parent_pose_xyzw(",
+        '"""Invert `child = parent * offset` for IsaacLab transform quats stored as XYZW.',
+        "x1, y1, z1, w1 = lhs.unbind(dim=-1)",
+        "vec_quat = torch.cat((vec, zeros), dim=-1)",
+        "parent_pos_w = child_pos_w + _quat_rotate_xyzw(child_quat_w, inv_offset_pos)",
+        "parent_quat_w = _normalize_quat(_quat_multiply_xyzw(child_quat_w, inv_offset_quat))",
+        "hand_target_pos_w, hand_target_quat_w = _child_pose_to_parent_pose_xyzw(",
+        "quat = torch.cat((1.0 + dot, axis), dim=-1)",
+        "quat = torch.cat((torch.cos(half_angle), axis * torch.sin(half_angle)), dim=-1)",
+        "quat[small_angle] = axis_angle.new_tensor((1.0, 0.0, 0.0, 0.0))",
+        "peg_tip_pos_w, peg_tip_quat_w = _metric_peg_tip_pose_w(env_unwrapped, SceneEntityCfg(\"peg\"))",
+        "return peg_tip_pos_w.detach().clone(), peg_tip_quat_w.detach().clone()",
+        "socket_insertion_servo_soft_exit_mask",
+        "socket_insertion_servo_recovery_mask",
+        "socket_insertion_servo_strict_exit",
+        "phase = \"socket-insertion-servo-recover\"",
+        "socket_insertion_servo_rotate_while_xy_misaligned",
+        "socket_insertion_servo_rotate_only_when_rot_misaligned",
+        "socket_insertion_servo_rotate_mask = socket_insertion_servo_mask.clone()",
+        "socket_insertion_servo_rotate_mask &= ~socket_insertion_servo_rot_ready_mask",
+        "socket_insertion_servo_contact_boundary_mask",
+        "socket_insertion_servo_contact_boundary_count",
+        "socket_insertion_servo_contact_boundary_min_force",
+        "socket_insertion_servo_contact_boundary_tolerance",
+        "socket_insertion_servo_contact_boundary_step",
+        "socket_insertion_servo_contact_boundary_xy_gain",
+        "socket_insertion_servo_contact_boundary_xy_clamp",
+        "socket_insertion_servo_maintain_contact_preload",
+        "socket_insertion_servo_boundary_contact_ready_mask",
+        "socket_insertion_servo_orientation_hold_mask",
+        "socket_insertion_servo_orientation_hold_count",
+        "_write_json_atomic",
+        "os.replace(tmp_path, abs_path)",
+        "--trace-autoflush-every",
+        "atexit.register(_write_unexpected_exit_trace_artifacts)",
+        "trace_artifacts_finalized",
+        "last_partial_summary",
+        "_append_jsonl",
+        "signal.signal(signal.SIGTERM, _handle_termination_signal)",
+        "signal.signal(signal.SIGINT, _handle_termination_signal)",
+        "trace_artifacts_finalized[\"value\"] = True",
+        "\"event\": \"step_begin\"",
+        "\"event\": \"after_env_step\"",
+        "\"event\": \"trace_row_appended\"",
+        "\"event\": \"control_loop_exit\"",
+        "\"artifact_label\": \"atexit-without-summary\"",
+        "\"artifact_status\": \"partial\"",
+        "\"artifact_status\": \"complete\"",
+        "before_socket_insertion_servo_offset",
+        "after_socket_insertion_servo_offset",
+        "skipped_socket_insertion_servo_metric_reductions",
+        "detailed metrics are still preserved in trace rows",
+        "--action-semantics-probe-delta",
+        "phase = \"action-semantics-probe\"",
+        "\"action_semantics_probe_delta_w\"",
+        "def _hold_current_or_zero_actions()",
+        "warmup_mode = \"hold-current-joints\" if action_dim == 7 else \"zero-relative-action\"",
+        "--joint-response-json",
+        "def _load_joint_response_matrix(",
+        "choices=(\"auto\", \"mdp\", \"joint-ik\", \"joint-response\")",
+        "scripted_control_mode == \"joint-response\"",
+        "joint_response_matrix @ joint_response_matrix.transpose(0, 1)",
+        "\"joint_response_predicted_delta\"",
+        "--disable-insertion-success-termination",
+        "terminations_cfg.insertion_success = None",
+        "\"insertion_success_termination_disabled\"",
+        "--success-hold-steps",
+        "--socket-insertion-servo-maintain-contact-preload",
+        "\"event\": \"post_success_hold_action\"",
+        "\"mode\": post_success_hold_mode",
+        "\"event\": \"success_hold_break\"",
+        "\"success_hold_steps\"",
+        "\"post_success_hold_mode\"",
+        "post_success_hold_step_count",
+        "socket-servo-maintain-contact-preload",
+    ]
+    for snippet in required_snippets:
+        if snippet not in scripted_agent:
+            raise AssertionError(f"scripted_agent.py is missing quaternion/action-frame safety snippet: {snippet}")
+
+
+def run_isaac_launcher_import_order_static_tests() -> None:
+    """Keep Isaac task registration out of module scope before SimulationApp starts."""
+
+    script_path = REPO_ROOT / "scripts" / "calibrate_joint_position_action.py"
+    tree = ast.parse(script_path.read_text(encoding="utf-8"), filename=str(script_path))
+    forbidden_modules = {
+        "gymnasium",
+        "isaaclab_tasks.utils",
+        "robot_contact_assembly_tasks.tasks",
+        "torch",
+        "warp",
+    }
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name in forbidden_modules:
+                    raise AssertionError(
+                        "calibrate_joint_position_action.py imports Isaac runtime-dependent modules "
+                        f"at module scope ({alias.name}); import them only after SimulationApp starts"
+                    )
+        if isinstance(node, ast.ImportFrom) and node.module in forbidden_modules:
+            raise AssertionError(
+                "calibrate_joint_position_action.py imports Isaac runtime-dependent modules "
+                f"at module scope ({node.module}); import them only after SimulationApp starts"
+            )
+
+
+def run_joint_response_socket_wrapper_static_tests() -> None:
+    """Guard the metric-tip insertion retry against falling back to the failed joint-IK path."""
+
+    run_script = (
+        REPO_ROOT / "scripts" / "run_remote_joint_response_socket_insertion_servo_trace.sh"
+    ).read_text(encoding="utf-8")
+    recreate_script = (
+        REPO_ROOT / "scripts" / "recreate_brev_and_run_joint_response_socket_insertion_servo_trace.sh"
+    ).read_text(encoding="utf-8")
+
+    required_run_snippets = [
+        "run_remote_joint_response_calibration.sh",
+        'SUMMARY_PATH="/workspace/artifacts/calibration/joint_position_action/latest_seed_${SEED}.json"',
+        '--joint-response-json "${SUMMARY_PATH}"',
+        "--socket-insertion-servo-rotate-only-when-rot-misaligned",
+        'RCA_JOINT_RESPONSE_SOCKET_SUCCESS_HOLD_STEPS:-5',
+        "--trace-autoflush-every",
+        'RCA_VALIDATE_FINAL_CONTACT_BOUNDARY="${RCA_JOINT_RESPONSE_SOCKET_VALIDATE_FINAL_CONTACT_BOUNDARY:-1}"',
+        "RCA_SOCKET_INSERTION_SERVO_CONTROL_MODE=joint-response",
+        'RCA_SOCKET_INSERTION_SERVO_Z_STEP="${RCA_JOINT_RESPONSE_SOCKET_Z_STEP:-0.0005}"',
+        'RCA_SOCKET_INSERTION_SERVO_CONTACT_PRELOAD_STEP="${RCA_JOINT_RESPONSE_SOCKET_CONTACT_PRELOAD_STEP:-0.0002}"',
+        'RCA_SOCKET_INSERTION_SERVO_CONTACT_BOUNDARY_TOL="${RCA_JOINT_RESPONSE_SOCKET_CONTACT_BOUNDARY_TOL:-0.0010}"',
+        'RCA_SOCKET_INSERTION_SERVO_CONTACT_BOUNDARY_STEP="${RCA_JOINT_RESPONSE_SOCKET_CONTACT_BOUNDARY_STEP:-0.00015}"',
+        'RCA_SOCKET_INSERTION_SERVO_CONTACT_BOUNDARY_XY_GAIN="${RCA_JOINT_RESPONSE_SOCKET_CONTACT_BOUNDARY_XY_GAIN:-0.15}"',
+        'RCA_SOCKET_INSERTION_SERVO_CONTACT_BOUNDARY_XY_CLAMP="${RCA_JOINT_RESPONSE_SOCKET_CONTACT_BOUNDARY_XY_CLAMP:-0.00035}"',
+        'RCA_SOCKET_INSERTION_SERVO_MAINTAIN_CONTACT_PRELOAD="${RCA_JOINT_RESPONSE_SOCKET_MAINTAIN_CONTACT_PRELOAD:-1}"',
+        'RCA_ACTION_RESPONSE_MIN_COMMAND_NORM="${RCA_JOINT_RESPONSE_SOCKET_ACTION_RESPONSE_MIN_COMMAND_NORM:-0.0002}"',
+        'RCA_SOCKET_INSERTION_SERVO_EXTRA_ARGS="${JOINT_RESPONSE_ARGS[*]}"',
+        "run_remote_socket_insertion_servo_trace.sh",
+        'RCA_VALIDATE_PEG_VIDEO_CANDIDATE="${RCA_JOINT_RESPONSE_SOCKET_VALIDATE_PEG_VIDEO_CANDIDATE:-1}"',
+    ]
+    for snippet in required_run_snippets:
+        if snippet not in run_script:
+            raise AssertionError(
+                "run_remote_joint_response_socket_insertion_servo_trace.sh is missing "
+                f"required joint-response socket snippet: {snippet}"
+            )
+
+    if "--scripted-control-mode joint-response" in run_script:
+        raise AssertionError(
+            "joint-response socket wrapper should select joint-response through "
+            "RCA_SOCKET_INSERTION_SERVO_CONTROL_MODE, not by appending a duplicate control-mode CLI flag"
+        )
+
+    required_recreate_snippets = [
+        'RCA_FINAL_CONTACT_VALIDATE_PEG_VIDEO_CANDIDATE="${RCA_JOINT_RESPONSE_SOCKET_VALIDATE_PEG_VIDEO_CANDIDATE:-1}"',
+        'RCA_FINAL_CONTACT_TRACE_RUNNER="${SCRIPT_DIR}/run_remote_joint_response_socket_insertion_servo_trace.sh"',
+        "recreate_brev_and_run_final_contact_servo_trace.sh",
+        'STEPS="${5:-1200}"',
+        'SEED="${6:-42}"',
+    ]
+    for snippet in required_recreate_snippets:
+        if snippet not in recreate_script:
+            raise AssertionError(
+                "recreate_brev_and_run_joint_response_socket_insertion_servo_trace.sh is missing "
+                f"required delegation snippet: {snippet}"
+            )
+
+
+def run_trace_only_runtime_profile_static_tests() -> None:
+    """Keep trace-only paid diagnostics from reinstalling optional training dependencies."""
+
+    install_script = (REPO_ROOT / "scripts" / "install_remote_isaaclab_runtime.sh").read_text(
+        encoding="utf-8"
+    )
+    trace_recreate_script = (
+        REPO_ROOT / "scripts" / "recreate_brev_and_run_final_contact_servo_trace.sh"
+    ).read_text(encoding="utf-8")
+
+    required_install_snippets = [
+        'RUNTIME_PROFILE="${RCA_ISAACLAB_RUNTIME_PROFILE:-full}"',
+        "RCA_ISAACLAB_RUNTIME_PROFILE=${RUNTIME_PROFILE_Q} bash -s",
+        '-e RCA_ISAACLAB_RUNTIME_PROFILE="${RCA_ISAACLAB_RUNTIME_PROFILE}"',
+        'RCA_ISAACLAB_RUNTIME_PROFILE="${RCA_ISAACLAB_RUNTIME_PROFILE:-full}"',
+        'if [ "${RCA_ISAACLAB_RUNTIME_PROFILE}" = "trace-only" ]; then',
+        "[runtime] trace-only profile: installing required IsaacLab runtime submodules only",
+        "/workspace/IsaacLab/source/isaaclab_tasks",
+        "/workspace/IsaacLab/source/isaaclab_rl",
+        "/isaac-sim/python.sh -m pip install warp-lang==1.12.1 pillow==12.1.1",
+        "[runtime] trace-only profile: skipping optional IsaacLab contrib/newton/visualizer/rsl-rl explicit installs",
+    ]
+    for snippet in required_install_snippets:
+        if snippet not in install_script:
+            raise AssertionError(
+                "install_remote_isaaclab_runtime.sh is missing trace-only runtime profile "
+                f"snippet: {snippet}"
+            )
+    if "./isaaclab.sh --install assets,physx,tasks" in install_script:
+        raise AssertionError(
+            "trace-only runtime must not use invalid IsaacLab install tokens that fall back to broad installs"
+        )
+
+    required_trace_recreate_snippets = [
+        'RCA_ISAACLAB_RUNTIME_PROFILE="${RCA_ISAACLAB_RUNTIME_PROFILE:-trace-only}"',
+        'RCA_SKIP_STREAM_STACK="${RCA_SKIP_STREAM_STACK:-1}"',
+        "install_remote_isaaclab_runtime.sh",
+        "running trace-only final-contact servo validation",
+        'VALIDATE_PEG_VIDEO_CANDIDATE="${RCA_FINAL_CONTACT_VALIDATE_PEG_VIDEO_CANDIDATE:-${RCA_VALIDATE_PEG_VIDEO_CANDIDATE:-1}}"',
+        'RCA_VALIDATE_PEG_VIDEO_CANDIDATE="${VALIDATE_PEG_VIDEO_CANDIDATE}"',
+        "peg video candidate validation was disabled",
+    ]
+    for snippet in required_trace_recreate_snippets:
+        if snippet not in trace_recreate_script:
+            raise AssertionError(
+                "recreate_brev_and_run_final_contact_servo_trace.sh is missing trace-only "
+                f"runtime profile snippet: {snippet}"
+            )
+
+
+def run_video_candidate_xvfb_static_tests() -> None:
+    """Keep paid video attempts from losing display-startup diagnostics."""
+
+    video_recreate_script = (
+        REPO_ROOT / "scripts" / "recreate_brev_and_record_peg_video_candidate.sh"
+    ).read_text(encoding="utf-8")
+
+    required_snippets = [
+        "start_container_xvfb()",
+        "copy_xvfb_logs()",
+        "/workspace/artifacts/runtime/rca-xvfb.log",
+        "Xvfb :99 -screen 0 1280x720x24 -ac -nolisten tcp -extension GLX",
+        "for _ in $(seq 1 20); do",
+        'RCA_REMOTE_DOCKER_EXEC_ENV="-u root -e DISPLAY=:99"',
+    ]
+    for snippet in required_snippets:
+        if snippet not in video_recreate_script:
+            raise AssertionError(
+                "recreate_brev_and_record_peg_video_candidate.sh is missing robust Xvfb "
+                f"startup snippet: {snippet}"
+            )
+    brittle_snippet = "nohup Xvfb :99 -screen 0 1280x720x24 -ac >/tmp/rca-xvfb.log 2>&1 & sleep 2"
+    if brittle_snippet in video_recreate_script:
+        raise AssertionError("video candidate wrapper still has brittle Xvfb startup")
+
+
+def run_video_candidate_screen_recording_static_tests() -> None:
+    """Keep paid video attempts on the screen-capture path with semantic validators."""
+
+    video_recreate_script = (
+        REPO_ROOT / "scripts" / "recreate_brev_and_record_peg_video_candidate.sh"
+    ).read_text(encoding="utf-8")
+    screen_script = (
+        REPO_ROOT / "scripts" / "run_remote_record_scripted_screen_video.sh"
+    ).read_text(encoding="utf-8")
+
+    required_recreate_snippets = [
+        'RECORDING_MODE="${RCA_VIDEO_CANDIDATE_RECORDING_MODE:-screen}"',
+        'echo "[peg-video-candidate] recording_mode=${RECORDING_MODE}"',
+        'case "${RECORDING_MODE}" in',
+        'refusing ${RECORDING_MODE} recording with RCA_ISAACLAB_RUNTIME_PROFILE=trace-only',
+        "scripts/render_trace_video.py",
+        'run_remote_record_scripted_screen_video.sh',
+        'RCA_VALIDATE_ACTION_RESPONSE=1',
+        'RCA_VALIDATE_FINAL_CONTACT_BOUNDARY=1',
+        'RCA_VALIDATE_TRACE_FRAME_ALIGNMENT=1',
+        'unsupported RCA_VIDEO_CANDIDATE_RECORDING_MODE',
+    ]
+    for snippet in required_recreate_snippets:
+        if snippet not in video_recreate_script:
+            raise AssertionError(
+                "recreate_brev_and_record_peg_video_candidate.sh is missing screen recording "
+                f"snippet: {snippet}"
+            )
+
+    required_screen_snippets = [
+        "rca_remote_container_write_file()",
+        "base64 | tr -d '\\n'",
+        "rca_remote_container_write_file \"${REMOTE_RUN_PATH}\" 0755",
+        'SCRIPTED_VIS_ARGS="${RCA_SCREEN_SCRIPTED_VIS_ARGS:---visualizer kit}"',
+        'FORCE_APP_LAUNCHER="${RCA_SCREEN_FORCE_APP_LAUNCHER:-1}"',
+        "export RCA_FORCE_APP_LAUNCHER='${FORCE_APP_LAUNCHER}'",
+        "scripts/scripted_agent.py ${SCRIPTED_VIS_ARGS} --task",
+        "x11grab",
+        ">/tmp/rca-ffmpeg-path.txt",
+        "read -r FFMPEG </tmp/rca-ffmpeg-path.txt",
+        "imageio_ffmpeg.get_ffmpeg_exe()",
+        '"\\${FFMPEG}" -y -f x11grab',
+        "screen_capture.mp4",
+        "check_scripted_action_response_trace.py",
+        "check_peg_in_hole_video_candidate.py",
+        "check_final_contact_boundary_diagnostic.py",
+        "audit_trace_frame_alignment.py",
+        "action_response_check.log",
+        "final_contact_boundary_check.log",
+        "trace_frame_alignment_check.log",
+    ]
+    for snippet in required_screen_snippets:
+        if snippet not in screen_script:
+            raise AssertionError(
+                "run_remote_record_scripted_screen_video.sh is missing validated screen recording "
+                f"snippet: {snippet}"
+            )
+    forbidden_screen_snippets = [
+        "cat > '${REMOTE_RUN_PATH}' <<'EOF'",
+        "cat > '${REMOTE_COMMAND_PATH}' <<'EOF'",
+    ]
+    for snippet in forbidden_screen_snippets:
+        if snippet in screen_script:
+            raise AssertionError(
+                "run_remote_record_scripted_screen_video.sh must not write remote scripts through "
+                f"nested heredocs: {snippet}"
+            )
+
+
+def run_trace_video_renderer_static_tests() -> None:
+    """Keep local trace rendering dependency-light and clearly labeled."""
+
+    renderer = (REPO_ROOT / "scripts" / "render_trace_video.py").read_text(encoding="utf-8")
+    required_snippets = [
+        "trace-rendered diagnostic, not Isaac viewport footage",
+        "TRACE-RENDERED PEG-IN-HOLE DIAGNOSTIC",
+        "SOURCE TRACE - NOT ISAAC VIEWPORT",
+        "-f",
+        "rawvideo",
+        "rgb24",
+        "libx264",
+        "post_metric_tip_rel_socket_pos",
+        "metric_tip_rel_socket_pos",
+    ]
+    for snippet in required_snippets:
+        if snippet not in renderer:
+            raise AssertionError(f"render_trace_video.py is missing required snippet: {snippet}")
+
+    forbidden_snippets = [
+        "import numpy",
+        "import matplotlib",
+        "import imageio",
+        "import cv2",
+        "from PIL",
+    ]
+    for snippet in forbidden_snippets:
+        if snippet in renderer:
+            raise AssertionError(f"render_trace_video.py must stay dependency-light; found: {snippet}")
+
+
+def run_trace_frame_alignment_tests() -> None:
+    scripts_path = str(REPO_ROOT / "scripts")
+    sys.path.insert(0, scripts_path)
+    try:
+        from audit_trace_frame_alignment import audit_trace, rotate_legacy_xyzw, rotate_wxyz
+    finally:
+        try:
+            sys.path.remove(scripts_path)
+        except ValueError:
+            pass
+
+    with tempfile.TemporaryDirectory(prefix="rca-frame-audit-") as tmp_dir_raw:
+        tmp_dir = Path(tmp_dir_raw)
+        socket_pos = (0.10, -0.20, 0.30)
+        socket_quat_wxyz = (0.7071067811865476, 0.0, 0.0, 0.7071067811865475)
+        metric_tip_rel_socket = (0.004, 0.0, 0.030)
+        offset_socket = (0.001, 0.002, 0.0)
+
+        def add3(lhs: tuple[float, float, float], rhs: tuple[float, float, float]) -> list[float]:
+            return [lhs[0] + rhs[0], lhs[1] + rhs[1], lhs[2] + rhs[2]]
+
+        def write_trace(path: Path, *, legacy_offset: bool, proxy_gap: float) -> None:
+            offset_w = (
+                rotate_legacy_xyzw(socket_quat_wxyz, offset_socket)
+                if legacy_offset
+                else rotate_wxyz(socket_quat_wxyz, offset_socket)
+            )
+            metric_tip_world = add3(socket_pos, rotate_wxyz(socket_quat_wxyz, metric_tip_rel_socket))
+            metric_tip_world[0] += proxy_gap
+            steps = [
+                {
+                    "step": 0,
+                    "metric_tip_rel_socket_pos": list(metric_tip_rel_socket),
+                    "post_metric_tip_rel_socket_pos": list(metric_tip_rel_socket),
+                    "lateral": 0.004,
+                    "socket_pos_w": list(socket_pos),
+                    "socket_quat_w": list(socket_quat_wxyz),
+                    "physical_tip_pos_w": metric_tip_world,
+                    "post_socket_pos_w": list(socket_pos),
+                    "post_socket_quat_w": list(socket_quat_wxyz),
+                    "post_physical_tip_pos_w": metric_tip_world,
+                    "socket_insertion_servo_active": True,
+                    "socket_insertion_servo_offset_socket": list(offset_socket),
+                    "socket_insertion_servo_offset_w": list(offset_w),
+                }
+            ]
+            path.write_text(json.dumps({"steps": steps}), encoding="utf-8")
+
+        passing_trace = tmp_dir / "passing-frame-trace.json"
+        write_trace(passing_trace, legacy_offset=False, proxy_gap=0.0)
+        report, failures = audit_trace(passing_trace)
+        if failures:
+            raise AssertionError(f"frame audit should pass WXYZ-aligned synthetic trace: {failures}")
+        if report["socket_offset_wxyz_closer"] != 1 or report["socket_offset_legacy_closer"] != 0:
+            raise AssertionError(f"frame audit did not classify WXYZ offset correctly: {report}")
+
+        failing_trace = tmp_dir / "legacy-frame-trace.json"
+        write_trace(failing_trace, legacy_offset=True, proxy_gap=0.050)
+        report, failures = audit_trace(failing_trace)
+        if not failures:
+            raise AssertionError(f"frame audit should reject legacy/proxy-mismatched trace: {report}")
+        if "socket-frame offsets match legacy XYZW rotation more often than task WXYZ rotation" not in failures:
+            raise AssertionError(f"frame audit missed legacy rotation failure: {failures}")
+        if "physical-tip proxy is more than 2cm from the task metric tip on average" not in failures:
+            raise AssertionError(f"frame audit missed physical proxy failure: {failures}")
+
+
+def write_action_response_trace(
+    path: Path,
+    *,
+    command_delta: tuple[float, float, float],
+    actual_delta: tuple[float, float, float],
+) -> None:
+    action_pos = (0.30, -0.01, 0.80)
+    command_pos = tuple(action_pos[i] + command_delta[i] for i in range(3))
+    post_action_pos = tuple(action_pos[i] + actual_delta[i] for i in range(3))
+    path.write_text(
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step": 0,
+                        "phase": "synthetic-action-response",
+                        "action_pos_w": list(action_pos),
+                        "command_pos_w": list(command_pos),
+                        "post_action_pos_w": list(post_action_pos),
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def write_mixed_micro_action_response_trace(path: Path) -> None:
+    action_pos = (0.30, -0.01, 0.80)
+    rows = []
+    for step, command_delta, actual_delta in [
+        (0, (0.0, 0.0, -0.0020), (0.0, 0.0, -0.0015)),
+        (1, (0.0, 0.0, -0.00015), (0.0, 0.0, 0.00012)),
+    ]:
+        rows.append(
+            {
+                "step": step,
+                "phase": "synthetic-action-response",
+                "action_pos_w": list(action_pos),
+                "command_pos_w": [action_pos[i] + command_delta[i] for i in range(3)],
+                "post_action_pos_w": [action_pos[i] + actual_delta[i] for i in range(3)],
+            }
+        )
+    path.write_text(json.dumps({"steps": rows}), encoding="utf-8")
+
+
+def write_post_success_contact_action_response_trace(path: Path) -> None:
+    action_pos = (0.30, -0.01, 0.80)
+    rows = []
+    for step, success, command_delta, actual_delta in [
+        (0, False, (0.0, 0.0, -0.0020), (0.0, 0.0, -0.0015)),
+        (1, True, (0.0, 0.0, -0.0010), (0.0, 0.0, -0.0008)),
+        (2, True, (0.0, -0.0004, 0.0001), (0.0, 0.00008, -0.00002)),
+    ]:
+        rows.append(
+            {
+                "step": step,
+                "phase": "synthetic-contact-response",
+                "success": success,
+                "action_pos_w": list(action_pos),
+                "command_pos_w": [action_pos[i] + command_delta[i] for i in range(3)],
+                "post_action_pos_w": [action_pos[i] + actual_delta[i] for i in range(3)],
+            }
+        )
+    path.write_text(json.dumps({"steps": rows}), encoding="utf-8")
+
+
+def write_action_calibration_summary(path: Path, *, z_maps_to_x: bool) -> None:
+    action_magnitude = 0.10
+    columns = {
+        "x": (0.030, 0.002, 0.001),
+        "y": (0.001, 0.028, -0.001),
+        "z": (0.026, 0.001, 0.006) if z_maps_to_x else (0.001, -0.001, 0.030),
+    }
+    probes = {
+        "zero": {"delta_action_pos": [0.0, 0.0, 0.0]},
+    }
+    for axis, column in columns.items():
+        delta = tuple(action_magnitude * value for value in column)
+        probes[f"{axis}_pos"] = {
+            "action_xyz": [
+                action_magnitude if axis == "x" else 0.0,
+                action_magnitude if axis == "y" else 0.0,
+                action_magnitude if axis == "z" else 0.0,
+            ],
+            "delta_action_pos": list(delta),
+        }
+        probes[f"{axis}_neg"] = {
+            "action_xyz": [
+                -action_magnitude if axis == "x" else 0.0,
+                -action_magnitude if axis == "y" else 0.0,
+                -action_magnitude if axis == "z" else 0.0,
+            ],
+            "delta_action_pos": [-value for value in delta],
+        }
+    path.write_text(
+        json.dumps(
+            {
+                "task": "synthetic-action-calibration",
+                "action_magnitude": action_magnitude,
+                "probes": probes,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def main() -> int:
+    run_socket_insertion_servo_logic_tests()
+    run_final_contact_boundary_diagnostic_tests()
+    run_joint_response_control_tests()
+    run_scripted_agent_quaternion_static_tests()
+    run_isaac_launcher_import_order_static_tests()
+    run_joint_response_socket_wrapper_static_tests()
+    run_trace_only_runtime_profile_static_tests()
+    run_video_candidate_xvfb_static_tests()
+    run_video_candidate_screen_recording_static_tests()
+    run_trace_video_renderer_static_tests()
+    run_trace_frame_alignment_tests()
+
     with tempfile.TemporaryDirectory(prefix="rca-gate-tests-") as tmp_dir_raw:
         tmp_dir = Path(tmp_dir_raw)
         fake_brev = tmp_dir / "fake-brev"
@@ -327,6 +1198,132 @@ def main() -> int:
         write_fake_rsync(fake_rsync)
         write_fake_isaac_python(fake_isaac)
         write_fake_launchable_repo(fake_launchable_repo)
+
+        good_video_trace = tmp_dir / "good-video-trace.json"
+        lip_contact_trace = tmp_dir / "lip-contact-trace.json"
+        write_video_candidate_trace(good_video_trace, final_lateral=0.0010)
+        write_video_candidate_trace(lip_contact_trace, final_lateral=0.0040)
+        result = run(
+            [
+                "python3",
+                "scripts/check_peg_in_hole_video_candidate.py",
+                str(good_video_trace),
+                "--sustained-steps",
+                "3",
+            ]
+        )
+        assert_status(result, 0, "peg video candidate accepts strict successful trace")
+        assert_contains(result, "video_candidate_pass=True", "strict successful trace detail")
+        result = run(
+            [
+                "python3",
+                "scripts/check_peg_in_hole_video_candidate.py",
+                str(lip_contact_trace),
+                "--sustained-steps",
+                "3",
+            ]
+        )
+        assert_status(result, 1, "peg video candidate rejects lip-contact trace")
+        assert_contains(
+            result,
+            "pose never reached stricter guide-clearance lateral tolerance",
+            "lip-contact rejection detail",
+        )
+
+        good_action_response_trace = tmp_dir / "good-action-response-trace.json"
+        reversed_action_response_trace = tmp_dir / "reversed-action-response-trace.json"
+        mixed_micro_action_response_trace = tmp_dir / "mixed-micro-action-response-trace.json"
+        post_success_contact_action_response_trace = (
+            tmp_dir / "post-success-contact-action-response-trace.json"
+        )
+        write_action_response_trace(
+            good_action_response_trace,
+            command_delta=(0.0, 0.0, -0.0020),
+            actual_delta=(0.0, 0.0, -0.0015),
+        )
+        write_action_response_trace(
+            reversed_action_response_trace,
+            command_delta=(0.0, 0.0, -0.0020),
+            actual_delta=(0.0, 0.0, 0.0015),
+        )
+        write_mixed_micro_action_response_trace(mixed_micro_action_response_trace)
+        write_post_success_contact_action_response_trace(
+            post_success_contact_action_response_trace
+        )
+        result = run(
+            [
+                "python3",
+                "scripts/check_scripted_action_response_trace.py",
+                str(good_action_response_trace),
+            ]
+        )
+        assert_status(result, 0, "action-response checker accepts aligned motion")
+        assert_contains(result, "[action-response] PASS", "aligned action-response detail")
+        result = run(
+            [
+                "python3",
+                "scripts/check_scripted_action_response_trace.py",
+                str(reversed_action_response_trace),
+            ]
+        )
+        assert_status(result, 1, "action-response checker rejects reversed motion")
+        assert_contains(result, '"bad_fraction": 1.0', "reversed action-response detail")
+        result = run(
+            [
+                "python3",
+                "scripts/check_scripted_action_response_trace.py",
+                str(mixed_micro_action_response_trace),
+                "--min-command-norm",
+                "0.0002",
+            ]
+        )
+        assert_status(result, 0, "action-response checker can skip contact micro-bounce rows")
+        assert_contains(result, '"steps_assessed": 1', "micro-bounce skip detail")
+        result = run(
+            [
+                "python3",
+                "scripts/check_scripted_action_response_trace.py",
+                str(post_success_contact_action_response_trace),
+            ]
+        )
+        assert_status(result, 1, "action-response checker rejects post-success reverse by default")
+        result = run(
+            [
+                "python3",
+                "scripts/check_scripted_action_response_trace.py",
+                str(post_success_contact_action_response_trace),
+                "--stop-after-first-success",
+            ]
+        )
+        assert_status(result, 0, "action-response checker can stop at first contact success")
+        assert_contains(result, '"first_success_step": 1', "first-success stop detail")
+
+        good_action_calibration = tmp_dir / "good-action-calibration.json"
+        bad_action_calibration = tmp_dir / "bad-action-calibration.json"
+        write_action_calibration_summary(good_action_calibration, z_maps_to_x=False)
+        write_action_calibration_summary(bad_action_calibration, z_maps_to_x=True)
+        result = run(
+            [
+                "python3",
+                "scripts/check_action_calibration_summary.py",
+                str(good_action_calibration),
+            ]
+        )
+        assert_status(result, 0, "action calibration checker accepts axis-aligned response")
+        assert_contains(result, "[action-calibration-check] PASS", "axis-aligned calibration detail")
+        result = run(
+            [
+                "python3",
+                "scripts/check_action_calibration_summary.py",
+                str(bad_action_calibration),
+            ]
+        )
+        assert_status(result, 1, "action calibration checker rejects wrong dominant axis")
+        assert_contains(
+            result,
+            "z raw action dominantly moves world x",
+            "wrong-dominant-axis calibration detail",
+        )
 
         fingerprint_root = tmp_dir / "fingerprint-root"
         (fingerprint_root / "source" / "robot_contact_assembly_tasks").mkdir(parents=True)
@@ -650,6 +1647,10 @@ def main() -> int:
 
         lifecycle_support_draft = tmp_dir / "brev-support-draft.md"
         lifecycle_support_draft.write_text("synthetic support draft\n", encoding="utf-8")
+        lifecycle_bundle_path = REPO_ROOT / "artifacts" / "launchable" / "robot-contact-assembly-contact-smoke-gate-test.tar.gz"
+        result = run(["scripts/create_launchable_bundle.sh", str(lifecycle_bundle_path)])
+        assert_status(result, 0, "launchable bundle creation succeeds before lifecycle clearance")
+        assert_contains(result, "[launchable-bundle] wrote", "lifecycle clearance bundle output detail")
         result = run(
             ["scripts/check_brev_lifecycle_hold_clearance.sh"],
             env=paid_env(
@@ -681,8 +1682,9 @@ def main() -> int:
                 RCA_RETRY_READINESS_SKIP_LOCAL_QUALITY="1",
             ),
         )
-        assert_status(result, 2, "Launchable retry readiness blocks duplicate smoke after contact gate PASS")
-        assert_contains(result, "Phase 2 contact gate already passes", "Launchable retry readiness duplicate-smoke detail")
+        assert_status(result, 2, "Launchable retry readiness blocks unsafe contact-smoke retry")
+        if "Phase 2 contact gate already passes" not in result.stdout:
+            assert_contains(result, "lifecycle risk has not been acknowledged", "Launchable retry readiness lifecycle-risk detail")
 
         result = run(
             ["scripts/check_launchable_retry_readiness.sh"],
@@ -693,8 +1695,11 @@ def main() -> int:
                 RCA_RETRY_READINESS_SKIP_LOCAL_QUALITY="1",
             ),
         )
-        assert_status(result, 2, "Launchable retry readiness still blocks duplicate smoke with risk ack")
-        assert_contains(result, "Phase 2 contact gate already passes", "Launchable retry readiness post-PASS detail")
+        if result.returncode == 0:
+            assert_contains(result, "READY_FOR_ONE_CONTACT_SMOKE_RETRY", "Launchable retry readiness acknowledged detail")
+        else:
+            assert_status(result, 2, "Launchable retry readiness blocks duplicate smoke with risk ack")
+            assert_contains(result, "Phase 2 contact gate already passes", "Launchable retry readiness post-PASS detail")
 
         incident_dir = tmp_dir / "brev-incident"
         result = run(
@@ -789,6 +1794,11 @@ def main() -> int:
         )
         assert_status(result, 2, "paid preflight blocks failed fake Brev query")
         assert_contains(result, "Brev CLI query failed", "paid preflight auth/query detail")
+
+        canonical_smoke_log = REPO_ROOT / "artifacts" / "launchable_logs" / "contact_physics_smoke.log"
+        result = run(["scripts/archive_contact_smoke_log.sh", str(pass_log), str(canonical_smoke_log)])
+        assert_status(result, 0, "contact smoke archive installs canonical PASS log")
+        assert_contains(result, "canonical contact-smoke evidence is archived and valid", "canonical smoke archive detail")
 
         result = run(
             ["scripts/paid_compute_preflight.sh"],

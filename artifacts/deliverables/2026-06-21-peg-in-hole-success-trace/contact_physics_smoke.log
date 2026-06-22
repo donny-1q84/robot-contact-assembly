@@ -1,0 +1,27 @@
+[contact-smoke] git_head=06dd385ac3a86e5f624a810d592a83daff7ea009
+[contact-smoke] source_manifest_begin
+[contact-smoke] source_manifest: created_utc=2026-06-18T00-00-00Z
+[contact-smoke] source_manifest: git_head=06dd385ac3a86e5f624a810d592a83daff7ea009
+[contact-smoke] source_manifest: git_dirty=1
+[INFO]: CONTACT-SMOKE reset-joints: deterministic (synthetic)
+[INFO]: CONTACT-SMOKE phase free-space-settle: end
+[INFO]: CONTACT-SMOKE attach: PASS
+[INFO]: CONTACT-SMOKE free-space: PASS
+[INFO]: CONTACT-SMOKE phase local-guide-reanchor: end
+[INFO]: CONTACT-SMOKE contact-setup: local-guide reanchored (synthetic)
+[INFO]: CONTACT-SMOKE free-space-reanchored: PASS
+[INFO]: CONTACT-SMOKE press-control: local-wall-sweep (synthetic)
+[INFO]: CONTACT-SMOKE phase press-hold: end
+[INFO]: CONTACT-SMOKE press-force: PASS
+[INFO]: CONTACT-SMOKE press-tracking: PASS
+[INFO]: CONTACT-SMOKE press-blocked: PASS
+[INFO]: CONTACT-SMOKE press-no-clip: PASS
+[INFO]: CONTACT-SMOKE phase retreat-hold: end
+[INFO]: CONTACT-SMOKE release: PASS
+[INFO]: CONTACT-SMOKE joint-integrity: PASS
+[INFO]: CONTACT-SMOKE phase-sequence: PASS (completed=['free-space-settle', 'local-guide-reanchor', 'press-hold', 'retreat-hold'])
+[INFO]: Contact physics smoke completed: all checks passed.
+[contact-smoke] source_manifest: source_payload_scope=runtime-v1
+[contact-smoke] source_manifest: source_payload_sha256=5ecbb035170e1cbc323d70263d5a7398c0e2a47cc2b2a2f86a7aef010a760e7f
+[contact-smoke] completed: contact physics is real
+[contact-smoke] source_manifest_end

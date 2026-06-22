@@ -11,6 +11,7 @@ WEB_VIEWER_PORT="${WEB_VIEWER_PORT:-8210}"
 ISAACSIM_SIGNAL_PORT="${ISAACSIM_SIGNAL_PORT:-49100}"
 ISAACSIM_STREAM_PORT="${ISAACSIM_STREAM_PORT:-47998}"
 SKIP_STREAM_STACK="${RCA_SKIP_STREAM_STACK:-0}"
+RUNTIME_PROFILE="${RCA_ISAACLAB_RUNTIME_PROFILE:-full}"
 
 "${SCRIPT_DIR}/remote_operation_preflight.sh"
 
@@ -22,10 +23,11 @@ printf -v WEB_VIEWER_PORT_Q "%q" "${WEB_VIEWER_PORT}"
 printf -v ISAACSIM_SIGNAL_PORT_Q "%q" "${ISAACSIM_SIGNAL_PORT}"
 printf -v ISAACSIM_STREAM_PORT_Q "%q" "${ISAACSIM_STREAM_PORT}"
 printf -v SKIP_STREAM_STACK_Q "%q" "${SKIP_STREAM_STACK}"
+printf -v RUNTIME_PROFILE_Q "%q" "${RUNTIME_PROFILE}"
 
 echo "[runtime] ensuring project mounts are active in ${ENV_NAME}"
 ssh "${ENV_NAME}" \
-  "REMOTE_ROOT=${REMOTE_ROOT_Q} REMOTE_COMPOSE_ROOT=${REMOTE_COMPOSE_ROOT_Q} ISAAC_SIM_IMAGE=${ISAAC_SIM_IMAGE_Q} TASK_CONTAINER_NAME=${TASK_CONTAINER_NAME_Q} WEB_VIEWER_PORT=${WEB_VIEWER_PORT_Q} ISAACSIM_SIGNAL_PORT=${ISAACSIM_SIGNAL_PORT_Q} ISAACSIM_STREAM_PORT=${ISAACSIM_STREAM_PORT_Q} SKIP_STREAM_STACK=${SKIP_STREAM_STACK_Q} bash -s" <<'REMOTE_SCRIPT'
+  "REMOTE_ROOT=${REMOTE_ROOT_Q} REMOTE_COMPOSE_ROOT=${REMOTE_COMPOSE_ROOT_Q} ISAAC_SIM_IMAGE=${ISAAC_SIM_IMAGE_Q} TASK_CONTAINER_NAME=${TASK_CONTAINER_NAME_Q} WEB_VIEWER_PORT=${WEB_VIEWER_PORT_Q} ISAACSIM_SIGNAL_PORT=${ISAACSIM_SIGNAL_PORT_Q} ISAACSIM_STREAM_PORT=${ISAACSIM_STREAM_PORT_Q} SKIP_STREAM_STACK=${SKIP_STREAM_STACK_Q} RCA_ISAACLAB_RUNTIME_PROFILE=${RUNTIME_PROFILE_Q} bash -s" <<'REMOTE_SCRIPT'
 set -euo pipefail
 
 REMOTE_LAUNCHABLE_DIR="${REMOTE_ROOT}/third_party/isaac-launchable"
@@ -165,11 +167,14 @@ sudo docker run -d \
   "${ISAAC_SIM_IMAGE}" \
   -lc "sleep infinity" >/dev/null
 
-sudo docker exec -u root -i "${TASK_CONTAINER_NAME}" bash -s <<'CONTAINER_SCRIPT'
+sudo docker exec -u root -i \
+  -e RCA_ISAACLAB_RUNTIME_PROFILE="${RCA_ISAACLAB_RUNTIME_PROFILE}" \
+  "${TASK_CONTAINER_NAME}" bash -s <<'CONTAINER_SCRIPT'
 set -euo pipefail
 
 export PIP_DEFAULT_TIMEOUT="${PIP_DEFAULT_TIMEOUT:-120}"
 export PIP_RETRIES="${PIP_RETRIES:-10}"
+RCA_ISAACLAB_RUNTIME_PROFILE="${RCA_ISAACLAB_RUNTIME_PROFILE:-full}"
 
 retry_cmd() {
   local attempts="$1"
@@ -199,13 +204,24 @@ ln -sfn /isaac-sim /workspace/IsaacLab/_isaac_sim
 mkdir -p /workspace/artifacts/hydra
 chown -R 1234:1234 /workspace/artifacts
 cd /workspace/IsaacLab
-retry_cmd 3 20 ./isaaclab.sh --install assets,physx,tasks
-retry_cmd 3 20 /isaac-sim/python.sh -m pip install --editable /workspace/IsaacLab/source/isaaclab_contrib
-retry_cmd 3 20 /isaac-sim/python.sh -m pip install --editable /workspace/IsaacLab/source/isaaclab_rl
-if ! /isaac-sim/python.sh -m pip show rsl-rl-lib >/dev/null 2>&1; then
-  retry_cmd 3 20 /isaac-sim/python.sh -m pip install rsl-rl-lib==5.0.1 onnxscript\>=0.5 numpy==2.3.1 pillow==12.1.1
+if [ "${RCA_ISAACLAB_RUNTIME_PROFILE}" = "trace-only" ]; then
+  echo "[runtime] trace-only profile: installing required IsaacLab runtime submodules only"
+  retry_cmd 3 20 /isaac-sim/python.sh -m pip install --editable /workspace/IsaacLab/source/isaaclab
+  retry_cmd 3 20 /isaac-sim/python.sh -m pip install --editable /workspace/IsaacLab/source/isaaclab_assets
+  retry_cmd 3 20 /isaac-sim/python.sh -m pip install --editable /workspace/IsaacLab/source/isaaclab_physx
+  retry_cmd 3 20 /isaac-sim/python.sh -m pip install --editable /workspace/IsaacLab/source/isaaclab_tasks
+  retry_cmd 3 20 /isaac-sim/python.sh -m pip install --editable /workspace/IsaacLab/source/isaaclab_rl
+  retry_cmd 3 20 /isaac-sim/python.sh -m pip install warp-lang==1.12.1 pillow==12.1.1
+  echo "[runtime] trace-only profile: skipping optional IsaacLab contrib/newton/visualizer/rsl-rl explicit installs"
+else
+  retry_cmd 3 20 ./isaaclab.sh --install
+  retry_cmd 3 20 /isaac-sim/python.sh -m pip install --editable /workspace/IsaacLab/source/isaaclab_contrib
+  retry_cmd 3 20 /isaac-sim/python.sh -m pip install --editable /workspace/IsaacLab/source/isaaclab_rl
+  if ! /isaac-sim/python.sh -m pip show rsl-rl-lib >/dev/null 2>&1; then
+    retry_cmd 3 20 /isaac-sim/python.sh -m pip install rsl-rl-lib==5.0.1 onnxscript\>=0.5 numpy==2.3.1 pillow==12.1.1
+  fi
+  retry_cmd 3 20 /isaac-sim/python.sh -m pip install h5py
 fi
-retry_cmd 3 20 /isaac-sim/python.sh -m pip install h5py
 retry_cmd 3 20 /isaac-sim/python.sh -m pip install hydra-core
 retry_cmd 3 20 /isaac-sim/python.sh -m pip install --editable /workspace/robot-contact-assembly/source/robot_contact_assembly_tasks
 TENSOR_API_DIR="$(find /isaac-sim/extscache -path '*/omni/physics/tensors' -type d 2>/dev/null | head -n 1 || true)"

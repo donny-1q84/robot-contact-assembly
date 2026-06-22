@@ -19,9 +19,10 @@ EXPERIMENT_NAME="${RCA_EXPERIMENT_NAME:-franka_peg_in_hole}"
 VIDEO_TIMEOUT_SECONDS="${RCA_VIDEO_TIMEOUT_SECONDS:-240}"
 VIDEO_TIMEOUT_KILL_SECONDS="${RCA_VIDEO_TIMEOUT_KILL_SECONDS:-30}"
 VIDEO_BACKEND="${RCA_VIDEO_BACKEND:-viewport}"
+AUTO_VIEWPORT_KIT_ARGS="${RCA_AUTO_VIEWPORT_KIT_ARGS:-0}"
 VIEWPORT_KIT_ARGS='--kit_args "--enable omni.replicator.core --enable omni.kit.material.library --enable omni.kit.viewport.rtx"'
 
-if [[ "${VIDEO_BACKEND}" == "viewport" && "${EXTRA_PLAY_ARGS}" != *"--kit_args"* ]]; then
+if [[ "${AUTO_VIEWPORT_KIT_ARGS}" == "1" && "${VIDEO_BACKEND}" == "viewport" && "${EXTRA_PLAY_ARGS}" != *"--kit_args"* ]]; then
   if [[ -n "${EXTRA_PLAY_ARGS}" ]]; then
     EXTRA_PLAY_ARGS="${EXTRA_PLAY_ARGS} ${VIEWPORT_KIT_ARGS}"
   else
@@ -42,6 +43,7 @@ echo "[record-video] load_run=${LOAD_RUN} checkpoint=${CHECKPOINT}"
 echo "[record-video] timeout_seconds=${VIDEO_TIMEOUT_SECONDS}"
 echo "[record-video] timeout_kill_seconds=${VIDEO_TIMEOUT_KILL_SECONDS}"
 echo "[record-video] video_backend=${VIDEO_BACKEND}"
+echo "[record-video] auto_viewport_kit_args=${AUTO_VIEWPORT_KIT_ARGS}"
 if [[ -n "${EXTRA_PLAY_ARGS}" ]]; then
   echo "[record-video] extra_play_args=${EXTRA_PLAY_ARGS}"
 fi

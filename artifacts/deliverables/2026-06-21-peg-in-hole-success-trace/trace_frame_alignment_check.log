@@ -1,0 +1,14 @@
+[trace-frame-audit] trace=/workspace/artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json
+  step_count: 183
+  same_step_metric_lateral_gap_max: 0.0001472062092667429
+  next_step_metric_lateral_gap_max: 8.362918820989385e-11
+  metric_world_to_physical_proxy_gap_mean: 1.795562270328001e-09
+  metric_world_to_physical_proxy_gap_max: 7.0116090102945345e-09
+  post_metric_world_to_physical_tip_gap_mean: 1.7934380855348591e-09
+  post_metric_world_to_physical_tip_gap_max: 7.0116090102945345e-09
+  socket_offset_rows: 183
+  socket_offset_wxyz_closer: 183
+  socket_offset_legacy_closer: 0
+  socket_offset_wxyz_error_max: 9.222423397659524e-11
+  socket_offset_legacy_error_max: 0.0010734772903484837
+[trace-frame-audit] PASS
