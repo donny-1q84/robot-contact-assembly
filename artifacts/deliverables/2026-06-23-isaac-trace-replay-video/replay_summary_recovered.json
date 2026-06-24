@@ -1,0 +1,23 @@
+{
+  "artifact_status": "complete_recovered_locally",
+  "codec_name": "h264",
+  "duration_seconds": 6.1,
+  "first_success_frame": 167,
+  "fps": 30,
+  "frames_written": 183,
+  "height": 720,
+  "replay_end_step": 182,
+  "replay_start_step": 0,
+  "replay_stride": 1,
+  "source_best_axial": 0.007546612061560154,
+  "source_best_lateral": 0.00014721538173034787,
+  "source_best_rot": 0.0003452669770922512,
+  "source_final_success_rate": 1.0,
+  "source_max_contact_force_magnitude": 1.0929346084594727,
+  "source_success_step": 167,
+  "source_trace_json": "artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json",
+  "summary_origin": "remote replay wrote mp4 but exited during Isaac env.close before writing JSON; recovered from source trace plus ffprobe",
+  "task": "RCA-PegInHole-Franka-JointPos-Contact-Play-v0",
+  "video_path": "artifacts/videos/isaac_trace_replay/2026-06-23T05-33-52Z/eval/isaac_trace_replay.mp4",
+  "width": 1280
+}

@@ -1,0 +1,6 @@
+[peg-video-candidate] PASS: artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json
+  task_gate_pass=True
+  video_candidate_pass=True
+  first_task_sustained_step=166
+  first_video_sustained_step=166
+  metrics: initial_axial=0.0497622974216938 best_axial=0.007546612061560154 visible_descent=0.04221568536013365 best_lateral=0.00014721538173034787 best_rot=0.0003452669770922512 max_contact_force=1.0929346084594727

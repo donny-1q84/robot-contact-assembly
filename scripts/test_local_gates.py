@@ -593,7 +593,7 @@ def run_joint_response_control_tests() -> None:
     scripts_path = str(REPO_ROOT / "scripts")
     sys.path.insert(0, scripts_path)
     try:
-        from joint_response_control import compute_joint_response_command
+        from joint_response_control import compute_joint_response_command, load_response_matrix
     finally:
         try:
             sys.path.remove(scripts_path)
@@ -643,6 +643,33 @@ def run_joint_response_control_tests() -> None:
     )
     if blocked.pass_gate:
         raise AssertionError(f"joint-response controller must fail closed without Z authority: {blocked}")
+
+    known_good = REPO_ROOT / "artifacts/calibration/joint_position_action/2026-06-21T10-21-39Z/seed_42.json"
+    if known_good.exists():
+        good_down = compute_joint_response_command(
+            load_response_matrix(known_good),
+            (0.0, 0.0, -0.0015),
+            max_joint_delta=0.04,
+            min_cosine=0.85,
+            max_residual_ratio=0.25,
+        )
+        if not good_down.pass_gate:
+            raise AssertionError(f"known 8-step joint-response calibration should pass: {good_down}")
+
+    known_underconverged = REPO_ROOT / "artifacts/calibration/joint_position_action/2026-06-23T00-40-06Z/seed_42.json"
+    if known_underconverged.exists():
+        underconverged_down = compute_joint_response_command(
+            load_response_matrix(known_underconverged),
+            (0.0, 0.0, -0.0015),
+            max_joint_delta=0.04,
+            min_cosine=0.85,
+            max_residual_ratio=0.25,
+        )
+        if underconverged_down.pass_gate:
+            raise AssertionError(
+                "under-converged 4-step joint-response calibration should fail closed: "
+                f"{underconverged_down}"
+            )
 
 
 def run_scripted_agent_quaternion_static_tests() -> None:
@@ -733,6 +760,14 @@ def run_scripted_agent_quaternion_static_tests() -> None:
         "\"post_success_hold_mode\"",
         "post_success_hold_step_count",
         "socket-servo-maintain-contact-preload",
+        "def _make_debug_camera(",
+        "from isaaclab.sensors.camera import Camera, CameraCfg",
+        "choices=(\"viewport\", \"camera\")",
+        "args_cli.video_backend in (\"viewport\", \"camera\")",
+        "video_camera = _make_debug_camera(",
+        "video_writer.append_data(_frame_to_uint8(video_camera.data.output[\"rgb\"][0]))",
+        "\"video_frames_written\": video_frames_written if args_cli.video else 0",
+        "closed camera video writer",
     ]
     for snippet in required_snippets:
         if snippet not in scripted_agent:
@@ -831,21 +866,54 @@ def run_trace_only_runtime_profile_static_tests() -> None:
     install_script = (REPO_ROOT / "scripts" / "install_remote_isaaclab_runtime.sh").read_text(
         encoding="utf-8"
     )
+    record_script = (REPO_ROOT / "scripts" / "run_remote_record_scripted_video.sh").read_text(
+        encoding="utf-8"
+    )
     trace_recreate_script = (
         REPO_ROOT / "scripts" / "recreate_brev_and_run_final_contact_servo_trace.sh"
     ).read_text(encoding="utf-8")
 
     required_install_snippets = [
         'RUNTIME_PROFILE="${RCA_ISAACLAB_RUNTIME_PROFILE:-full}"',
-        "RCA_ISAACLAB_RUNTIME_PROFILE=${RUNTIME_PROFILE_Q} bash -s",
+        'ISAACLAB_GIT_REF="${RCA_ISAACLAB_GIT_REF:-develop}"',
+        "RCA_ISAACLAB_GIT_REF=${ISAACLAB_GIT_REF_Q} bash -s",
         '-e RCA_ISAACLAB_RUNTIME_PROFILE="${RCA_ISAACLAB_RUNTIME_PROFILE}"',
+        '-e RCA_ISAACLAB_GIT_REF="${RCA_ISAACLAB_GIT_REF}"',
         'RCA_ISAACLAB_RUNTIME_PROFILE="${RCA_ISAACLAB_RUNTIME_PROFILE:-full}"',
+        'RCA_ISAACLAB_GIT_REF="${RCA_ISAACLAB_GIT_REF:-develop}"',
+        'git clone --depth 1 --branch "${RCA_ISAACLAB_GIT_REF}" https://github.com/isaac-sim/IsaacLab.git',
+        'git ls-remote --exit-code --tags origin "${RCA_ISAACLAB_GIT_REF}"',
+        "[runtime] installing IsaacLab ref ${RCA_ISAACLAB_GIT_REF} with profile ${RCA_ISAACLAB_RUNTIME_PROFILE}",
+        "set +e",
+        'if [ "${status}" -eq 0 ]; then',
+        "install_editable_package()",
+        "install_isaaclab_core_runtime()",
+        "validate_runtime_imports()",
+        'if os.environ.get("RCA_ISAACLAB_RUNTIME_PROFILE") in {"camera", "viewport"}:',
+        "rendering profile requires a warp package with warp.context",
+        "rendering profile requires a warp package with warp.types.array",
+        "[runtime-import] OK rendering warp compatibility",
+        'export TERM="${TERM:-xterm-256color}"',
+        '/isaac-sim/python.sh -m pip install "setuptools<80"',
+        "/isaac-sim/python.sh -m pip install --no-build-isolation flatdict==4.0.1",
+        "/isaac-sim/python.sh -m pip install --no-build-isolation --editable",
         'if [ "${RCA_ISAACLAB_RUNTIME_PROFILE}" = "trace-only" ]; then',
         "[runtime] trace-only profile: installing required IsaacLab runtime submodules only",
         "/workspace/IsaacLab/source/isaaclab_tasks",
         "/workspace/IsaacLab/source/isaaclab_rl",
         "/isaac-sim/python.sh -m pip install warp-lang==1.12.1 pillow==12.1.1",
         "[runtime] trace-only profile: skipping optional IsaacLab contrib/newton/visualizer/rsl-rl explicit installs",
+        'elif [ "${RCA_ISAACLAB_RUNTIME_PROFILE}" = "camera" ]; then',
+        "[runtime] camera profile: installing headless IsaacLab runtime plus video writer dependencies",
+        "/isaac-sim/python.sh -m pip install warp-lang==1.12.1 pillow==12.1.1 imageio imageio-ffmpeg",
+        "[runtime] camera profile: skipping optional IsaacLab contrib/newton/visualizer/rsl-rl explicit installs",
+        'elif [ "${RCA_ISAACLAB_RUNTIME_PROFILE}" = "viewport" ]; then',
+        "[runtime] viewport profile: installing IsaacLab runtime plus screen/video dependencies",
+        "/isaac-sim/python.sh -m pip install warp-lang==1.12.1 imageio imageio-ffmpeg",
+        "[runtime] viewport profile: skipping optional training extras",
+        'install_editable_package /workspace/IsaacLab/source/isaaclab_contrib optional',
+        "importlib.util.find_spec(module_name)",
+        "robot_contact_assembly_tasks",
     ]
     for snippet in required_install_snippets:
         if snippet not in install_script:
@@ -857,6 +925,23 @@ def run_trace_only_runtime_profile_static_tests() -> None:
         raise AssertionError(
             "trace-only runtime must not use invalid IsaacLab install tokens that fall back to broad installs"
         )
+
+    required_camera_record_snippets = [
+        'FORCE_APP_LAUNCHER="${RCA_RECORD_SCRIPTED_FORCE_APP_LAUNCHER:-${RCA_FORCE_APP_LAUNCHER:-0}}"',
+        'SCRIPTED_VIS_ARGS="${RCA_RECORD_SCRIPTED_VIS_ARGS:-}"',
+        'if [[ "${VIDEO_BACKEND}" == "camera" ]]; then',
+        'FORCE_APP_LAUNCHER="${RCA_RECORD_SCRIPTED_FORCE_APP_LAUNCHER:-${RCA_FORCE_APP_LAUNCHER:-1}}"',
+        'SCRIPTED_VIS_ARGS="${RCA_RECORD_SCRIPTED_VIS_ARGS:---viz none}"',
+        'echo "[record-scripted] force_app_launcher=${FORCE_APP_LAUNCHER}"',
+        "export RCA_FORCE_APP_LAUNCHER='${FORCE_APP_LAUNCHER}'",
+        "scripts/scripted_agent.py ${SCRIPTED_VIS_ARGS} --task",
+    ]
+    for snippet in required_camera_record_snippets:
+        if snippet not in record_script:
+            raise AssertionError(
+                "run_remote_record_scripted_video.sh is missing camera launcher protection "
+                f"snippet: {snippet}"
+            )
 
     required_trace_recreate_snippets = [
         'RCA_ISAACLAB_RUNTIME_PROFILE="${RCA_ISAACLAB_RUNTIME_PROFILE:-trace-only}"',
@@ -913,11 +998,20 @@ def run_video_candidate_screen_recording_static_tests() -> None:
 
     required_recreate_snippets = [
         'RECORDING_MODE="${RCA_VIDEO_CANDIDATE_RECORDING_MODE:-screen}"',
+        'CALIBRATION_STEPS_PER_PROBE="${RCA_VIDEO_CANDIDATE_CALIBRATION_STEPS_PER_PROBE:-8}"',
+        'CALIBRATION_TIMEOUT_SECONDS="${RCA_VIDEO_CANDIDATE_CALIBRATION_TIMEOUT_SECONDS:-900}"',
+        'CALIBRATION_DOWN_DELTA="${RCA_VIDEO_CANDIDATE_CALIBRATION_DOWN_DELTA:-0,0,-0.0002}"',
+        'CALIBRATION_UP_DELTA="${RCA_VIDEO_CANDIDATE_CALIBRATION_UP_DELTA:-0,0,0.0002}"',
+        'RCA_JOINT_RESPONSE_CALIBRATION_DOWN_DELTA="${CALIBRATION_DOWN_DELTA}"',
+        'RCA_JOINT_RESPONSE_CALIBRATION_UP_DELTA="${CALIBRATION_UP_DELTA}"',
+        '--socket-insertion-servo-z-step "${RCA_VIDEO_CANDIDATE_SOCKET_Z_STEP:-0.0002}"',
         'echo "[peg-video-candidate] recording_mode=${RECORDING_MODE}"',
         'case "${RECORDING_MODE}" in',
         'refusing ${RECORDING_MODE} recording with RCA_ISAACLAB_RUNTIME_PROFILE=trace-only',
         "scripts/render_trace_video.py",
         'run_remote_record_scripted_screen_video.sh',
+        'RCA_VIDEO_BACKEND=camera',
+        'RCA_AUTO_VIEWPORT_KIT_ARGS="${RCA_AUTO_VIEWPORT_KIT_ARGS:-1}"',
         'RCA_VALIDATE_ACTION_RESPONSE=1',
         'RCA_VALIDATE_FINAL_CONTACT_BOUNDARY=1',
         'RCA_VALIDATE_TRACE_FRAME_ALIGNMENT=1',
@@ -967,6 +1061,74 @@ def run_video_candidate_screen_recording_static_tests() -> None:
             raise AssertionError(
                 "run_remote_record_scripted_screen_video.sh must not write remote scripts through "
                 f"nested heredocs: {snippet}"
+            )
+
+
+def run_isaac_trace_replay_video_static_tests() -> None:
+    """Keep trace replay honest: semantic proof from trace, pixels from Isaac."""
+
+    replay_script = (REPO_ROOT / "scripts" / "replay_trace_in_isaac_video.py").read_text(
+        encoding="utf-8"
+    )
+    remote_runner = (REPO_ROOT / "scripts" / "run_remote_replay_trace_video.sh").read_text(
+        encoding="utf-8"
+    )
+    video_recreate_script = (
+        REPO_ROOT / "scripts" / "recreate_brev_and_record_peg_video_candidate.sh"
+    ).read_text(encoding="utf-8")
+
+    required_replay_snippets = [
+        "Render a validated scripted trace inside Isaac Sim.",
+        "real Isaac Lab scene",
+        "The source trace remains the",
+        "semantic proof",
+        "render_mode=\"rgb_array\"",
+        "write_root_pose_to_sim",
+        "write_joint_state_to_sim",
+        "set_joint_position_target",
+        "articulation-link peg is",
+        "imageio.get_writer",
+        "isaac_trace_replay.mp4",
+        "--require-source-success",
+        "--write-peg-root-from-trace",
+        "\"source_success_step\"",
+        "\"frames_written\"",
+    ]
+    for snippet in required_replay_snippets:
+        if snippet not in replay_script:
+            raise AssertionError(f"replay_trace_in_isaac_video.py missing snippet: {snippet}")
+
+    required_runner_snippets = [
+        "remote_common.sh",
+        "rca_init_remote_vars",
+        "RCA_REPLAY_TRACE_JSON",
+        "trace_replay_inputs",
+        "rsync -az",
+        "scripts/replay_trace_in_isaac_video.py",
+        "--require-source-success",
+        "--write-peg-root-from-trace",
+        "isaac_trace_replay.mp4",
+        "replay_summary.json",
+        "frames_written must be positive",
+        "source_success_step must be present",
+    ]
+    for snippet in required_runner_snippets:
+        if snippet not in remote_runner:
+            raise AssertionError(f"run_remote_replay_trace_video.sh missing snippet: {snippet}")
+
+    required_recreate_snippets = [
+        'RECORDING_MODE="${RCA_VIDEO_CANDIDATE_RECORDING_MODE:-screen}"',
+        '"${RECORDING_MODE}" != "trace-replay"',
+        "trace-replay)",
+        "run_remote_replay_trace_video.sh",
+        'RCA_REPLAY_VIDEO_TIMEOUT_SECONDS="${VIDEO_TIMEOUT_SECONDS}"',
+        'RCA_REPLAY_TRACE_SEED="${SEED}"',
+    ]
+    for snippet in required_recreate_snippets:
+        if snippet not in video_recreate_script:
+            raise AssertionError(
+                "recreate_brev_and_record_peg_video_candidate.sh is missing trace-replay "
+                f"snippet: {snippet}"
             )
 
 
@@ -1185,6 +1347,7 @@ def main() -> int:
     run_trace_only_runtime_profile_static_tests()
     run_video_candidate_xvfb_static_tests()
     run_video_candidate_screen_recording_static_tests()
+    run_isaac_trace_replay_video_static_tests()
     run_trace_video_renderer_static_tests()
     run_trace_frame_alignment_tests()
 

@@ -22,6 +22,8 @@ EXTRA_PLAY_ARGS="${9:-}"
 VIDEO_TIMEOUT_SECONDS="${RCA_VIDEO_TIMEOUT_SECONDS:-240}"
 VIDEO_TIMEOUT_KILL_SECONDS="${RCA_VIDEO_TIMEOUT_KILL_SECONDS:-30}"
 VIDEO_BACKEND="${RCA_VIDEO_BACKEND:-viewport}"
+FORCE_APP_LAUNCHER="${RCA_RECORD_SCRIPTED_FORCE_APP_LAUNCHER:-${RCA_FORCE_APP_LAUNCHER:-0}}"
+SCRIPTED_VIS_ARGS="${RCA_RECORD_SCRIPTED_VIS_ARGS:-}"
 VALIDATE_PEG_VIDEO_CANDIDATE="${RCA_VALIDATE_PEG_VIDEO_CANDIDATE:-0}"
 VALIDATE_ACTION_RESPONSE="${RCA_VALIDATE_ACTION_RESPONSE:-0}"
 VALIDATE_FINAL_CONTACT_BOUNDARY="${RCA_VALIDATE_FINAL_CONTACT_BOUNDARY:-0}"
@@ -37,6 +39,11 @@ if [[ "${AUTO_VIEWPORT_KIT_ARGS}" == "1" && "${VIDEO_BACKEND}" == "viewport" && 
   else
     EXTRA_PLAY_ARGS="${VIEWPORT_KIT_ARGS}"
   fi
+fi
+
+if [[ "${VIDEO_BACKEND}" == "camera" ]]; then
+  FORCE_APP_LAUNCHER="${RCA_RECORD_SCRIPTED_FORCE_APP_LAUNCHER:-${RCA_FORCE_APP_LAUNCHER:-1}}"
+  SCRIPTED_VIS_ARGS="${RCA_RECORD_SCRIPTED_VIS_ARGS:---viz none}"
 fi
 
 TIMESTAMP_UTC="$(date -u +"%Y-%m-%dT%H-%M-%SZ")"
@@ -56,6 +63,8 @@ REMOTE_EVAL_VIDEO_DIR="${REMOTE_VIDEO_DIR}/eval"
 echo "[record-scripted] env=${RCA_ENV_NAME} task=${TASK_NAME} num_envs=${NUM_ENVS} video_length=${VIDEO_LENGTH} seed=${SEED}"
 echo "[record-scripted] steps=${SCRIPTED_STEPS} timeout_seconds=${VIDEO_TIMEOUT_SECONDS} timeout_kill_seconds=${VIDEO_TIMEOUT_KILL_SECONDS}"
 echo "[record-scripted] video_backend=${VIDEO_BACKEND}"
+echo "[record-scripted] force_app_launcher=${FORCE_APP_LAUNCHER}"
+echo "[record-scripted] scripted_vis_args=${SCRIPTED_VIS_ARGS:-<none>}"
 echo "[record-scripted] validate_peg_video_candidate=${VALIDATE_PEG_VIDEO_CANDIDATE}"
 echo "[record-scripted] validate_action_response=${VALIDATE_ACTION_RESPONSE}"
 echo "[record-scripted] action_response_min_command_norm=${ACTION_RESPONSE_MIN_COMMAND_NORM}"
@@ -91,7 +100,8 @@ export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
 source /isaac-sim/setup_python_env.sh
 export RESOURCE_NAME=IsaacSim
 export LD_PRELOAD=/isaac-sim/kit/libcarb.so
-/isaac-sim/kit/python/bin/python3 scripts/scripted_agent.py --task ${TASK_NAME} --headless --video --video_backend ${VIDEO_BACKEND} --video_folder '${REMOTE_EVAL_VIDEO_DIR}' --video_length ${VIDEO_LENGTH} --steps ${SCRIPTED_STEPS} --num_envs ${NUM_ENVS} --seed ${SEED} --summary-json '${REMOTE_SUMMARY_PATH}' --trace-json '${REMOTE_TRACE_PATH}' hydra.run.dir=${REMOTE_HYDRA_DIR} hydra.output_subdir=null ${EXTRA_PLAY_ARGS} &
+export RCA_FORCE_APP_LAUNCHER='${FORCE_APP_LAUNCHER}'
+/isaac-sim/kit/python/bin/python3 scripts/scripted_agent.py ${SCRIPTED_VIS_ARGS} --task ${TASK_NAME} --headless --video --video_backend ${VIDEO_BACKEND} --video_folder '${REMOTE_EVAL_VIDEO_DIR}' --video_length ${VIDEO_LENGTH} --steps ${SCRIPTED_STEPS} --num_envs ${NUM_ENVS} --seed ${SEED} --summary-json '${REMOTE_SUMMARY_PATH}' --trace-json '${REMOTE_TRACE_PATH}' hydra.run.dir=${REMOTE_HYDRA_DIR} hydra.output_subdir=null ${EXTRA_PLAY_ARGS} &
 child_pid=\$!
 wait "\${child_pid}"
 EOF

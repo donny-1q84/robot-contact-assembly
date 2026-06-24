@@ -27,8 +27,10 @@ DELETE_ATTEMPTS="${RCA_VIDEO_CANDIDATE_DELETE_ATTEMPTS:-45}"
 DELETE_RETRY_INTERVAL_SECONDS="${RCA_VIDEO_CANDIDATE_DELETE_RETRY_INTERVAL_SECONDS:-10}"
 VIDEO_TIMEOUT_SECONDS="${RCA_VIDEO_CANDIDATE_TIMEOUT_SECONDS:-900}"
 VIDEO_TIMEOUT_KILL_SECONDS="${RCA_VIDEO_CANDIDATE_TIMEOUT_KILL_SECONDS:-45}"
-CALIBRATION_STEPS_PER_PROBE="${RCA_VIDEO_CANDIDATE_CALIBRATION_STEPS_PER_PROBE:-4}"
-CALIBRATION_TIMEOUT_SECONDS="${RCA_VIDEO_CANDIDATE_CALIBRATION_TIMEOUT_SECONDS:-240}"
+CALIBRATION_STEPS_PER_PROBE="${RCA_VIDEO_CANDIDATE_CALIBRATION_STEPS_PER_PROBE:-8}"
+CALIBRATION_TIMEOUT_SECONDS="${RCA_VIDEO_CANDIDATE_CALIBRATION_TIMEOUT_SECONDS:-900}"
+CALIBRATION_DOWN_DELTA="${RCA_VIDEO_CANDIDATE_CALIBRATION_DOWN_DELTA:-0,0,-0.0002}"
+CALIBRATION_UP_DELTA="${RCA_VIDEO_CANDIDATE_CALIBRATION_UP_DELTA:-0,0,0.0002}"
 JOINT_RESPONSE_SUMMARY_PATH="/workspace/artifacts/calibration/joint_position_action/latest_seed_${SEED}.json"
 RUN_ID="$(date -u +"%Y-%m-%dT%H-%M-%SZ")"
 WATCHDOG_DIR="${RCA_VIDEO_CANDIDATE_WATCHDOG_LEDGER_DIR:-${REPO_ROOT}/artifacts/brev_paid_runs/${RUN_ID}_${ENV_NAME}}"
@@ -90,7 +92,7 @@ JOINT_RESPONSE_SOCKET_AGENT_ARGS=(
   --socket-insertion-servo-xy-gain "${RCA_VIDEO_CANDIDATE_SOCKET_XY_GAIN:-0.85}"
   --socket-insertion-servo-xy-clamp "${RCA_VIDEO_CANDIDATE_SOCKET_XY_CLAMP:-0.0025}"
   --socket-insertion-servo-z-gain "${RCA_VIDEO_CANDIDATE_SOCKET_Z_GAIN:-1.0}"
-  --socket-insertion-servo-z-step "${RCA_VIDEO_CANDIDATE_SOCKET_Z_STEP:-0.0005}"
+  --socket-insertion-servo-z-step "${RCA_VIDEO_CANDIDATE_SOCKET_Z_STEP:-0.0002}"
   --socket-insertion-servo-contact-preload-step "${RCA_VIDEO_CANDIDATE_SOCKET_CONTACT_PRELOAD_STEP:-0.0002}"
   --socket-insertion-servo-contact-boundary-min-force "${RCA_VIDEO_CANDIDATE_SOCKET_CONTACT_BOUNDARY_MIN_FORCE:-0.25}"
   --socket-insertion-servo-contact-boundary-tol "${RCA_VIDEO_CANDIDATE_SOCKET_CONTACT_BOUNDARY_TOL:-0.0010}"
@@ -354,10 +356,10 @@ fi
 
 if [[ "${RCA_ISAACLAB_RUNTIME_PROFILE:-}" == "trace-only" ]]; then
   case "${RECORDING_MODE}" in
-    screen|viewport)
+    screen|viewport|camera)
       cat >&2 <<EOF
 [peg-video-candidate] refusing ${RECORDING_MODE} recording with RCA_ISAACLAB_RUNTIME_PROFILE=trace-only.
-[peg-video-candidate] trace-only is for semantic/headless validation. Use the full runtime profile for Isaac UI/viewport recording, or render an already validated trace locally with scripts/render_trace_video.py.
+[peg-video-candidate] trace-only is for semantic/headless validation. Use the full runtime profile for Isaac UI/viewport/camera recording, or render an already validated trace locally with scripts/render_trace_video.py.
 EOF
       exit 2
       ;;
@@ -395,10 +397,12 @@ RCA_SKIP_STREAM_STACK="${RCA_SKIP_STREAM_STACK:-1}" \
 
 start_container_xvfb
 
-if [[ "${AGENT_MODE}" == "joint-response-socket" && -z "${RCA_VIDEO_CANDIDATE_AGENT_ARGS:-}" ]]; then
+if [[ "${AGENT_MODE}" == "joint-response-socket" && "${RECORDING_MODE}" != "trace-replay" && -z "${RCA_VIDEO_CANDIDATE_AGENT_ARGS:-}" ]]; then
   echo "[peg-video-candidate] calibrating JointPositionAction response for video controller"
   RCA_REMOTE_OPERATION_PURPOSE=post_contact_gate \
   RCA_REMOTE_DOCKER_EXEC_ENV="-u root -e DISPLAY=:99" \
+  RCA_JOINT_RESPONSE_CALIBRATION_DOWN_DELTA="${CALIBRATION_DOWN_DELTA}" \
+  RCA_JOINT_RESPONSE_CALIBRATION_UP_DELTA="${CALIBRATION_UP_DELTA}" \
     "${SCRIPT_DIR}/run_remote_joint_response_calibration.sh" \
       "${ENV_NAME}" \
       "${REMOTE_ROOT}" \
@@ -448,7 +452,7 @@ case "${RECORDING_MODE}" in
     RCA_VALIDATE_FINAL_CONTACT_BOUNDARY=1 \
     RCA_VALIDATE_TRACE_FRAME_ALIGNMENT=1 \
     RCA_RECORD_SCRIPTED_SYNC_BEFORE_RUN=0 \
-    RCA_AUTO_VIEWPORT_KIT_ARGS="${RCA_AUTO_VIEWPORT_KIT_ARGS:-0}" \
+    RCA_AUTO_VIEWPORT_KIT_ARGS="${RCA_AUTO_VIEWPORT_KIT_ARGS:-1}" \
     RCA_VIDEO_BACKEND="${RCA_VIDEO_BACKEND:-viewport}" \
       "${SCRIPT_DIR}/run_remote_record_scripted_video.sh" \
         "${ENV_NAME}" \
@@ -460,6 +464,43 @@ case "${RECORDING_MODE}" in
         "${SEED}" \
         "${SCRIPTED_STEPS}" \
         "${AGENT_ARGS[*]}"
+    ;;
+  camera)
+    RCA_REMOTE_OPERATION_PURPOSE=post_contact_gate \
+    RCA_REMOTE_DOCKER_EXEC_ENV="-u root -e DISPLAY=:99" \
+    RCA_VIDEO_TIMEOUT_SECONDS="${VIDEO_TIMEOUT_SECONDS}" \
+    RCA_VIDEO_TIMEOUT_KILL_SECONDS="${VIDEO_TIMEOUT_KILL_SECONDS}" \
+    RCA_VALIDATE_PEG_VIDEO_CANDIDATE=1 \
+    RCA_VALIDATE_ACTION_RESPONSE=1 \
+    RCA_ACTION_RESPONSE_MIN_COMMAND_NORM="${RCA_VIDEO_CANDIDATE_ACTION_RESPONSE_MIN_COMMAND_NORM:-0.0002}" \
+    RCA_ACTION_RESPONSE_STOP_AFTER_FIRST_SUCCESS="${RCA_VIDEO_CANDIDATE_ACTION_RESPONSE_STOP_AFTER_FIRST_SUCCESS:-1}" \
+    RCA_VALIDATE_FINAL_CONTACT_BOUNDARY=1 \
+    RCA_VALIDATE_TRACE_FRAME_ALIGNMENT=1 \
+    RCA_RECORD_SCRIPTED_SYNC_BEFORE_RUN=0 \
+    RCA_AUTO_VIEWPORT_KIT_ARGS=0 \
+    RCA_VIDEO_BACKEND=camera \
+      "${SCRIPT_DIR}/run_remote_record_scripted_video.sh" \
+        "${ENV_NAME}" \
+        "${REMOTE_ROOT}" \
+        "${COMPOSE_ROOT}" \
+        "${TASK_NAME}" \
+        1 \
+        "${VIDEO_LENGTH}" \
+        "${SEED}" \
+        "${SCRIPTED_STEPS}" \
+        "${AGENT_ARGS[*]}"
+    ;;
+  trace-replay)
+    RCA_REMOTE_OPERATION_PURPOSE=post_contact_gate \
+    RCA_REMOTE_DOCKER_EXEC_ENV="-u root -e DISPLAY=:99" \
+    RCA_REPLAY_VIDEO_TIMEOUT_SECONDS="${VIDEO_TIMEOUT_SECONDS}" \
+    RCA_REPLAY_VIDEO_TIMEOUT_KILL_SECONDS="${VIDEO_TIMEOUT_KILL_SECONDS}" \
+    RCA_REPLAY_TRACE_SEED="${SEED}" \
+      "${SCRIPT_DIR}/run_remote_replay_trace_video.sh" \
+        "${ENV_NAME}" \
+        "${REMOTE_ROOT}" \
+        "${COMPOSE_ROOT}" \
+        "${TASK_NAME}"
     ;;
   *)
     echo "[peg-video-candidate] unsupported RCA_VIDEO_CANDIDATE_RECORDING_MODE=${RECORDING_MODE}" >&2

@@ -1,31 +1,33 @@
 {
-  "bad_fraction": 0.06896551724137931,
-  "bad_steps": 12,
+  "bad_fraction": 0.0,
+  "bad_steps": 0,
+  "first_success_step": 167,
   "max_cosine": 0.851779064872139,
-  "min_cosine": -0.4350571272440068,
-  "pass": false,
-  "steps_assessed": 174,
-  "steps_skipped": 9,
+  "min_cosine": 0.0027558550253306544,
+  "pass": true,
+  "steps_assessed": 162,
+  "steps_skipped": 6,
   "steps_total": 183,
-  "trace": "/workspace/artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json",
+  "stop_after_first_success": true,
+  "trace": "artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json",
   "worst": {
     "actual_delta": [
-      -2.726912498474121e-05,
-      2.173706889152527e-05,
-      -3.457069396972656e-05
+      -8.314847946166992e-05,
+      5.5208802223205566e-05,
+      1.0401010513305664e-05
     ],
-    "actual_norm": 4.910436052915099e-05,
-    "bad": true,
+    "actual_norm": 0.0001003487045228122,
+    "bad": false,
     "command_delta": [
-      -7.95125961303711e-05,
-      -0.0002543497830629349,
-      7.364153861999512e-05
+      -0.00037491321563720703,
+      -0.0005890093743801117,
+      0.00014829635620117188
     ],
-    "command_norm": 0.00027647629427832285,
-    "cosine": -0.4350571272440068,
+    "command_norm": 0.0007137813191935092,
+    "cosine": 0.0027558550253306544,
     "phase": "socket-insertion-servo",
-    "projection": -5.9064189303348336e-09,
-    "step": 182
+    "projection": 1.9739371248661541e-10,
+    "step": 163
   }
 }
-[action-response] FAIL
+[action-response] PASS

@@ -6,7 +6,9 @@ import argparse
 import atexit
 from contextlib import contextmanager
 import faulthandler
+import imageio.v2 as imageio
 import json
+import numpy as np
 import os
 import signal
 import sys
@@ -53,6 +55,10 @@ PEG_TIP_FROM_CENTER_POS = None
 mdp = None
 BODY_OFFSET = None
 
+DEBUG_CAMERA_POS_WORLD = (2.5, 2.5, 2.5)
+DEBUG_CAMERA_QUAT_WORLD = (-0.27984815, -0.1159169, 0.88047623, -0.3647052)
+DEBUG_CAMERA_WARMUP_STEPS = 3
+
 
 def _close_ignoring_system_exit(close_fn, label: str) -> None:
     try:
@@ -88,6 +94,56 @@ def _write_rollout_artifacts(
         trace_path = os.path.abspath(trace_json)
         _write_json_atomic(trace_path, {"summary": summary, "steps": trace_rows})
         print(f"[SCRIPTED] wrote {label} trace to {trace_path}", flush=True)
+
+
+def _make_debug_camera(base_env, width: int, height: int):
+    import isaaclab.sim as sim_utils
+    from isaaclab.sensors.camera import Camera, CameraCfg
+
+    camera_cfg = CameraCfg(
+        height=height,
+        width=width,
+        prim_path="/World/DebugCamera",
+        update_latest_camera_pose=False,
+        data_types=["rgb"],
+        offset=CameraCfg.OffsetCfg(
+            pos=DEBUG_CAMERA_POS_WORLD,
+            rot=DEBUG_CAMERA_QUAT_WORLD,
+            convention="world",
+        ),
+        spawn=sim_utils.PinholeCameraCfg(
+            focal_length=24.0,
+            focus_distance=400.0,
+            horizontal_aperture=20.955,
+            clipping_range=(0.1, 1.0e5),
+        ),
+    )
+    return Camera(camera_cfg)
+
+
+def _prepare_debug_camera(video_camera) -> None:
+    from isaaclab.app.settings_manager import get_settings_manager
+
+    settings = get_settings_manager()
+    if not settings.get("/isaaclab/cameras_enabled"):
+        settings.set_bool("/isaaclab/cameras_enabled", True)
+    if not video_camera.is_initialized:
+        video_camera._initialize_callback(None)
+    if not video_camera.is_initialized:
+        raise RuntimeError("Debug camera failed to initialize after explicit callback.")
+    video_camera.reset()
+
+
+def _frame_to_uint8(frame_tensor: torch.Tensor) -> np.ndarray:
+    frame = frame_tensor.detach().cpu().numpy()
+    if frame.shape[-1] == 4:
+        frame = frame[..., :3]
+    if frame.dtype == np.uint8:
+        return frame
+    if np.issubdtype(frame.dtype, np.floating):
+        if float(np.nanmax(frame)) <= 1.0:
+            frame = frame * 255.0
+    return np.clip(frame, 0, 255).astype(np.uint8)
 
 
 def _should_autoflush_trace(step: int, interval: int) -> bool:
@@ -477,9 +533,11 @@ parser.add_argument(
     "--video_backend",
     type=str,
     default="viewport",
-    choices=("viewport",),
-    help="Video recording backend for the scripted rollout.",
+    choices=("viewport", "camera"),
+    help="Video recording backend for the scripted rollout. 'camera' uses an explicit RGB sensor in headless mode.",
 )
+parser.add_argument("--video_width", type=int, default=640, help="Camera-backend video width in pixels.")
+parser.add_argument("--video_height", type=int, default=480, help="Camera-backend video height in pixels.")
 parser.add_argument(
     "--video_folder",
     type=str,
@@ -1761,7 +1819,7 @@ parser.add_argument(
 add_launcher_args(parser)
 args_cli, hydra_args = parser.parse_known_args()
 skip_auto_enable_cameras = os.environ.get("RCA_SKIP_AUTO_ENABLE_CAMERAS", "0") == "1"
-if args_cli.video and args_cli.video_backend == "viewport" and not skip_auto_enable_cameras:
+if args_cli.video and args_cli.video_backend in ("viewport", "camera") and not skip_auto_enable_cameras:
     args_cli.enable_cameras = True
 hydra_args.extend(
     [
@@ -2171,6 +2229,10 @@ def main():
         render_mode = "rgb_array" if args_cli.video and args_cli.video_backend == "viewport" else None
         env = gym.make(args_cli.task, cfg=env_cfg, render_mode=render_mode)
         video_folder = None
+        video_path = None
+        video_camera = None
+        video_writer = None
+        video_frames_written = 0
         if args_cli.video:
             video_folder = (
                 os.path.abspath(args_cli.video_folder)
@@ -2178,19 +2240,32 @@ def main():
                 else os.path.join(_ARTIFACT_ROOT, "videos", "scripted", f"seed_{args_cli.seed}")
             )
             os.makedirs(video_folder, exist_ok=True)
-            env = gym.wrappers.RecordVideo(
-                env,
-                video_folder=video_folder,
-                step_trigger=lambda step: step == 0,
-                video_length=min(args_cli.video_length, args_cli.steps),
-                disable_logger=True,
-            )
+            if args_cli.video_backend == "viewport":
+                env = gym.wrappers.RecordVideo(
+                    env,
+                    video_folder=video_folder,
+                    step_trigger=lambda step: step == 0,
+                    video_length=min(args_cli.video_length, args_cli.steps),
+                    disable_logger=True,
+                )
+                print(
+                    f"[SCRIPTED] recording video with viewport backend to {video_folder} "
+                    f"(length={min(args_cli.video_length, args_cli.steps)})",
+                    flush=True,
+                )
+        env_unwrapped = env.unwrapped
+        if args_cli.video and args_cli.video_backend == "camera":
+            video_path = os.path.join(video_folder, "scripted_camera.mp4")
+            print("[SCRIPTED] creating explicit camera sensor for headless video", flush=True)
+            video_camera = _make_debug_camera(env_unwrapped, width=args_cli.video_width, height=args_cli.video_height)
+            _prepare_debug_camera(video_camera)
+            video_writer = imageio.get_writer(video_path, fps=max(1, round(1.0 / env_unwrapped.step_dt)))
             print(
-                f"[SCRIPTED] recording video with {args_cli.video_backend} backend to {video_folder} "
-                f"(length={min(args_cli.video_length, args_cli.steps)})",
+                f"[SCRIPTED] recording video with camera backend to {video_path} "
+                f"({args_cli.video_width}x{args_cli.video_height}, "
+                f"length={min(args_cli.video_length, args_cli.steps)}, warmup={DEBUG_CAMERA_WARMUP_STEPS})",
                 flush=True,
             )
-        env_unwrapped = env.unwrapped
         print(f"[INFO]: Gym observation space: {env.observation_space}", flush=True)
         print(f"[INFO]: Gym action space: {env.action_space}", flush=True)
         env.reset()
@@ -4352,6 +4427,14 @@ def main():
             env.step(actions)
             _debug_step("after_env_step", step)
             _append_jsonl(trace_events_jsonl, {"event": "after_env_step", "step": step})
+            if (
+                video_camera is not None
+                and step >= DEBUG_CAMERA_WARMUP_STEPS
+                and video_frames_written < min(args_cli.video_length, args_cli.steps)
+            ):
+                video_camera.update(env_unwrapped.step_dt, force_recompute=True)
+                video_writer.append_data(_frame_to_uint8(video_camera.data.output["rgb"][0]))
+                video_frames_written += 1
 
             lateral, axial, rot = mdp.insertion_metrics(env_unwrapped, peg_cfg=peg_cfg, socket_cfg=socket_cfg)
             post_hand_pos_w, post_hand_quat_w = _hand_pose_w(env_unwrapped, body_idx)
@@ -5283,6 +5366,8 @@ def main():
             "max_joint_limit_guard_delta_norm_step": max_joint_limit_guard_delta_norm_step,
             "video_backend": args_cli.video_backend if args_cli.video else None,
             "video_folder": video_folder,
+            "video_path": video_path,
+            "video_frames_written": video_frames_written if args_cli.video else 0,
             "coupled_approach": args_cli.coupled_approach,
             "staged_approach": args_cli.staged_approach,
             "rotate_before_descend": args_cli.rotate_before_descend,
@@ -5571,6 +5656,12 @@ def main():
         )
         _append_jsonl(trace_events_jsonl, {"event": "final_artifacts_written", "steps_recorded": len(trace_rows)})
         trace_artifacts_finalized["value"] = True
+        if video_writer is not None:
+            video_writer.close()
+            print(
+                f"[SCRIPTED] closed camera video writer path={video_path} frames={video_frames_written}",
+                flush=True,
+            )
         _close_ignoring_system_exit(env.close, "environment")
 
 

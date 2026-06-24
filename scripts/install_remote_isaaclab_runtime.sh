@@ -12,6 +12,7 @@ ISAACSIM_SIGNAL_PORT="${ISAACSIM_SIGNAL_PORT:-49100}"
 ISAACSIM_STREAM_PORT="${ISAACSIM_STREAM_PORT:-47998}"
 SKIP_STREAM_STACK="${RCA_SKIP_STREAM_STACK:-0}"
 RUNTIME_PROFILE="${RCA_ISAACLAB_RUNTIME_PROFILE:-full}"
+ISAACLAB_GIT_REF="${RCA_ISAACLAB_GIT_REF:-develop}"
 
 "${SCRIPT_DIR}/remote_operation_preflight.sh"
 
@@ -24,10 +25,11 @@ printf -v ISAACSIM_SIGNAL_PORT_Q "%q" "${ISAACSIM_SIGNAL_PORT}"
 printf -v ISAACSIM_STREAM_PORT_Q "%q" "${ISAACSIM_STREAM_PORT}"
 printf -v SKIP_STREAM_STACK_Q "%q" "${SKIP_STREAM_STACK}"
 printf -v RUNTIME_PROFILE_Q "%q" "${RUNTIME_PROFILE}"
+printf -v ISAACLAB_GIT_REF_Q "%q" "${ISAACLAB_GIT_REF}"
 
 echo "[runtime] ensuring project mounts are active in ${ENV_NAME}"
 ssh "${ENV_NAME}" \
-  "REMOTE_ROOT=${REMOTE_ROOT_Q} REMOTE_COMPOSE_ROOT=${REMOTE_COMPOSE_ROOT_Q} ISAAC_SIM_IMAGE=${ISAAC_SIM_IMAGE_Q} TASK_CONTAINER_NAME=${TASK_CONTAINER_NAME_Q} WEB_VIEWER_PORT=${WEB_VIEWER_PORT_Q} ISAACSIM_SIGNAL_PORT=${ISAACSIM_SIGNAL_PORT_Q} ISAACSIM_STREAM_PORT=${ISAACSIM_STREAM_PORT_Q} SKIP_STREAM_STACK=${SKIP_STREAM_STACK_Q} RCA_ISAACLAB_RUNTIME_PROFILE=${RUNTIME_PROFILE_Q} bash -s" <<'REMOTE_SCRIPT'
+  "REMOTE_ROOT=${REMOTE_ROOT_Q} REMOTE_COMPOSE_ROOT=${REMOTE_COMPOSE_ROOT_Q} ISAAC_SIM_IMAGE=${ISAAC_SIM_IMAGE_Q} TASK_CONTAINER_NAME=${TASK_CONTAINER_NAME_Q} WEB_VIEWER_PORT=${WEB_VIEWER_PORT_Q} ISAACSIM_SIGNAL_PORT=${ISAACSIM_SIGNAL_PORT_Q} ISAACSIM_STREAM_PORT=${ISAACSIM_STREAM_PORT_Q} SKIP_STREAM_STACK=${SKIP_STREAM_STACK_Q} RCA_ISAACLAB_RUNTIME_PROFILE=${RUNTIME_PROFILE_Q} RCA_ISAACLAB_GIT_REF=${ISAACLAB_GIT_REF_Q} bash -s" <<'REMOTE_SCRIPT'
 set -euo pipefail
 
 REMOTE_LAUNCHABLE_DIR="${REMOTE_ROOT}/third_party/isaac-launchable"
@@ -102,15 +104,23 @@ services:
 EOF
 fi
 
+echo "[runtime] IsaacLab git ref: ${RCA_ISAACLAB_GIT_REF}"
 if [ ! -d "${REMOTE_ISAACLAB_DIR}/.git" ]; then
   sudo rm -rf "${REMOTE_ISAACLAB_DIR}"
-  git clone --depth 1 --branch develop https://github.com/isaac-sim/IsaacLab.git "${REMOTE_ISAACLAB_DIR}"
+  git clone --depth 1 --branch "${RCA_ISAACLAB_GIT_REF}" https://github.com/isaac-sim/IsaacLab.git "${REMOTE_ISAACLAB_DIR}"
   sudo chown -R "$(id -un):$(id -gn)" "${REMOTE_ISAACLAB_DIR}"
 else
   cd "${REMOTE_ISAACLAB_DIR}"
-  git fetch origin develop --depth 1
-  git checkout develop
-  git pull --ff-only origin develop
+  if git ls-remote --exit-code --heads origin "${RCA_ISAACLAB_GIT_REF}" >/dev/null 2>&1; then
+    git fetch origin "refs/heads/${RCA_ISAACLAB_GIT_REF}:refs/remotes/origin/${RCA_ISAACLAB_GIT_REF}" --depth 1
+    git checkout --detach "refs/remotes/origin/${RCA_ISAACLAB_GIT_REF}"
+  elif git ls-remote --exit-code --tags origin "${RCA_ISAACLAB_GIT_REF}" >/dev/null 2>&1; then
+    git fetch origin "refs/tags/${RCA_ISAACLAB_GIT_REF}:refs/tags/${RCA_ISAACLAB_GIT_REF}" --depth 1
+    git checkout --detach "refs/tags/${RCA_ISAACLAB_GIT_REF}"
+  else
+    git fetch origin "${RCA_ISAACLAB_GIT_REF}" --depth 1
+    git checkout --detach FETCH_HEAD
+  fi
 fi
 
 HOST_IP="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || curl -fsS --max-time 5 https://ifconfig.me 2>/dev/null || true)"
@@ -169,12 +179,14 @@ sudo docker run -d \
 
 sudo docker exec -u root -i \
   -e RCA_ISAACLAB_RUNTIME_PROFILE="${RCA_ISAACLAB_RUNTIME_PROFILE}" \
+  -e RCA_ISAACLAB_GIT_REF="${RCA_ISAACLAB_GIT_REF}" \
   "${TASK_CONTAINER_NAME}" bash -s <<'CONTAINER_SCRIPT'
 set -euo pipefail
 
 export PIP_DEFAULT_TIMEOUT="${PIP_DEFAULT_TIMEOUT:-120}"
 export PIP_RETRIES="${PIP_RETRIES:-10}"
 RCA_ISAACLAB_RUNTIME_PROFILE="${RCA_ISAACLAB_RUNTIME_PROFILE:-full}"
+RCA_ISAACLAB_GIT_REF="${RCA_ISAACLAB_GIT_REF:-develop}"
 
 retry_cmd() {
   local attempts="$1"
@@ -184,10 +196,13 @@ retry_cmd() {
   local attempt status
   status=0
   for attempt in $(seq 1 "${attempts}"); do
-    if "$@"; then
+    set +e
+    "$@"
+    status=$?
+    set -e
+    if [ "${status}" -eq 0 ]; then
       return 0
     fi
-    status=$?
     echo "[runtime] command failed with status ${status} (attempt ${attempt}/${attempts}): $*" >&2
     if [ "${attempt}" -lt "${attempts}" ]; then
       sleep "${delay_seconds}"
@@ -196,34 +211,100 @@ retry_cmd() {
   return "${status}"
 }
 
+install_editable_package() {
+  local package_path="$1"
+  local required="${2:-required}"
+
+  if [ ! -d "${package_path}" ] || { [ ! -f "${package_path}/pyproject.toml" ] && [ ! -f "${package_path}/setup.py" ]; }; then
+    if [ "${required}" = "required" ]; then
+      echo "[runtime] missing required editable package: ${package_path}" >&2
+      exit 1
+    fi
+    echo "[runtime] skipping optional editable package: ${package_path}"
+    return 0
+  fi
+
+  retry_cmd 3 20 /isaac-sim/python.sh -m pip install --no-build-isolation --editable "${package_path}"
+}
+
+install_isaaclab_core_runtime() {
+  install_editable_package /workspace/IsaacLab/source/isaaclab required
+  install_editable_package /workspace/IsaacLab/source/isaaclab_assets required
+  install_editable_package /workspace/IsaacLab/source/isaaclab_physx optional
+  install_editable_package /workspace/IsaacLab/source/isaaclab_tasks required
+  install_editable_package /workspace/IsaacLab/source/isaaclab_rl required
+}
+
+validate_runtime_imports() {
+  echo "[runtime] validating IsaacLab imports"
+  /isaac-sim/python.sh - <<'PY'
+import importlib
+import importlib.util
+import os
+
+for module_name in (
+    "isaaclab",
+    "isaaclab.app",
+    "isaaclab_rl",
+):
+    importlib.import_module(module_name)
+    print(f"[runtime-import] OK {module_name}")
+
+for module_name in (
+    "isaaclab_tasks",
+    "robot_contact_assembly_tasks",
+):
+    if importlib.util.find_spec(module_name) is None:
+        raise ModuleNotFoundError(module_name)
+    print(f"[runtime-import] FOUND {module_name}")
+
+if os.environ.get("RCA_ISAACLAB_RUNTIME_PROFILE") in {"camera", "viewport"}:
+    import warp
+
+    if not hasattr(warp, "context"):
+        raise RuntimeError("rendering profile requires a warp package with warp.context")
+    if not hasattr(getattr(warp, "types", None), "array"):
+        raise RuntimeError("rendering profile requires a warp package with warp.types.array")
+    print("[runtime-import] OK rendering warp compatibility")
+PY
+}
+
 if ! command -v git >/dev/null 2>&1; then
   apt-get update
   apt-get install -y git
 fi
+export TERM="${TERM:-xterm-256color}"
 ln -sfn /isaac-sim /workspace/IsaacLab/_isaac_sim
 mkdir -p /workspace/artifacts/hydra
 chown -R 1234:1234 /workspace/artifacts
 cd /workspace/IsaacLab
+echo "[runtime] installing IsaacLab ref ${RCA_ISAACLAB_GIT_REF} with profile ${RCA_ISAACLAB_RUNTIME_PROFILE}"
+retry_cmd 3 20 /isaac-sim/python.sh -m pip install "setuptools<80"
+retry_cmd 3 20 /isaac-sim/python.sh -m pip install --no-build-isolation flatdict==4.0.1
 if [ "${RCA_ISAACLAB_RUNTIME_PROFILE}" = "trace-only" ]; then
   echo "[runtime] trace-only profile: installing required IsaacLab runtime submodules only"
-  retry_cmd 3 20 /isaac-sim/python.sh -m pip install --editable /workspace/IsaacLab/source/isaaclab
-  retry_cmd 3 20 /isaac-sim/python.sh -m pip install --editable /workspace/IsaacLab/source/isaaclab_assets
-  retry_cmd 3 20 /isaac-sim/python.sh -m pip install --editable /workspace/IsaacLab/source/isaaclab_physx
-  retry_cmd 3 20 /isaac-sim/python.sh -m pip install --editable /workspace/IsaacLab/source/isaaclab_tasks
-  retry_cmd 3 20 /isaac-sim/python.sh -m pip install --editable /workspace/IsaacLab/source/isaaclab_rl
+  install_isaaclab_core_runtime
   retry_cmd 3 20 /isaac-sim/python.sh -m pip install warp-lang==1.12.1 pillow==12.1.1
   echo "[runtime] trace-only profile: skipping optional IsaacLab contrib/newton/visualizer/rsl-rl explicit installs"
+elif [ "${RCA_ISAACLAB_RUNTIME_PROFILE}" = "camera" ]; then
+  echo "[runtime] camera profile: installing headless IsaacLab runtime plus video writer dependencies"
+  install_isaaclab_core_runtime
+  retry_cmd 3 20 /isaac-sim/python.sh -m pip install warp-lang==1.12.1 pillow==12.1.1 imageio imageio-ffmpeg
+  echo "[runtime] camera profile: skipping optional IsaacLab contrib/newton/visualizer/rsl-rl explicit installs"
+elif [ "${RCA_ISAACLAB_RUNTIME_PROFILE}" = "viewport" ]; then
+  echo "[runtime] viewport profile: installing IsaacLab runtime plus screen/video dependencies"
+  install_isaaclab_core_runtime
+  retry_cmd 3 20 /isaac-sim/python.sh -m pip install warp-lang==1.12.1 imageio imageio-ffmpeg
+  echo "[runtime] viewport profile: skipping optional training extras"
 else
   retry_cmd 3 20 ./isaaclab.sh --install
-  retry_cmd 3 20 /isaac-sim/python.sh -m pip install --editable /workspace/IsaacLab/source/isaaclab_contrib
-  retry_cmd 3 20 /isaac-sim/python.sh -m pip install --editable /workspace/IsaacLab/source/isaaclab_rl
-  if ! /isaac-sim/python.sh -m pip show rsl-rl-lib >/dev/null 2>&1; then
-    retry_cmd 3 20 /isaac-sim/python.sh -m pip install rsl-rl-lib==5.0.1 onnxscript\>=0.5 numpy==2.3.1 pillow==12.1.1
-  fi
+  install_editable_package /workspace/IsaacLab/source/isaaclab_contrib optional
+  install_editable_package /workspace/IsaacLab/source/isaaclab_rl required
   retry_cmd 3 20 /isaac-sim/python.sh -m pip install h5py
 fi
 retry_cmd 3 20 /isaac-sim/python.sh -m pip install hydra-core
 retry_cmd 3 20 /isaac-sim/python.sh -m pip install --editable /workspace/robot-contact-assembly/source/robot_contact_assembly_tasks
+validate_runtime_imports
 TENSOR_API_DIR="$(find /isaac-sim/extscache -path '*/omni/physics/tensors' -type d 2>/dev/null | head -n 1 || true)"
 if [ -n "${TENSOR_API_DIR}" ] && [ ! -f "${TENSOR_API_DIR}/api.py" ] && [ -f "${TENSOR_API_DIR}/impl/api.py" ]; then
   cat > "${TENSOR_API_DIR}/api.py" <<'PYEOF'

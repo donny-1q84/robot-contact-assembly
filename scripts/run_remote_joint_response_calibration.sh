@@ -18,10 +18,14 @@ SUMMARY_PATH="${REMOTE_CALIBRATION_DIR}/seed_${SEED}.json"
 LATEST_SUMMARY_PATH="/workspace/artifacts/calibration/joint_position_action/latest_seed_${SEED}.json"
 CHECK_DOWN_PATH="${REMOTE_CALIBRATION_DIR}/seed_${SEED}_down_command_check.log"
 CHECK_UP_PATH="${REMOTE_CALIBRATION_DIR}/seed_${SEED}_up_command_check.log"
+DOWN_DELTA="${RCA_JOINT_RESPONSE_CALIBRATION_DOWN_DELTA:-0,0,-0.0015}"
+UP_DELTA="${RCA_JOINT_RESPONSE_CALIBRATION_UP_DELTA:-0,0,0.0015}"
 
 echo "[joint-response-calibration] env=${RCA_ENV_NAME} task=${TASK_NAME} steps_per_probe=${STEPS_PER_PROBE}"
 echo "[joint-response-calibration] seed=${SEED}"
 echo "[joint-response-calibration] timeout_seconds=${TIMEOUT_SECONDS}"
+echo "[joint-response-calibration] down_delta=${DOWN_DELTA}"
+echo "[joint-response-calibration] up_delta=${UP_DELTA}"
 if [[ -n "${EXTRA_AGENT_ARGS}" ]]; then
   echo "[joint-response-calibration] extra_agent_args=${EXTRA_AGENT_ARGS}"
 fi
@@ -32,8 +36,8 @@ rca_remote_container_exec "rm -f '${SUMMARY_PATH}'"
 rca_remote_repo_exec "set -o pipefail && timeout ${TIMEOUT_SECONDS} /isaac-sim/python.sh scripts/calibrate_joint_position_action.py --task ${TASK_NAME} --headless --num_envs 1 --steps-per-probe ${STEPS_PER_PROBE} --seed ${SEED} --summary-json ${SUMMARY_PATH} ${EXTRA_AGENT_ARGS} 2>&1 | tee '${REMOTE_CALIBRATION_DIR}/seed_${SEED}.log'"
 rca_remote_container_exec "test -s '${SUMMARY_PATH}'"
 
-rca_remote_repo_exec "set -o pipefail && /isaac-sim/kit/python/bin/python3 scripts/joint_response_control.py '${SUMMARY_PATH}' --desired-delta 0,0,-0.0015 2>&1 | tee '${CHECK_DOWN_PATH}'"
-rca_remote_repo_exec "set -o pipefail && /isaac-sim/kit/python/bin/python3 scripts/joint_response_control.py '${SUMMARY_PATH}' --desired-delta 0,0,0.0015 2>&1 | tee '${CHECK_UP_PATH}'"
+rca_remote_repo_exec "set -o pipefail && /isaac-sim/kit/python/bin/python3 scripts/joint_response_control.py '${SUMMARY_PATH}' --desired-delta '${DOWN_DELTA}' 2>&1 | tee '${CHECK_DOWN_PATH}'"
+rca_remote_repo_exec "set -o pipefail && /isaac-sim/kit/python/bin/python3 scripts/joint_response_control.py '${SUMMARY_PATH}' --desired-delta '${UP_DELTA}' 2>&1 | tee '${CHECK_UP_PATH}'"
 
 rca_remote_container_exec "cp '${SUMMARY_PATH}' '${LATEST_SUMMARY_PATH}'"
 echo "[joint-response-calibration] latest summary: ${LATEST_SUMMARY_PATH}"

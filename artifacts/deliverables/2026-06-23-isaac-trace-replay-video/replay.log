@@ -1,0 +1,42 @@
+Xlib:  extension "GLX" missing on display ":99".
+Xlib:  extension "GLX" missing on display ":99".
+cat: '/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor': No such file or directory
+[Info] [carb] Logging to file: /isaac-sim/kit/logs/Kit/Isaac-Sim/5.1/kit_20260623_053358.log
+
+|---------------------------------------------------------------------------------------------|
+| Driver Version: 580.167.08    | Graphics API: Vulkan
+|=============================================================================================|
+| GPU | Name                             | Active | LDA | GPU Memory | Vendor-ID | LUID       |
+|     |                                  |        |     |            | Device-ID | UUID       |
+|     |                                  |        |     |            | Bus-ID    |            |
+|---------------------------------------------------------------------------------------------|
+| 0   | NVIDIA L40S                      | Yes: 0 |     | 46068   MB | 10de      | 0          |
+|     |                                  |        |     |            | 26b9      | c0d0b8ca.. |
+|     |                                  |        |     |            | 30        |            |
+|=============================================================================================|
+| OS: 24.04.2 LTS (Noble Numbat) ubuntu, Version: 24.04.2, Kernel: 6.8.0-1057-aws
+| XServer Vendor: The X.Org Foundation, XServer Version: 12101011 (1.21.1.11)
+| Processor: AMD EPYC 7R13 Processor
+| Cores: 2 | Logical Cores: 4
+|---------------------------------------------------------------------------------------------|
+| Total Memory (MB): 31640 | Free Memory: 28956
+| Total Page/Swap (MB): 0 | Free Page/Swap: 0
+|---------------------------------------------------------------------------------------------|
+2026-06-23T05:34:12Z [14,051ms] [Warning] [gpu.foundation.plugin] ECC is enabled on physical device 0
+2026-06-23T05:34:12Z [14,053ms] [Warning] [gpu.foundation.plugin] PCIe link width current (8) and maximum (16) for device 0 don't match.
+2026-06-23T05:34:16Z [17,839ms] [Warning] [omni.log] Source: omni.hydra was already registered.
+2026-06-23T05:34:18Z [19,764ms] [Warning] [carb] Acquiring non optional plugin interface which is not listed as dependency: [omni::physx::IPhysxBenchmarks v1.0] (plugin: <default plugin>), by client: omni.physics.physx.plugin. Add it to CARB_PLUGIN_IMPL_DEPS() macro of a client.
+2026-06-23T05:34:18Z [19,812ms] [Warning] [omni.isaac.dynamic_control] omni.isaac.dynamic_control is deprecated as of Isaac Sim 4.5. No action is needed from end-users.
+2026-06-23T05:34:21Z [22,177ms] [Warning] [pxr.Semantics] pxr.Semantics is deprecated - please use Semantics instead
+2026-06-23T05:34:21Z [22,503ms] [Warning] [omni.graph.core.plugin] Found duplicate of category 'Replicator' - was 'Annotators', adding 'Fabric Reader'
+2026-06-23T05:34:21Z [22,503ms] [Warning] [omni.graph.core.plugin] Category 'Replicator' not accepted on node type 'omni.replicator.core.FabricReader' in extension 'omni.replicator.core'
+2026-06-23T05:34:21Z [22,504ms] [Warning] [omni.replicator.core.scripts.extension] No material configuration file, adding configuration to material settings directly.
+2026-06-23T05:34:30Z [31,943ms] [Warning] [omni.kit.renderer.plugin] Reducing '/app/runLoops/present/rateLimitFrequency' from 60.000000 to primary monitor's refresh rate of 0.000000 ('screen', '/output:60/crtc:59')
+2026-06-23T05:35:58Z [119,245ms] [Warning] [omni.fabric.plugin] Warning: attribute viewportHandle not found for bucket id 7
+
+2026-06-23T05:40:41Z [402,485ms] [Warning] [omni.physx.fabric.plugin] FabricManager::initializePointInstancer mismatched prototypes on point instancer: /Visuals/Command/body_pose.
+2026-06-23T05:40:41Z [402,485ms] [Warning] [omni.physx.fabric.plugin] FabricManager::initializePointInstancer mismatched prototypes on point instancer: /Visuals/Command/goal_pose.
+2026-06-23T05:40:44Z [405,929ms] [Warning] [omni.physx.fabric.plugin] FabricManager::initializePointInstancer mismatched prototypes on point instancer: /Visuals/Command/body_pose.
+2026-06-23T05:40:44Z [405,929ms] [Warning] [omni.physx.fabric.plugin] FabricManager::initializePointInstancer mismatched prototypes on point instancer: /Visuals/Command/goal_pose.
+2026-06-23T05:40:59Z [420,271ms] [Warning] [omni.syntheticdata.plugin] OgnSdPostRenderVarToHost : rendervar copy from texture directly to host buffer is counter-performant. Please use copy from texture to device buffer first.
+2026-06-23T05:41:02Z [424,028ms] [Warning] [carb] Client gpu.foundation.plugin has acquired [gpu::unstable::IMemoryBudgetManagerFactory v0.1] 100 times. Consider accessing this interface with carb::getCachedInterface() (Performance warning)
