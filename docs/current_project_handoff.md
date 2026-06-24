@@ -10,6 +10,40 @@ Date: 2026-06-22
 - Latest checked commit as of 2026-06-18 audit: `92465f4 Fix contact physics: weld dynamic peg to hand, wall-filtered forces`
 - Local tree was clean at the start of the 2026-06-18 audit.
 
+## 2026-06-25 Next-Step Overlay
+
+The 2026-06-21 success trace and 2026-06-23 Isaac replay deliverable are now
+published on the draft GitHub PR:
+
+```text
+PR: https://github.com/donny-1q84/robot-contact-assembly/pull/1
+branch: codex/contact-smoke-gate-pass
+latest pushed commit: 65c8b64 Add Isaac trace replay video deliverable
+```
+
+Current evidence is enough to close the old contact-smoke / single-success-trace
+loop, but not enough to claim a learned policy, cross-pose generalization,
+sim-to-real readiness, or direct portability to another robot arm.
+
+The next phase should be a local-first V0 reproducible assembly skill baseline:
+
+1. keep or merge the draft PR intentionally;
+2. add a deliverable-bundle validator that checks semantic trace success,
+   final-contact boundary diagnostics, trace-frame alignment, MP4 metadata,
+   checksums, and `SAFE_NO_VISIBLE_PAID_INSTANCE`;
+3. add negative controls so failed traces or video-only bundles cannot pass;
+4. then build successful-trace variation and dataset preparation across small
+   socket/reset perturbations.
+
+Do not open another paid GPU run for a prettier video, old Abs IK/JointPos
+sweeps, RL/BC, or VLM work until the validator and negative controls exist.
+
+Detailed plan:
+
+```text
+docs/next_project_steps_2026-06-25.md
+```
+
 ## 2026-06-21 Peg-In-Hole Success Trace Overlay
 
 The current post-smoke scripted insertion trace now passes the strict semantic
