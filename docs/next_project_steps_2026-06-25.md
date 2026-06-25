@@ -161,7 +161,10 @@ Example:
 
 The ROS 2 / external robot adapter should be designed after the V0 skill API is
 stable. Portability will require a robot-specific adapter, calibration, joint
-limits, controller gains, and safety checks.
+limits, controller gains, and safety checks. The adapter manifest is a separate
+gate from the V0 skill request: it is allowed to be safely blocked as a template,
+but it must fail if someone claims hardware readiness without robot-specific
+model, calibration, safety, ROS 2, and revalidation evidence.
 
 The current V0 contract is now machine-readable:
 
@@ -172,6 +175,8 @@ configs/v0_skill_request.example.json
 scripts/plan_v0_skill_request.py
 scripts/validate_v0_skill_request.py
 scripts/check_v0_skill_readiness.py
+configs/v0_external_robot_adapter.template.json
+scripts/check_v0_robot_adapter_contract.py
 ```
 
 It keeps language/VLM behavior at the task-parameter and skill-selection layer,
@@ -190,6 +195,11 @@ request and contract validation, Phase 2 contact proof, success-variation result
 gate, and the V0 scripted-skill dataset. In the current baseline-only state it
 must remain blocked and point to the fixed-budget variation batch as the next
 physical step.
+The robot-adapter checker encodes the portability boundary from the other side:
+the committed template is `BLOCKED`, not `READY`, and a future named arm must
+supply concrete URDF/USD or equivalent model sources, TCP/base/fixture
+calibration, safety gates, ROS 2 interface validation, low-speed contact
+validation, and variation-style revalidation before any hardware-use claim.
 
 ## Do Not Do Next
 
@@ -210,6 +220,7 @@ python3 scripts/check_v0_skill_api_contract.py
 python3 scripts/plan_v0_skill_request.py "insert the peg into the left socket"
 python3 scripts/validate_v0_skill_request.py
 python3 scripts/check_v0_skill_readiness.py --skip-phase2-contact-gate
+python3 scripts/check_v0_robot_adapter_contract.py
 python3 scripts/check_peg_in_hole_video_candidate.py artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json
 python3 scripts/check_final_contact_boundary_diagnostic.py artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json
 python3 scripts/audit_trace_frame_alignment.py artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json
@@ -237,8 +248,10 @@ scripts/check_v0_skill_api_contract.py
 scripts/plan_v0_skill_request.py
 scripts/validate_v0_skill_request.py
 scripts/check_v0_skill_readiness.py
+scripts/check_v0_robot_adapter_contract.py
 configs/v0_skill_api_contract.json
 configs/v0_skill_request.example.json
+configs/v0_external_robot_adapter.template.json
 configs/success_variation_batch_run.env.example
 tests in scripts/test_local_gates.py for the variation manifest / classifier
 artifacts/manifests/success_trace_variations_2026-06-25.json

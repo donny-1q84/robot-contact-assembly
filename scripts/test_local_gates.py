@@ -1336,6 +1336,8 @@ def run_v0_skill_api_contract_tests() -> None:
     request_checker_path = REPO_ROOT / "scripts" / "validate_v0_skill_request.py"
     planner_path = REPO_ROOT / "scripts" / "plan_v0_skill_request.py"
     readiness_checker_path = REPO_ROOT / "scripts" / "check_v0_skill_readiness.py"
+    robot_adapter_path = REPO_ROOT / "configs" / "v0_external_robot_adapter.template.json"
+    robot_adapter_checker_path = REPO_ROOT / "scripts" / "check_v0_robot_adapter_contract.py"
 
     result = run(["python3", str(checker_path), str(contract_path)])
     assert_status(result, 0, "V0 skill API contract validator accepts committed contract")
@@ -1343,11 +1345,20 @@ def run_v0_skill_api_contract_tests() -> None:
     result = run(["python3", str(request_checker_path), str(request_path)])
     assert_status(result, 0, "V0 skill request validator accepts committed example request")
     assert_contains(result, "[v0-skill-request] PASS", "V0 skill request PASS detail")
+    result = run(["python3", str(robot_adapter_checker_path), str(robot_adapter_path)])
+    assert_status(result, 0, "V0 external robot adapter template is a safe blocked contract")
+    assert_contains(result, "[v0-robot-adapter] BLOCKED", "V0 robot adapter template BLOCKED detail")
+    assert_contains(
+        result,
+        "next_action=fill_robot_specific_model_calibration_safety_ros2_and_revalidation_evidence",
+        "V0 robot adapter next action detail",
+    )
 
     checker = checker_path.read_text(encoding="utf-8")
     request_checker = request_checker_path.read_text(encoding="utf-8")
     planner = planner_path.read_text(encoding="utf-8")
     readiness_checker = readiness_checker_path.read_text(encoding="utf-8")
+    robot_adapter_checker = robot_adapter_checker_path.read_text(encoding="utf-8")
     for expected_snippet in (
         "raw_joint_targets",
         "not direct drop-in precision on another robot arm",
@@ -1394,6 +1405,17 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"V0 skill readiness checker missing snippet: {expected_snippet}")
     if "brev create" in readiness_checker or '"${BREV_BIN}" create' in readiness_checker:
         raise AssertionError("V0 skill readiness checker must be offline and must not create Brev instances")
+    for expected_snippet in (
+        "external-arm portability",
+        "ready_for_external_robot cannot be true while adapter evidence blockers remain",
+        "low_speed_hardware_contact_trial",
+        "not direct drop-in precision on another robot arm",
+        "It does not call Brev, Isaac, ROS, a",
+    ):
+        if expected_snippet not in robot_adapter_checker:
+            raise AssertionError(f"V0 robot adapter checker missing snippet: {expected_snippet}")
+    if "brev create" in robot_adapter_checker or '"${BREV_BIN}" create' in robot_adapter_checker:
+        raise AssertionError("V0 robot adapter checker must be offline and must not create Brev instances")
 
     contract = json.loads(contract_path.read_text(encoding="utf-8"))
     if "raw_joint_targets" not in contract["language_layer"]["forbidden_outputs"]:
@@ -1426,6 +1448,17 @@ def run_v0_skill_api_contract_tests() -> None:
         assert_status(result, 1, "V0 skill request validator rejects direct low-level control")
         assert_contains(result, "forbidden direct control keys", "unsafe V0 request direct-command detail")
         assert_contains(result, "controller_mode must be one of", "unsafe V0 request controller detail")
+
+        premature_adapter = json.loads(robot_adapter_path.read_text(encoding="utf-8"))
+        premature_adapter["ready_for_external_robot"] = True
+        premature_adapter["target_robot"]["robot_id"] = "demo_arm"
+        premature_adapter["not_claims"].remove("not direct drop-in precision on another robot arm")
+        premature_adapter_path = tmp_dir / "premature_external_robot_adapter.json"
+        premature_adapter_path.write_text(json.dumps(premature_adapter), encoding="utf-8")
+        result = run(["python3", str(robot_adapter_checker_path), str(premature_adapter_path)])
+        assert_status(result, 1, "V0 robot adapter checker rejects premature ready claim")
+        assert_contains(result, "ready_for_external_robot cannot be true", "premature adapter ready failure detail")
+        assert_contains(result, "not direct drop-in precision", "premature adapter non-claim failure detail")
 
         planned_request_path = tmp_dir / "planned_v0_skill_request.json"
         result = run(

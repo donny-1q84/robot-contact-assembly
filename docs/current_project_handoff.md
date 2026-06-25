@@ -76,11 +76,15 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    `scripts/validate_v0_skill_request.py`; `scripts/plan_v0_skill_request.py`
    provides the narrow deterministic language-to-skill shim, and
    `scripts/check_v0_skill_readiness.py` connects a validated request to the
-   current Phase 2, variation-result, and dataset evidence. This contract keeps
-   language at task-parameter and skill-selection level, forbids raw joint/force
-   commands from language requests, and requires robot-specific model,
-   calibration, safety, ROS 2 interface, and revalidation gates before any
-   external-arm portability claim.
+   current Phase 2, variation-result, and dataset evidence. The future
+   external-robot adapter shape is checked separately by
+   `configs/v0_external_robot_adapter.template.json` and
+   `scripts/check_v0_robot_adapter_contract.py`, which must remain blocked
+   until a named robot has model, calibration, safety, ROS 2 interface, and
+   revalidation evidence. This contract keeps language at task-parameter and
+   skill-selection level, forbids raw joint/force commands from language
+   requests, and requires robot-specific model, calibration, safety, ROS 2
+   interface, and revalidation gates before any external-arm portability claim.
 
 The first local variation contract is:
 
@@ -99,6 +103,7 @@ skill_api_contract: configs/v0_skill_api_contract.json passes local contract che
 skill_request_contract: configs/v0_skill_request.example.json passes local request check
 skill_request_planner: scripts/plan_v0_skill_request.py maps supported insert instructions only
 skill_readiness: scripts/check_v0_skill_readiness.py is blocked until variation traces and dataset exist
+external_robot_adapter: configs/v0_external_robot_adapter.template.json is safely blocked by scripts/check_v0_robot_adapter_contract.py
 dataset_preparation: blocked until the result gate passes
 ```
 
