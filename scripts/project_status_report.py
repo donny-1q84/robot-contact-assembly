@@ -625,10 +625,15 @@ def v0_residual_policy_eval_status() -> Check:
 
     status = str(facts.get("status") or "BLOCKED")
     blockers = facts.get("blockers") if isinstance(facts.get("blockers"), list) else []
+    side_effects = facts.get("side_effects") if isinstance(facts.get("side_effects"), dict) else {}
     detail = (
         f"metadata={facts.get('metadata')}; checkpoint={facts.get('checkpoint')}; "
         f"ready_for_supervised_eval={facts.get('ready_for_supervised_eval')}; "
-        f"sample_count={facts.get('sample_count')}; blockers={len(blockers)}."
+        f"sample_count={facts.get('sample_count')}; blockers={len(blockers)}; "
+        f"writes_eval_summary={side_effects.get('writes_eval_summary')}; "
+        f"imports_torch={side_effects.get('imports_torch')}; "
+        f"starts_isaac={side_effects.get('starts_isaac')}; "
+        f"creates_paid_instance={side_effects.get('creates_paid_instance')}."
     )
     return Check("V0 residual policy eval", "READY" if status != "BLOCKED" else "BLOCKED", detail)
 

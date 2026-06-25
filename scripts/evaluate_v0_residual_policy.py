@@ -33,6 +33,24 @@ READY_DRY_RUN_STATUS = "READY_FOR_LOCAL_SUPERVISED_EVAL_DRY_RUN"
 EVALUATED_STATUS = "SUPERVISED_EVAL_NEEDS_ISAAC_POLICY_GATE"
 
 
+def _side_effects(
+    *,
+    writes_eval_summary: bool,
+    imports_torch: bool,
+    runs_supervised_eval: bool,
+) -> dict[str, bool]:
+    return {
+        "writes_eval_summary": writes_eval_summary,
+        "writes_checkpoint": False,
+        "writes_training_metadata": False,
+        "imports_torch": imports_torch,
+        "runs_supervised_eval": runs_supervised_eval,
+        "creates_paid_instance": False,
+        "starts_isaac": False,
+        "calls_ros_or_robot": False,
+    }
+
+
 def _rel(path: Path) -> str:
     try:
         return str(path.resolve().relative_to(REPO_ROOT))
@@ -311,13 +329,31 @@ def main() -> int:
 
     preflight = build_preflight(args.metadata)
     if preflight["status"] == "BLOCKED":
+        preflight["side_effects"] = _side_effects(
+            writes_eval_summary=False,
+            imports_torch=False,
+            runs_supervised_eval=False,
+        )
         print("[v0-residual-policy-eval] facts=" + json.dumps(preflight, indent=2, sort_keys=True))
         print("[v0-residual-policy-eval] BLOCKED")
         if args.fail_on_blocked:
             return 1
         return 0
 
-    payload = preflight if args.dry_run else _run_supervised_eval(preflight, args.metadata)
+    if args.dry_run:
+        payload = dict(preflight)
+        payload["side_effects"] = _side_effects(
+            writes_eval_summary=not args.no_output,
+            imports_torch=False,
+            runs_supervised_eval=False,
+        )
+    else:
+        payload = _run_supervised_eval(preflight, args.metadata)
+        payload["side_effects"] = _side_effects(
+            writes_eval_summary=not args.no_output,
+            imports_torch=True,
+            runs_supervised_eval=True,
+        )
     if not args.no_output:
         output_json = _resolve(args.output_json)
         output_json.parent.mkdir(parents=True, exist_ok=True)

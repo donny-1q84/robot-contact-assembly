@@ -1577,7 +1577,26 @@ def run_v0_skill_api_contract_tests() -> None:
     assert_status(result, 1, "V0 offline policy-readiness pipeline can fail closed while blocked")
     result = run(["python3", str(policy_eval_script_path), "--dry-run", "--no-output"])
     assert_status(result, 0, "V0 residual policy eval reports blocked current state without failing by default")
+    assert_contains(result, "[v0-residual-policy-eval] facts=", "V0 residual eval blocked facts marker")
     assert_contains(result, "[v0-residual-policy-eval] BLOCKED", "V0 residual eval blocked detail")
+    blocked_eval_report, _ = json.JSONDecoder().raw_decode(
+        result.stdout.split("[v0-residual-policy-eval] facts=", 1)[1].lstrip()
+    )
+    if blocked_eval_report["status"] != "BLOCKED":
+        raise AssertionError(f"blocked evaluator should expose BLOCKED facts: {blocked_eval_report}")
+    blocked_eval_effects = blocked_eval_report["side_effects"]
+    for key in (
+        "writes_eval_summary",
+        "writes_checkpoint",
+        "writes_training_metadata",
+        "imports_torch",
+        "runs_supervised_eval",
+        "creates_paid_instance",
+        "starts_isaac",
+        "calls_ros_or_robot",
+    ):
+        if blocked_eval_effects[key] is not False:
+            raise AssertionError(f"blocked evaluator side effect must be false for {key}: {blocked_eval_report}")
     result = run(["python3", str(policy_eval_script_path), "--dry-run", "--no-output", "--fail-on-blocked"])
     assert_status(result, 1, "V0 residual policy eval can fail closed before checkpoint metadata exists")
     result = run(["python3", str(policy_promotion_gate_path), "--skip-phase2-contact-gate", "--no-output"])
@@ -3353,6 +3372,19 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"eval dry-run should preserve sample count: {eval_dry_run}")
         if "not Isaac closed-loop evaluation" not in eval_dry_run["not_claims"]:
             raise AssertionError(f"eval dry-run must preserve Isaac non-claim: {eval_dry_run}")
+        if eval_dry_run["side_effects"]["writes_eval_summary"] is not True:
+            raise AssertionError(f"eval dry-run should disclose summary writes: {eval_dry_run}")
+        for key in (
+            "writes_checkpoint",
+            "writes_training_metadata",
+            "imports_torch",
+            "runs_supervised_eval",
+            "creates_paid_instance",
+            "starts_isaac",
+            "calls_ros_or_robot",
+        ):
+            if eval_dry_run["side_effects"][key] is not False:
+                raise AssertionError(f"eval dry-run side effect must be false for {key}: {eval_dry_run}")
         supervised_eval_json = tmp_dir / "policy_eval" / "supervised_summary.json"
         fake_checkpoint_sha = hashlib.sha256(fake_checkpoint.read_bytes()).hexdigest()
         supervised_eval_payload = {
