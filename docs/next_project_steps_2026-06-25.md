@@ -232,6 +232,7 @@ python3 scripts/validate_v0_skill_request.py
 python3 scripts/check_v0_skill_readiness.py --skip-phase2-contact-gate
 python3 scripts/plan_v0_skill_execution.py --skip-phase2-contact-gate --no-output
 python3 scripts/prepare_v0_policy_api_review.py --skip-phase2-contact-gate
+python3 scripts/plan_v0_policy_experiment.py --no-output
 python3 scripts/plan_v0_robot_adapter_manifest.py \
   --robot-id demo_arm_v0 \
   --robot-family demo_6dof_arm \

@@ -1342,6 +1342,7 @@ def run_v0_skill_api_contract_tests() -> None:
     readiness_checker_path = REPO_ROOT / "scripts" / "check_v0_skill_readiness.py"
     execution_planner_path = REPO_ROOT / "scripts" / "plan_v0_skill_execution.py"
     policy_api_review_path = REPO_ROOT / "scripts" / "prepare_v0_policy_api_review.py"
+    policy_experiment_path = REPO_ROOT / "scripts" / "plan_v0_policy_experiment.py"
     robot_adapter_path = REPO_ROOT / "configs" / "v0_external_robot_adapter.template.json"
     robot_adapter_checker_path = REPO_ROOT / "scripts" / "check_v0_robot_adapter_contract.py"
     robot_adapter_planner_path = REPO_ROOT / "scripts" / "plan_v0_robot_adapter_manifest.py"
@@ -1374,6 +1375,11 @@ def run_v0_skill_api_contract_tests() -> None:
         ]
     )
     assert_status(result, 1, "V0 skill execution planner can fail closed on blocked readiness")
+    result = run(["python3", str(policy_experiment_path), "--no-output"])
+    assert_status(result, 0, "V0 policy experiment planner reports blocked current state without failing by default")
+    assert_contains(result, "[v0-policy-experiment-plan] status=BLOCKED", "V0 policy experiment blocked detail")
+    result = run(["python3", str(policy_experiment_path), "--no-output", "--fail-on-blocked"])
+    assert_status(result, 1, "V0 policy experiment planner can fail closed before review packet exists")
 
     checker = checker_path.read_text(encoding="utf-8")
     request_checker = request_checker_path.read_text(encoding="utf-8")
@@ -1381,6 +1387,7 @@ def run_v0_skill_api_contract_tests() -> None:
     readiness_checker = readiness_checker_path.read_text(encoding="utf-8")
     execution_planner = execution_planner_path.read_text(encoding="utf-8")
     policy_api_review = policy_api_review_path.read_text(encoding="utf-8")
+    policy_experiment = policy_experiment_path.read_text(encoding="utf-8")
     robot_adapter_checker = robot_adapter_checker_path.read_text(encoding="utf-8")
     robot_adapter_planner = robot_adapter_planner_path.read_text(encoding="utf-8")
     for expected_snippet in (
@@ -1454,6 +1461,19 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"V0 policy/API review prep missing snippet: {expected_snippet}")
     if "brev create" in policy_api_review or '"${BREV_BIN}" create' in policy_api_review:
         raise AssertionError("V0 policy/API review prep must be offline and must not create Brev instances")
+    for expected_snippet in (
+        "Plan the first V0 residual-policy experiment",
+        "READY_FOR_LOCAL_POLICY_EXPERIMENT_DESIGN",
+        "ready_for_training",
+        "residual_policy_over_scripted_baseline",
+        "negative-control case must not be included",
+        "does not train a policy, call Brev, start Isaac",
+        "not a Brev or Isaac launcher",
+    ):
+        if expected_snippet not in policy_experiment:
+            raise AssertionError(f"V0 policy experiment planner missing snippet: {expected_snippet}")
+    if "brev create" in policy_experiment or '"${BREV_BIN}" create' in policy_experiment:
+        raise AssertionError("V0 policy experiment planner must be offline and must not create Brev instances")
     for expected_snippet in (
         "external-arm portability",
         "ready_for_external_robot cannot be true while adapter evidence blockers remain",
@@ -2070,6 +2090,38 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError("policy/API review must preserve sim-to-real non-claim")
         if "V0 Policy/API Review Packet" not in policy_review_md.read_text(encoding="utf-8"):
             raise AssertionError("policy/API review README should include a clear title")
+        policy_experiment_json = tmp_dir / "policy_experiment" / "plan.json"
+        policy_experiment_md = tmp_dir / "policy_experiment" / "README.md"
+        result = run(
+            [
+                "python3",
+                "scripts/plan_v0_policy_experiment.py",
+                "--review-packet",
+                str(policy_review_json),
+                "--dataset",
+                str(dataset_json),
+                "--output-json",
+                str(policy_experiment_json),
+                "--output-md",
+                str(policy_experiment_md),
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 0, "V0 policy experiment planner accepts review packet plus dataset")
+        assert_contains(
+            result,
+            "READY_FOR_LOCAL_POLICY_EXPERIMENT_DESIGN",
+            "V0 policy experiment ready detail",
+        )
+        policy_experiment_plan = json.loads(policy_experiment_json.read_text(encoding="utf-8"))
+        if policy_experiment_plan["ready_for_training"] is not False:
+            raise AssertionError(f"policy experiment plan should still require review before training: {policy_experiment_plan}")
+        if policy_experiment_plan["experiment"]["policy_family"] != "residual_policy_over_scripted_baseline":
+            raise AssertionError(f"policy experiment should be residual over scripted baseline: {policy_experiment_plan}")
+        if "raw_joint_targets" not in policy_experiment_plan["experiment"]["forbidden_outputs"]:
+            raise AssertionError("policy experiment plan must preserve raw joint command ban")
+        if "V0 Residual Policy Experiment Plan" not in policy_experiment_md.read_text(encoding="utf-8"):
+            raise AssertionError("policy experiment plan README should include a clear title")
         result = run(
             [
                 "python3",
