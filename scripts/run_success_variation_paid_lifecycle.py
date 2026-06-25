@@ -4,10 +4,10 @@
 This is the highest-level paid entrypoint for the current success-variation
 milestone. It is deliberately fail-closed: it only reaches the paid runner when
 --run, --balance-eur, and --i-understand-this-can-create-paid-instance are all
-provided. It first delegates to the prepare helper, then runs the guarded
-config runner, disarms the local env, checks Brev safety, and finally either
-finalizes the dataset gate plus V0 offline policy-readiness pipeline or writes
-a recovery rerun plan.
+provided. It first delegates to the prepare helper, then forces the aggregate
+paid lifecycle preflight, then runs the guarded config runner, disarms the local env,
+checks Brev safety, and finally either finalizes the dataset gate plus V0 offline
+policy-readiness pipeline or writes a recovery rerun plan.
 """
 
 from __future__ import annotations
@@ -93,6 +93,16 @@ def _build_commands(args: argparse.Namespace) -> dict[str, list[str]]:
             "--force-credit",
             "--i-understand-this-arms-paid-run",
         ],
+        "preflight": [
+            "python3",
+            "scripts/check_success_variation_paid_lifecycle_preflight.py",
+            "--config",
+            str(config),
+            "--manifest",
+            str(manifest),
+            "--no-output",
+            "--fail-on-blocked",
+        ],
         "run": [
             "scripts/run_success_variation_batch_from_config.sh",
             str(config),
@@ -130,28 +140,34 @@ def _build_commands(args: argparse.Namespace) -> dict[str, list[str]]:
 def _print_dry_run(commands: dict[str, list[str]]) -> None:
     print("[success-variation-lifecycle] DRY_RUN")
     print("[success-variation-lifecycle] would not create a paid instance")
-    for label in ("prepare", "run", "disarm", "safety", "finalize", "policy_readiness", "recovery"):
+    for label in ("prepare", "preflight", "run", "disarm", "safety", "finalize", "policy_readiness", "recovery"):
         print(f"- {label}: {_fmt(commands[label])}")
 
 
 def _post_run_cleanup(commands: dict[str, list[str]]) -> None:
-    """Disarm local paid acknowledgements and re-check Brev after any paid run attempt."""
+    """Disarm local paid acknowledgements and re-check Brev after arming or a paid run attempt."""
 
     _run("disarm", commands["disarm"])
     _run("safety", commands["safety"])
 
 
 def _execute_lifecycle(args: argparse.Namespace, commands: dict[str, list[str]]) -> int:
-    """Execute the paid lifecycle with fail-closed cleanup after the run step."""
+    """Execute the paid lifecycle with fail-closed cleanup after local arming."""
 
     prepare_status = _run("prepare", commands["prepare"])
     if prepare_status != 0:
         return prepare_status
 
-    run_attempted = False
+    cleanup_required = False
     cleanup_done = False
     try:
-        run_attempted = True
+        cleanup_required = True
+        preflight_status = _run("preflight", commands["preflight"])
+        if preflight_status != 0:
+            _post_run_cleanup(commands)
+            cleanup_done = True
+            return preflight_status
+
         run_status = _run("run", commands["run"])
         _post_run_cleanup(commands)
         cleanup_done = True
@@ -174,13 +190,13 @@ def _execute_lifecycle(args: argparse.Namespace, commands: dict[str, list[str]])
         return 0
     except KeyboardInterrupt:
         print("[success-variation-lifecycle] INTERRUPTED")
-        if run_attempted and not cleanup_done:
+        if cleanup_required and not cleanup_done:
             _post_run_cleanup(commands)
             cleanup_done = True
         _run("recovery", commands["recovery"])
         return 130
     finally:
-        if run_attempted and not cleanup_done:
+        if cleanup_required and not cleanup_done:
             _post_run_cleanup(commands)
 
 

@@ -420,10 +420,14 @@ python3 scripts/run_success_variation_paid_lifecycle.py \
 ```
 
 That wrapper still requires fresh Brev UI balance evidence. It delegates to the
-prepare helper and guarded config runner, then disarms the local env and runs
-Brev safety after any paid run attempt before either finalizing the dataset gate
-or writing the recovery rerun plan. Local gate tests cover the run-failure,
-finalize-failure, interrupt, and success cleanup paths.
+prepare helper, reruns the aggregate paid lifecycle preflight with
+`--fail-on-blocked`, and only then enters the guarded config runner. If prepare
+arms the local env but the aggregate preflight fails or is interrupted, it
+disarms and runs Brev safety before exiting. After any paid run attempt it also
+disarms and safety-checks before either finalizing the dataset gate or writing
+the recovery rerun plan. Local gate tests cover the preflight-failure,
+preflight-interrupt, run-failure, finalize-failure, interrupt, and success
+cleanup paths.
 
 Before editing the ignored local env or opening paid compute, run the
 read-only assumption-and-metric audit:

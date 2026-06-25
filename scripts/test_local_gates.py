@@ -3684,6 +3684,11 @@ def run_success_variation_manifest_tests() -> None:
         assert_status(result, 0, "success variation paid lifecycle dry-run succeeds")
         assert_contains(result, "DRY_RUN", "paid lifecycle dry-run marker")
         assert_contains(result, "would not create a paid instance", "paid lifecycle dry-run safety detail")
+        assert_contains(
+            result,
+            "check_success_variation_paid_lifecycle_preflight.py",
+            "paid lifecycle aggregate preflight detail",
+        )
         assert_contains(result, "finalize_success_variation_batch.sh", "paid lifecycle finalizer detail")
         assert_contains(
             result,
@@ -3717,6 +3722,11 @@ def run_success_variation_manifest_tests() -> None:
         assert_contains(result, f"--config {custom_lifecycle_config}", "paid lifecycle custom config prepare detail")
         assert_contains(
             result,
+            "success_trace_variations_2026-06-25.json",
+            "paid lifecycle custom manifest preflight detail",
+        )
+        assert_contains(
+            result,
             f"--credit-output {custom_lifecycle_credit}",
             "paid lifecycle custom credit evidence detail",
         )
@@ -3736,6 +3746,7 @@ def run_success_variation_manifest_tests() -> None:
         lifecycle_module_spec.loader.exec_module(lifecycle_module)
         lifecycle_commands = {
             "prepare": ["prepare"],
+            "preflight": ["preflight"],
             "run": ["run"],
             "disarm": ["disarm"],
             "safety": ["safety"],
@@ -3762,18 +3773,25 @@ def run_success_variation_manifest_tests() -> None:
                 lifecycle_module._run = original_run
             return status, calls
 
+        status, calls = exercise_lifecycle({"preflight": 6})
+        if status != 6 or calls != ["prepare", "preflight", "disarm", "safety"]:
+            raise AssertionError(f"paid lifecycle preflight failure should disarm and safety-check: {status=} {calls=}")
+        status, calls = exercise_lifecycle({}, interrupt_label="preflight")
+        if status != 130 or calls != ["prepare", "preflight", "disarm", "safety", "recovery"]:
+            raise AssertionError(f"paid lifecycle preflight interrupt should disarm, safety-check, and recover: {status=} {calls=}")
         status, calls = exercise_lifecycle({"run": 7})
-        if status != 7 or calls != ["prepare", "run", "disarm", "safety", "recovery"]:
+        if status != 7 or calls != ["prepare", "preflight", "run", "disarm", "safety", "recovery"]:
             raise AssertionError(f"paid lifecycle run failure should disarm, safety-check, and recover: {status=} {calls=}")
         status, calls = exercise_lifecycle({"finalize": 9})
-        if status != 9 or calls != ["prepare", "run", "disarm", "safety", "finalize", "recovery"]:
+        if status != 9 or calls != ["prepare", "preflight", "run", "disarm", "safety", "finalize", "recovery"]:
             raise AssertionError(f"paid lifecycle finalize failure should recover after cleanup: {status=} {calls=}")
         status, calls = exercise_lifecycle({}, interrupt_label="run")
-        if status != 130 or calls != ["prepare", "run", "disarm", "safety", "recovery"]:
+        if status != 130 or calls != ["prepare", "preflight", "run", "disarm", "safety", "recovery"]:
             raise AssertionError(f"paid lifecycle interrupt should disarm, safety-check, and recover: {status=} {calls=}")
         status, calls = exercise_lifecycle({})
         if status != 0 or calls != [
             "prepare",
+            "preflight",
             "run",
             "disarm",
             "safety",
@@ -3787,6 +3805,8 @@ def run_success_variation_manifest_tests() -> None:
             "highest-level paid entrypoint",
             "--i-understand-this-can-create-paid-instance",
             "prepare_success_variation_paid_batch.py",
+            "check_success_variation_paid_lifecycle_preflight.py",
+            "--fail-on-blocked",
             "RCA_BREV_CREDIT_EVIDENCE_JSON",
             "run_success_variation_batch_from_config.sh",
             "arm_success_variation_paid_env.py",
@@ -3798,6 +3818,7 @@ def run_success_variation_manifest_tests() -> None:
             "no paid instance was created",
             "disarms the local env",
             "checks Brev safety",
+            "cleanup_required",
             "_post_run_cleanup",
             "_execute_lifecycle",
             "except KeyboardInterrupt",
