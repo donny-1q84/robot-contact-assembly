@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 from datetime import datetime, timezone
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -19,6 +20,7 @@ import sys
 import tarfile
 import tempfile
 import hashlib
+from types import SimpleNamespace
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -3669,6 +3671,63 @@ def run_success_variation_manifest_tests() -> None:
         assert_contains(result, "--balance-eur", "paid lifecycle balance guidance")
         assert_contains(result, "no paid instance was created", "paid lifecycle blocked safety detail")
 
+        lifecycle_module_spec = importlib.util.spec_from_file_location(
+            "rca_success_variation_paid_lifecycle_test_module",
+            REPO_ROOT / "scripts" / "run_success_variation_paid_lifecycle.py",
+        )
+        if lifecycle_module_spec is None or lifecycle_module_spec.loader is None:
+            raise AssertionError("could not import success variation paid lifecycle module for cleanup tests")
+        lifecycle_module = importlib.util.module_from_spec(lifecycle_module_spec)
+        lifecycle_module_spec.loader.exec_module(lifecycle_module)
+        lifecycle_commands = {
+            "prepare": ["prepare"],
+            "run": ["run"],
+            "disarm": ["disarm"],
+            "safety": ["safety"],
+            "finalize": ["finalize"],
+            "policy_readiness": ["policy_readiness"],
+            "recovery": ["recovery"],
+        }
+
+        def exercise_lifecycle(status_by_label: dict[str, int], interrupt_label: str | None = None) -> tuple[int, list[str]]:
+            calls: list[str] = []
+            original_run = lifecycle_module._run
+
+            def fake_run(label: str, command: list[str]) -> int:
+                del command
+                calls.append(label)
+                if label == interrupt_label:
+                    raise KeyboardInterrupt
+                return status_by_label.get(label, 0)
+
+            lifecycle_module._run = fake_run
+            try:
+                status = lifecycle_module._execute_lifecycle(SimpleNamespace(), lifecycle_commands)
+            finally:
+                lifecycle_module._run = original_run
+            return status, calls
+
+        status, calls = exercise_lifecycle({"run": 7})
+        if status != 7 or calls != ["prepare", "run", "disarm", "safety", "recovery"]:
+            raise AssertionError(f"paid lifecycle run failure should disarm, safety-check, and recover: {status=} {calls=}")
+        status, calls = exercise_lifecycle({"finalize": 9})
+        if status != 9 or calls != ["prepare", "run", "disarm", "safety", "finalize", "recovery"]:
+            raise AssertionError(f"paid lifecycle finalize failure should recover after cleanup: {status=} {calls=}")
+        status, calls = exercise_lifecycle({}, interrupt_label="run")
+        if status != 130 or calls != ["prepare", "run", "disarm", "safety", "recovery"]:
+            raise AssertionError(f"paid lifecycle interrupt should disarm, safety-check, and recover: {status=} {calls=}")
+        status, calls = exercise_lifecycle({})
+        if status != 0 or calls != [
+            "prepare",
+            "run",
+            "disarm",
+            "safety",
+            "finalize",
+            "policy_readiness",
+            "safety_final",
+        ]:
+            raise AssertionError(f"paid lifecycle success should run final safety after policy readiness: {status=} {calls=}")
+
         for expected_snippet in (
             "highest-level paid entrypoint",
             "--i-understand-this-can-create-paid-instance",
@@ -3684,6 +3743,10 @@ def run_success_variation_manifest_tests() -> None:
             "no paid instance was created",
             "disarms the local env",
             "checks Brev safety",
+            "_post_run_cleanup",
+            "_execute_lifecycle",
+            "except KeyboardInterrupt",
+            "[success-variation-lifecycle] INTERRUPTED",
         ):
             if expected_snippet not in lifecycle_script:
                 raise AssertionError(f"success variation paid lifecycle missing snippet: {expected_snippet}")

@@ -157,7 +157,7 @@ credit_evidence: configs/brev_credit_verification.local.json is ignored and must
 paid_success_variation_preflight: scripts/check_success_variation_paid_lifecycle_preflight.py summarizes credit evidence, Brev safety, local-env armability, and batch-plan readiness without arming or creating a paid instance
 pre_batch_assumption_audit: blocked until one-run paid acknowledgements exist; planned traces may still be missing
 post_batch_assumption_audit: blocked until planned traces and negative control results exist
-paid_success_variation_lifecycle: scripts/run_success_variation_paid_lifecycle.py is the one-shot paid entrypoint after current UI balance evidence; it disarms, safety-checks, finalizes, runs the offline policy-readiness pipeline, or writes a recovery plan
+paid_success_variation_lifecycle: scripts/run_success_variation_paid_lifecycle.py is the one-shot paid entrypoint after current UI balance evidence; after any paid run attempt it disarms, safety-checks, then finalizes/runs the offline policy-readiness pipeline or writes a recovery plan; run/finalize failures and KeyboardInterrupt are covered by local cleanup-path tests
 skill_api_contract: configs/v0_skill_api_contract.json passes local contract check
 skill_api_promotion_coverage: requires strict-success seed/reset plus socket X/Y/Z variation coverage before policy/API promotion
 success_variation_recovery: scripts/plan_success_variation_recovery_batch.py skips already satisfied traces and plans only unresolved reruns after a partial batch

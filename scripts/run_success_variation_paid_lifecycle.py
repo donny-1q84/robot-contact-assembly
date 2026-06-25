@@ -134,6 +134,56 @@ def _print_dry_run(commands: dict[str, list[str]]) -> None:
         print(f"- {label}: {_fmt(commands[label])}")
 
 
+def _post_run_cleanup(commands: dict[str, list[str]]) -> None:
+    """Disarm local paid acknowledgements and re-check Brev after any paid run attempt."""
+
+    _run("disarm", commands["disarm"])
+    _run("safety", commands["safety"])
+
+
+def _execute_lifecycle(args: argparse.Namespace, commands: dict[str, list[str]]) -> int:
+    """Execute the paid lifecycle with fail-closed cleanup after the run step."""
+
+    prepare_status = _run("prepare", commands["prepare"])
+    if prepare_status != 0:
+        return prepare_status
+
+    run_attempted = False
+    cleanup_done = False
+    try:
+        run_attempted = True
+        run_status = _run("run", commands["run"])
+        _post_run_cleanup(commands)
+        cleanup_done = True
+
+        if run_status != 0:
+            _run("recovery", commands["recovery"])
+            return run_status
+
+        finalize_status = _run("finalize", commands["finalize"])
+        if finalize_status != 0:
+            _run("recovery", commands["recovery"])
+            return finalize_status
+
+        policy_readiness_status = _run("policy_readiness", commands["policy_readiness"])
+        if policy_readiness_status != 0:
+            return policy_readiness_status
+
+        _run("safety_final", commands["safety"])
+        print("[success-variation-lifecycle] PASS")
+        return 0
+    except KeyboardInterrupt:
+        print("[success-variation-lifecycle] INTERRUPTED")
+        if run_attempted and not cleanup_done:
+            _post_run_cleanup(commands)
+            cleanup_done = True
+        _run("recovery", commands["recovery"])
+        return 130
+    finally:
+        if run_attempted and not cleanup_done:
+            _post_run_cleanup(commands)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--balance-eur", type=_positive_float)
@@ -170,30 +220,7 @@ def main() -> int:
         print("[success-variation-lifecycle] no paid instance was created")
         return 1
 
-    prepare_status = _run("prepare", commands["prepare"])
-    if prepare_status != 0:
-        return prepare_status
-
-    run_status = _run("run", commands["run"])
-    _run("disarm", commands["disarm"])
-    _run("safety", commands["safety"])
-
-    if run_status != 0:
-        _run("recovery", commands["recovery"])
-        return run_status
-
-    finalize_status = _run("finalize", commands["finalize"])
-    if finalize_status != 0:
-        _run("recovery", commands["recovery"])
-        return finalize_status
-
-    policy_readiness_status = _run("policy_readiness", commands["policy_readiness"])
-    if policy_readiness_status != 0:
-        return policy_readiness_status
-
-    _run("safety_final", commands["safety"])
-    print("[success-variation-lifecycle] PASS")
-    return 0
+    return _execute_lifecycle(args, commands)
 
 
 if __name__ == "__main__":
