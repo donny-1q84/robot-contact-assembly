@@ -179,6 +179,7 @@ scripts/prepare_v0_policy_api_review.py
 configs/v0_external_robot_adapter.template.json
 scripts/plan_v0_robot_adapter_manifest.py
 scripts/check_v0_robot_adapter_contract.py
+scripts/check_v0_portability_boundary.py
 ```
 
 It keeps language/VLM behavior at the task-parameter and skill-selection layer,
@@ -213,6 +214,10 @@ adapter boundary, not direct drop-in precision on arbitrary arms.
 known ROS 2 interface names into a machine-readable adapter manifest, but still
 leaves it safely blocked until the checker sees robot-specific model,
 calibration, safety, interface-validation, and revalidation evidence.
+`scripts/check_v0_portability_boundary.py` is the aggregate claim gate: it
+combines V0 skill readiness with the named robot adapter status and keeps
+`universal_drop_in_ready=false` even when one named adapter is ready for
+low-speed review.
 
 ## Do Not Do Next
 
@@ -250,6 +255,7 @@ python3 scripts/plan_v0_robot_adapter_manifest.py \
   --joint-state-feedback /joint_states \
   --skill-status /rca/skill_status
 python3 scripts/check_v0_robot_adapter_contract.py
+python3 scripts/check_v0_portability_boundary.py --skip-phase2-contact-gate
 python3 scripts/check_success_variation_batch_plan.py artifacts/manifests/success_trace_variations_2026-06-25.json
 python3 scripts/check_peg_in_hole_video_candidate.py artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json
 python3 scripts/check_final_contact_boundary_diagnostic.py artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json

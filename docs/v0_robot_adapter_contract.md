@@ -40,3 +40,11 @@ any other arm. It only means this named adapter has supplied the required
 evidence and is ready for low-speed human review. Cross-robot portability is
 achieved by repeating the adapter, calibration, safety, and revalidation steps
 for each robot.
+
+## Executable Boundary Check
+
+Use `python3 scripts/check_v0_portability_boundary.py` to audit the whole
+portability claim. The checker combines V0 skill readiness with the named robot
+adapter contract and keeps `universal_drop_in_ready=false` even when a specific
+adapter is ready. A passing result means `READY_FOR_NAMED_ROBOT_LOW_SPEED_REVIEW`,
+not arbitrary-arm plug-and-play precision.

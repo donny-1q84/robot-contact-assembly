@@ -1352,6 +1352,7 @@ def run_v0_skill_api_contract_tests() -> None:
     robot_adapter_path = REPO_ROOT / "configs" / "v0_external_robot_adapter.template.json"
     robot_adapter_checker_path = REPO_ROOT / "scripts" / "check_v0_robot_adapter_contract.py"
     robot_adapter_planner_path = REPO_ROOT / "scripts" / "plan_v0_robot_adapter_manifest.py"
+    portability_checker_path = REPO_ROOT / "scripts" / "check_v0_portability_boundary.py"
 
     result = run(["python3", str(checker_path), str(contract_path)])
     assert_status(result, 0, "V0 skill API contract validator accepts committed contract")
@@ -1367,6 +1368,12 @@ def run_v0_skill_api_contract_tests() -> None:
         "next_action=fill_robot_specific_model_calibration_safety_ros2_and_revalidation_evidence",
         "V0 robot adapter next action detail",
     )
+    result = run(["python3", str(portability_checker_path), "--skip-phase2-contact-gate"])
+    assert_status(result, 0, "V0 portability boundary reports current safe blocked state")
+    assert_contains(result, "BLOCKED_NOT_DROP_IN", "V0 portability boundary blocked detail")
+    assert_contains(result, "universal_drop_in_ready=false", "V0 portability boundary universal non-claim")
+    result = run(["python3", str(portability_checker_path), "--skip-phase2-contact-gate", "--fail-on-blocked"])
+    assert_status(result, 1, "V0 portability boundary can fail closed while blocked")
     result = run(["python3", str(execution_planner_path), "--skip-phase2-contact-gate", "--no-output"])
     assert_status(result, 0, "V0 skill execution planner writes blocked plan without failing by default")
     assert_contains(result, "[v0-skill-execution-plan] status=BLOCKED", "V0 execution planner blocked detail")
@@ -1432,6 +1439,7 @@ def run_v0_skill_api_contract_tests() -> None:
     policy_training_preflight = policy_training_preflight_path.read_text(encoding="utf-8")
     robot_adapter_checker = robot_adapter_checker_path.read_text(encoding="utf-8")
     robot_adapter_planner = robot_adapter_planner_path.read_text(encoding="utf-8")
+    portability_checker = portability_checker_path.read_text(encoding="utf-8")
     for expected_snippet in (
         "raw_joint_targets",
         "not direct drop-in precision on another robot arm",
@@ -1624,6 +1632,18 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"V0 robot adapter planner missing snippet: {expected_snippet}")
     if "brev create" in robot_adapter_planner or '"${BREV_BIN}" create' in robot_adapter_planner:
         raise AssertionError("V0 robot adapter planner must be offline and must not create Brev instances")
+    for expected_snippet in (
+        "v0_cross_robot_portability_boundary",
+        "universal_drop_in_ready",
+        "READY_FOR_NAMED_ROBOT_LOW_SPEED_REVIEW",
+        "BLOCKED_NOT_DROP_IN",
+        "not direct drop-in precision on another robot arm",
+        "It does not call Brev, Isaac, ROS, a",
+    ):
+        if expected_snippet not in portability_checker:
+            raise AssertionError(f"V0 portability boundary checker missing snippet: {expected_snippet}")
+    if "brev create" in portability_checker or '"${BREV_BIN}" create' in portability_checker:
+        raise AssertionError("V0 portability boundary checker must be offline and must not create Brev instances")
 
     contract = json.loads(contract_path.read_text(encoding="utf-8"))
     if "raw_joint_targets" not in contract["language_layer"]["forbidden_outputs"]:
@@ -2172,6 +2192,137 @@ def run_success_variation_manifest_tests() -> None:
         ready_skill = json.loads(ready_skill_json.read_text(encoding="utf-8"))
         if ready_skill["next_action"] != "ready_for_policy_api_review":
             raise AssertionError(f"ready V0 skill should point to policy/API review: {ready_skill}")
+        ready_adapter = json.loads((REPO_ROOT / "configs" / "v0_external_robot_adapter.template.json").read_text(encoding="utf-8"))
+        evidence_dir = tmp_dir / "adapter_evidence"
+        evidence_dir.mkdir()
+        evidence_files: dict[str, str] = {}
+        for name in (
+            "robot_model.usd",
+            "joint_limits.json",
+            "tool_geometry.json",
+            "tcp_transform.json",
+            "controller_interface.md",
+            "base_frame_alignment.json",
+            "tool_center_point.json",
+            "socket_fixture_frame.json",
+            "joint_limit_check.json",
+            "workspace_limit_check.json",
+            "collision_clearance_check.json",
+            "controller_timeout.json",
+            "emergency_stop_path.md",
+            "low_speed_contact_validation.json",
+            "phase2_contact_gate_equivalent.json",
+            "strict_success_variation_batch.json",
+            "negative_control_fail_closed.json",
+            "low_speed_hardware_contact_trial.json",
+        ):
+            path = evidence_dir / name
+            path.write_text('{"status":"pass"}\n', encoding="utf-8")
+            evidence_files[name] = str(path)
+        ready_adapter["adapter_name"] = "v0_external_robot_adapter_demo_arm_ready_fixture"
+        ready_adapter["ready_for_external_robot"] = True
+        ready_adapter["target_robot"] = {
+            "robot_id": "demo_arm_ready_fixture",
+            "robot_family": "demo_6dof_arm",
+            "control_stack": "ros2_control_joint_trajectory",
+            "end_effector": "parallel_gripper_with_peg_fixture",
+        }
+        ready_adapter["model_sources"] = {
+            "robot_urdf_or_usd": evidence_files["robot_model.usd"],
+            "joint_limits": evidence_files["joint_limits.json"],
+            "tool_geometry": evidence_files["tool_geometry.json"],
+            "tcp_transform": evidence_files["tcp_transform.json"],
+            "controller_interface_spec": evidence_files["controller_interface.md"],
+        }
+        ready_adapter["calibration_evidence"] = {
+            "base_frame_alignment": evidence_files["base_frame_alignment.json"],
+            "tool_center_point": evidence_files["tool_center_point.json"],
+            "socket_fixture_frame": evidence_files["socket_fixture_frame.json"],
+            "camera_or_perception_frame_if_used": None,
+            "force_or_contact_thresholds_if_used": None,
+        }
+        ready_adapter["safety_evidence"] = {
+            "joint_limit_check": evidence_files["joint_limit_check.json"],
+            "workspace_limit_check": evidence_files["workspace_limit_check.json"],
+            "collision_or_clearance_check": evidence_files["collision_clearance_check.json"],
+            "controller_timeout": evidence_files["controller_timeout.json"],
+            "emergency_stop_path": evidence_files["emergency_stop_path.md"],
+            "low_speed_contact_validation": evidence_files["low_speed_contact_validation.json"],
+        }
+        ready_adapter["ros2_interfaces"] = {
+            "joint_trajectory_action": {
+                "interface": "/demo_arm/joint_trajectory_controller/follow_joint_trajectory",
+                "validated": True,
+            },
+            "joint_state_feedback": {"interface": "/joint_states", "validated": True},
+            "skill_status": {"interface": "/rca/skill_status", "validated": True},
+        }
+        ready_adapter["command_contract"] = {
+            "skill_target_schema": "configs/v0_skill_api_contract.json#skill_request_schema",
+            "command_frame": "socket_frame",
+            "command_units": "meters_radians_seconds",
+            "control_mode": "joint_trajectory_low_speed_contact",
+            "feedback_fields": ["joint_state", "skill_status", "fault_state"],
+            "abort_conditions": ["stale_state", "controller_fault", "workspace_limit"],
+            "rate_limits": "max_hz=20,max_translation_step_m=0.001",
+        }
+        ready_adapter["frame_contract"] = {
+            "base_frame": "demo_arm_base",
+            "tool_frame": "demo_tool0",
+            "tcp_frame": "demo_tcp",
+            "socket_frame": "demo_socket_fixture",
+            "transform_source": "calibrated_static_tf",
+            "timestamp_source": "ros_clock",
+        }
+        ready_adapter["runtime_guards"] = {
+            "max_translation_step_m": 0.001,
+            "max_rotation_step_rad": 0.01,
+            "max_joint_delta_rad": 0.02,
+            "command_timeout_s": 0.5,
+            "stale_state_timeout_s": 0.25,
+            "abort_on_fault": True,
+            "low_speed_mode_required": True,
+        }
+        ready_adapter["revalidation_evidence"] = {
+            "phase2_contact_gate_equivalent": evidence_files["phase2_contact_gate_equivalent.json"],
+            "strict_success_variation_batch": evidence_files["strict_success_variation_batch.json"],
+            "negative_control_fail_closed": evidence_files["negative_control_fail_closed.json"],
+            "low_speed_hardware_contact_trial": evidence_files["low_speed_hardware_contact_trial.json"],
+        }
+        ready_adapter_path = tmp_dir / "ready_external_robot_adapter.json"
+        ready_adapter_path.write_text(json.dumps(ready_adapter), encoding="utf-8")
+        result = run(["python3", "scripts/check_v0_robot_adapter_contract.py", str(ready_adapter_path), "--fail-on-blocked"])
+        assert_status(result, 0, "V0 robot adapter checker accepts complete named-robot evidence fixture")
+        assert_contains(result, "[v0-robot-adapter] READY", "ready V0 robot adapter detail")
+        portability_json = tmp_dir / "portability" / "boundary.json"
+        result = run(
+            [
+                "python3",
+                "scripts/check_v0_portability_boundary.py",
+                "--manifest",
+                str(pass_manifest_path),
+                "--dataset",
+                str(dataset_json),
+                "--adapter",
+                str(ready_adapter_path),
+                "--skip-phase2-contact-gate",
+                "--output-json",
+                str(portability_json),
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 0, "V0 portability boundary accepts ready V0 skill plus named adapter")
+        assert_contains(
+            result,
+            "READY_FOR_NAMED_ROBOT_LOW_SPEED_REVIEW",
+            "ready V0 portability boundary detail",
+        )
+        assert_contains(result, "universal_drop_in_ready=false", "ready portability boundary keeps universal non-claim")
+        portability = json.loads(portability_json.read_text(encoding="utf-8"))
+        if portability["universal_drop_in_ready"] is not False:
+            raise AssertionError(f"portability gate must never claim arbitrary-arm drop-in readiness: {portability}")
+        if portability["target_robot_id"] != "demo_arm_ready_fixture":
+            raise AssertionError(f"portability gate should name the ready adapter robot: {portability}")
         execution_plan_json = tmp_dir / "v0_skill_execution" / "plan.json"
         result = run(
             [
@@ -4697,6 +4848,8 @@ def main() -> int:
         assert_contains(result, "V0 skill readiness | BLOCKED", "status report V0 readiness detail")
         assert_contains(result, "V0 policy/API review packet | BLOCKED", "status report V0 policy/API review detail")
         assert_contains(result, "External robot adapter | BLOCKED", "status report external adapter detail")
+        assert_contains(result, "Cross-robot portability | BLOCKED", "status report portability boundary detail")
+        assert_contains(result, "universal_drop_in_ready=False", "status report portability non-claim detail")
         assert_contains(
             result,
             "python3 scripts/prepare_v0_policy_api_review.py --skip-phase2-contact-gate",
@@ -4706,6 +4859,11 @@ def main() -> int:
             result,
             "python3 scripts/plan_v0_robot_adapter_manifest.py --robot-id demo_arm_v0",
             "status report adapter planner command detail",
+        )
+        assert_contains(
+            result,
+            "python3 scripts/check_v0_portability_boundary.py --skip-phase2-contact-gate",
+            "status report portability command detail",
         )
 
         stale_scope_bundle = REPO_ROOT / "artifacts" / "launchable" / "robot-contact-assembly-contact-smoke-manual-preauth-9998-stale-scope-test.tar.gz"

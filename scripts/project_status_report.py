@@ -300,6 +300,37 @@ def external_robot_adapter_status() -> Check:
     return Check("External robot adapter", status, detail)
 
 
+def cross_robot_portability_status() -> Check:
+    result = run_script(
+        "python3",
+        "scripts/check_v0_portability_boundary.py",
+        "--skip-phase2-contact-gate",
+    )
+    marker = "[v0-portability-boundary] facts="
+    if marker not in result.stdout:
+        return Check(
+            "Cross-robot portability",
+            "FAIL",
+            "Could not parse scripts/check_v0_portability_boundary.py output.",
+        )
+    try:
+        facts = _json_prefix(result.stdout.split(marker, 1)[1])
+    except (json.JSONDecodeError, ValueError) as exc:
+        return Check("Cross-robot portability", "FAIL", f"Portability JSON parse failed: {exc}")
+
+    status = str(facts.get("status") or "BLOCKED")
+    blockers = facts.get("blockers") if isinstance(facts.get("blockers"), list) else []
+    detail = (
+        f"readiness_label={facts.get('readiness_label')}; "
+        f"universal_drop_in_ready={facts.get('universal_drop_in_ready')}; "
+        f"target_robot_id={facts.get('target_robot_id')}; "
+        f"skill_readiness={facts.get('skill_readiness_status')}; "
+        f"adapter={facts.get('adapter_status')}; "
+        f"blockers={len(blockers)}; next_action={facts.get('next_action')}."
+    )
+    return Check("Cross-robot portability", status, detail)
+
+
 def _json_prefix(text: str) -> dict:
     decoder = json.JSONDecoder()
     value, _ = decoder.raw_decode(text.lstrip())
@@ -486,6 +517,7 @@ def checks() -> list[Check]:
         v0_skill_readiness_status(),
         v0_policy_api_review_status(),
         external_robot_adapter_status(),
+        cross_robot_portability_status(),
         action_semantics_probe_status(),
         historical_doc_status(),
         tracked_generated_metadata_status(),
@@ -713,6 +745,7 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "python3 scripts/check_v0_policy_training_preflight.py --no-output",
             "python3 scripts/check_v0_robot_adapter_contract.py",
             "python3 scripts/plan_v0_robot_adapter_manifest.py --robot-id demo_arm_v0 --robot-family demo_6dof_arm --end-effector parallel_gripper --no-output",
+            "python3 scripts/check_v0_portability_boundary.py --skip-phase2-contact-gate",
             "scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --check-only",
             "python3 scripts/write_brev_credit_evidence.py --balance-eur <current-brev-ui-balance> --budget-eur 6.00 --force",
             "python3 scripts/arm_success_variation_paid_env.py --i-understand-this-arms-paid-run",
