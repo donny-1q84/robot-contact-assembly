@@ -248,6 +248,7 @@ python3 scripts/plan_v0_policy_label_dry_run.py --no-output
 python3 scripts/extract_v0_policy_label_dataset.py --no-output
 python3 scripts/check_v0_policy_training_preflight.py --no-output
 python3 scripts/train_v0_residual_policy.py --dry-run --no-output
+python3 scripts/evaluate_v0_residual_policy.py --dry-run --no-output
 python3 scripts/plan_v0_robot_adapter_manifest.py \
   --robot-id demo_arm_v0 \
   --robot-family demo_6dof_arm \
@@ -291,6 +292,7 @@ scripts/plan_v0_skill_request.py
 scripts/validate_v0_skill_request.py
 scripts/check_v0_skill_readiness.py
 scripts/train_v0_residual_policy.py
+scripts/evaluate_v0_residual_policy.py
 scripts/check_v0_robot_adapter_contract.py
 configs/v0_skill_api_contract.json
 configs/v0_skill_request.example.json
@@ -546,3 +548,7 @@ After the residual-label dataset is extracted and
 training plan and no checkpoint. Real training remains local/PyTorch-only and
 must still be followed by a separate evaluator before any policy-promotion
 claim.
+`scripts/evaluate_v0_residual_policy.py --dry-run` then checks the training
+metadata, checkpoint checksum, label manifest checksum, and JSONL checksum
+without importing PyTorch. Its real evaluation path is still only supervised
+residual-label evaluation, not Isaac closed-loop success evidence.

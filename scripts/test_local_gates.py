@@ -1350,6 +1350,7 @@ def run_v0_skill_api_contract_tests() -> None:
     policy_label_dataset_path = REPO_ROOT / "scripts" / "extract_v0_policy_label_dataset.py"
     policy_training_preflight_path = REPO_ROOT / "scripts" / "check_v0_policy_training_preflight.py"
     policy_training_script_path = REPO_ROOT / "scripts" / "train_v0_residual_policy.py"
+    policy_eval_script_path = REPO_ROOT / "scripts" / "evaluate_v0_residual_policy.py"
     robot_adapter_path = REPO_ROOT / "configs" / "v0_external_robot_adapter.template.json"
     robot_adapter_checker_path = REPO_ROOT / "scripts" / "check_v0_robot_adapter_contract.py"
     robot_adapter_planner_path = REPO_ROOT / "scripts" / "plan_v0_robot_adapter_manifest.py"
@@ -1427,6 +1428,11 @@ def run_v0_skill_api_contract_tests() -> None:
     result = run(["python3", str(policy_training_script_path), "--dry-run", "--no-output"])
     assert_status(result, 1, "V0 residual policy trainer dry-run blocks before label dataset exists")
     assert_contains(result, "[v0-residual-policy-train] BLOCKED", "V0 residual trainer blocked detail")
+    result = run(["python3", str(policy_eval_script_path), "--dry-run", "--no-output"])
+    assert_status(result, 0, "V0 residual policy eval reports blocked current state without failing by default")
+    assert_contains(result, "[v0-residual-policy-eval] BLOCKED", "V0 residual eval blocked detail")
+    result = run(["python3", str(policy_eval_script_path), "--dry-run", "--no-output", "--fail-on-blocked"])
+    assert_status(result, 1, "V0 residual policy eval can fail closed before checkpoint metadata exists")
 
     checker = checker_path.read_text(encoding="utf-8")
     request_checker = request_checker_path.read_text(encoding="utf-8")
@@ -1442,6 +1448,7 @@ def run_v0_skill_api_contract_tests() -> None:
     policy_label_dataset = policy_label_dataset_path.read_text(encoding="utf-8")
     policy_training_preflight = policy_training_preflight_path.read_text(encoding="utf-8")
     policy_training_script = policy_training_script_path.read_text(encoding="utf-8")
+    policy_eval_script = policy_eval_script_path.read_text(encoding="utf-8")
     robot_adapter_checker = robot_adapter_checker_path.read_text(encoding="utf-8")
     robot_adapter_planner = robot_adapter_planner_path.read_text(encoding="utf-8")
     portability_checker = portability_checker_path.read_text(encoding="utf-8")
@@ -1623,6 +1630,18 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"V0 residual policy trainer missing snippet: {expected_snippet}")
     if "brev create" in policy_training_script or '"${BREV_BIN}" create' in policy_training_script:
         raise AssertionError("V0 residual policy trainer must be offline and must not create Brev instances")
+    for expected_snippet in (
+        "Evaluate or preflight a trained V0 residual policy checkpoint",
+        "READY_FOR_LOCAL_SUPERVISED_EVAL_DRY_RUN",
+        "SUPERVISED_EVAL_NEEDS_ISAAC_POLICY_GATE",
+        "checkpoint_sha256",
+        "not Isaac closed-loop evaluation",
+        "It does not call Brev, Isaac, ROS, a",
+    ):
+        if expected_snippet not in policy_eval_script:
+            raise AssertionError(f"V0 residual policy evaluator missing snippet: {expected_snippet}")
+    if "brev create" in policy_eval_script or '"${BREV_BIN}" create' in policy_eval_script:
+        raise AssertionError("V0 residual policy evaluator must be offline and must not create Brev instances")
     for expected_snippet in (
         "external-arm portability",
         "ready_for_external_robot cannot be true while adapter evidence blockers remain",
@@ -2711,6 +2730,55 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"training dry-run should preserve residual labels: {training_plan}")
         if "not trained policy" not in training_plan["not_claims"]:
             raise AssertionError(f"training dry-run must preserve not-trained non-claim: {training_plan}")
+        fake_checkpoint = tmp_dir / "policy_training" / "fake_model.pt"
+        fake_checkpoint.write_bytes(b"fake checkpoint bytes for dry-run integrity gate\n")
+        fake_metadata = tmp_dir / "policy_training" / "metadata.json"
+        fake_metadata_payload = {
+            "status": "TRAINED_NEEDS_EVALUATION",
+            "checkpoint": str(fake_checkpoint),
+            "checkpoint_sha256": hashlib.sha256(fake_checkpoint.read_bytes()).hexdigest(),
+            "label_dataset_manifest": str(policy_label_dataset_manifest),
+            "label_dataset_manifest_sha256": hashlib.sha256(policy_label_dataset_manifest.read_bytes()).hexdigest(),
+            "jsonl": str(policy_label_dataset_jsonl),
+            "jsonl_sha256": hashlib.sha256(policy_label_dataset_jsonl.read_bytes()).hexdigest(),
+            "sample_count": policy_label_dataset["sample_count"],
+            "feature_schema": policy_label_dataset["feature_schema"],
+            "label_names": policy_label_dataset["label_names"],
+            "not_claims": [
+                "not evaluated policy",
+                "not sim-to-real",
+                "not cross-robot-ready",
+                "not direct drop-in precision on another robot arm",
+                "not a Brev or Isaac launcher",
+            ],
+        }
+        fake_metadata.write_text(json.dumps(fake_metadata_payload), encoding="utf-8")
+        eval_dry_run_json = tmp_dir / "policy_eval" / "summary.json"
+        result = run(
+            [
+                "python3",
+                "scripts/evaluate_v0_residual_policy.py",
+                "--metadata",
+                str(fake_metadata),
+                "--output-json",
+                str(eval_dry_run_json),
+                "--dry-run",
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 0, "V0 residual policy evaluator dry-run accepts consistent checkpoint metadata")
+        assert_contains(
+            result,
+            "READY_FOR_LOCAL_SUPERVISED_EVAL_DRY_RUN",
+            "V0 residual policy eval dry-run ready detail",
+        )
+        eval_dry_run = json.loads(eval_dry_run_json.read_text(encoding="utf-8"))
+        if eval_dry_run["ready_for_supervised_eval"] is not True:
+            raise AssertionError(f"eval dry-run should be ready for supervised eval: {eval_dry_run}")
+        if eval_dry_run["sample_count"] != policy_label_dataset["sample_count"]:
+            raise AssertionError(f"eval dry-run should preserve sample count: {eval_dry_run}")
+        if "not Isaac closed-loop evaluation" not in eval_dry_run["not_claims"]:
+            raise AssertionError(f"eval dry-run must preserve Isaac non-claim: {eval_dry_run}")
         result = run(
             [
                 "python3",
@@ -4894,6 +4962,7 @@ def main() -> int:
         assert_contains(result, "V0 policy/API review packet | BLOCKED", "status report V0 policy/API review detail")
         assert_contains(result, "V0 policy training preflight | BLOCKED", "status report V0 training preflight detail")
         assert_contains(result, "training_script_status=IMPLEMENTED", "status report V0 training script detail")
+        assert_contains(result, "V0 residual policy eval | BLOCKED", "status report V0 residual eval detail")
         assert_contains(result, "External robot adapter | BLOCKED", "status report external adapter detail")
         assert_contains(result, "Cross-robot portability | BLOCKED", "status report portability boundary detail")
         assert_contains(result, "universal_drop_in_ready=False", "status report portability non-claim detail")
@@ -4916,6 +4985,11 @@ def main() -> int:
             result,
             "python3 scripts/train_v0_residual_policy.py --dry-run --no-output",
             "status report V0 training dry-run command detail",
+        )
+        assert_contains(
+            result,
+            "python3 scripts/evaluate_v0_residual_policy.py --dry-run --no-output",
+            "status report V0 residual eval dry-run command detail",
         )
 
         stale_scope_bundle = REPO_ROOT / "artifacts" / "launchable" / "robot-contact-assembly-contact-smoke-manual-preauth-9998-stale-scope-test.tar.gz"
