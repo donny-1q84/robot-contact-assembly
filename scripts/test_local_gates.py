@@ -1378,6 +1378,20 @@ def run_v0_skill_api_contract_tests() -> None:
     result = run(["python3", str(robot_adapter_checker_path), str(robot_adapter_path)])
     assert_status(result, 0, "V0 external robot adapter template is a safe blocked contract")
     assert_contains(result, "[v0-robot-adapter] BLOCKED", "V0 robot adapter template BLOCKED detail")
+    adapter_report, _ = json.JSONDecoder().raw_decode(
+        result.stdout.split("[v0-robot-adapter] facts=", 1)[1].lstrip()
+    )
+    adapter_effects = adapter_report["side_effects"]
+    for key in (
+        "writes_adapter_report",
+        "writes_adapter_manifest",
+        "creates_paid_instance",
+        "runs_remote_code",
+        "starts_isaac",
+        "calls_ros_or_robot",
+    ):
+        if adapter_effects[key] is not False:
+            raise AssertionError(f"adapter checker side effect must be false for {key}: {adapter_report}")
     assert_contains(
         result,
         "next_action=fill_robot_specific_model_calibration_safety_ros2_and_revalidation_evidence",
@@ -1387,6 +1401,20 @@ def run_v0_skill_api_contract_tests() -> None:
     assert_status(result, 0, "V0 portability boundary reports current safe blocked state")
     assert_contains(result, "BLOCKED_NOT_DROP_IN", "V0 portability boundary blocked detail")
     assert_contains(result, "universal_drop_in_ready=false", "V0 portability boundary universal non-claim")
+    portability_boundary, _ = json.JSONDecoder().raw_decode(
+        result.stdout.split("[v0-portability-boundary] facts=", 1)[1].lstrip()
+    )
+    boundary_effects = portability_boundary["side_effects"]
+    for key in (
+        "writes_boundary_report",
+        "writes_adapter_manifest",
+        "creates_paid_instance",
+        "runs_remote_code",
+        "starts_isaac",
+        "calls_ros_or_robot",
+    ):
+        if boundary_effects[key] is not False:
+            raise AssertionError(f"portability boundary side effect must be false for {key}: {portability_boundary}")
     result = run(["python3", str(portability_checker_path), "--skip-phase2-contact-gate", "--fail-on-blocked"])
     assert_status(result, 1, "V0 portability boundary can fail closed while blocked")
     result = run(["python3", str(portability_review_path), "--skip-phase2-contact-gate", "--no-output"])
@@ -1414,6 +1442,10 @@ def run_v0_skill_api_contract_tests() -> None:
         raise AssertionError(f"portability workplan must expose low-speed safety evidence: {default_workplan}")
     if default_workplan["minimum_ordered_steps"][-1] != "perform_manual_low_speed_named_robot_review_only_after_all_gates_are_ready":
         raise AssertionError(f"portability workplan final review step changed: {default_workplan}")
+    review_effects = portability_review_default["side_effects"]
+    for key in ("writes_review_artifacts", "writes_target_adapter_manifest", "creates_paid_instance", "runs_remote_code", "starts_isaac", "calls_ros_or_robot"):
+        if review_effects[key] is not False:
+            raise AssertionError(f"portability review --no-output side effect must be false for {key}: {portability_review_default}")
     result = run(
         [
             "python3",
@@ -2048,6 +2080,11 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"planned adapter preview should expose blockers: {preview_report}")
         if preview_report["output_json"] is not None:
             raise AssertionError(f"planned adapter preview must not report an output path: {preview_report}")
+        if preview_report["side_effects"]["writes_adapter_manifest"] is not False:
+            raise AssertionError(f"planned adapter preview must not write a manifest: {preview_report}")
+        for key in ("creates_paid_instance", "runs_remote_code", "starts_isaac", "calls_ros_or_robot"):
+            if preview_report["side_effects"][key] is not False:
+                raise AssertionError(f"planned adapter preview side effect must be false for {key}: {preview_report}")
         if planned_adapter_preview_path.exists():
             raise AssertionError("V0 adapter planner --no-output must not write a manifest")
 
@@ -2097,6 +2134,11 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"planned adapter writer status should be safe-blocked: {planned_report}")
         if planned_report["adapter_contract_status"] != "BLOCKED":
             raise AssertionError(f"planned adapter writer should surface blocked checker status: {planned_report}")
+        if planned_report["side_effects"]["writes_adapter_manifest"] is not True:
+            raise AssertionError(f"planned adapter writer should disclose manifest write: {planned_report}")
+        for key in ("creates_paid_instance", "runs_remote_code", "starts_isaac", "calls_ros_or_robot"):
+            if planned_report["side_effects"][key] is not False:
+                raise AssertionError(f"planned adapter writer side effect must be false for {key}: {planned_report}")
         result = run(["python3", str(robot_adapter_checker_path), str(planned_adapter_path)])
         assert_status(result, 0, "V0 robot adapter checker accepts planned manifest as blocked")
         assert_contains(result, "[v0-robot-adapter] BLOCKED", "planned V0 robot adapter blocked detail")
@@ -2788,6 +2830,11 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"portability gate must never claim arbitrary-arm drop-in readiness: {portability}")
         if portability["target_robot_id"] != "demo_arm_ready_fixture":
             raise AssertionError(f"portability gate should name the ready adapter robot: {portability}")
+        if portability["side_effects"]["writes_boundary_report"] is not True:
+            raise AssertionError(f"portability gate should disclose boundary report write: {portability}")
+        for key in ("writes_adapter_manifest", "creates_paid_instance", "runs_remote_code", "starts_isaac", "calls_ros_or_robot"):
+            if portability["side_effects"][key] is not False:
+                raise AssertionError(f"ready portability boundary side effect must be false for {key}: {portability}")
         portability_review_json = tmp_dir / "portability_review" / "review_packet.json"
         portability_review_md = tmp_dir / "portability_review" / "README.md"
         result = run(
@@ -2826,6 +2873,11 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"ready portability workplan should be ready only for named low-speed review: {portability_review_packet}")
         if portability_review_packet["adapter_workplan"]["direct_drop_in_answer"] != "NO_DIRECT_DROP_IN":
             raise AssertionError(f"ready portability workplan must still reject direct drop-in: {portability_review_packet}")
+        if portability_review_packet["side_effects"]["writes_review_artifacts"] is not True:
+            raise AssertionError(f"portability review should disclose review artifact writes: {portability_review_packet}")
+        for key in ("writes_target_adapter_manifest", "creates_paid_instance", "runs_remote_code", "starts_isaac", "calls_ros_or_robot"):
+            if portability_review_packet["side_effects"][key] is not False:
+                raise AssertionError(f"ready portability review side effect must be false for {key}: {portability_review_packet}")
         if "V0 Cross-Robot Portability Review" not in portability_review_md.read_text(encoding="utf-8"):
             raise AssertionError("portability review README should include a clear title")
         if "Adapter Workplan" not in portability_review_md.read_text(encoding="utf-8"):
@@ -6278,8 +6330,28 @@ def main() -> int:
         assert_contains(result, "V0 residual policy eval | BLOCKED", "status report V0 residual eval detail")
         assert_contains(result, "V0 policy promotion gate | BLOCKED", "status report V0 policy promotion detail")
         assert_contains(result, "External robot adapter | BLOCKED", "status report external adapter detail")
+        assert_contains(
+            result,
+            "writes_adapter_report=False",
+            "status report external adapter no-write detail",
+        )
+        assert_contains(
+            result,
+            "calls_ros_or_robot=False",
+            "status report external adapter no-robot-call detail",
+        )
         assert_contains(result, "Cross-robot portability | BLOCKED", "status report portability boundary detail")
+        assert_contains(
+            result,
+            "writes_boundary_report=False",
+            "status report portability boundary no-write detail",
+        )
         assert_contains(result, "V0 portability review packet | BLOCKED", "status report portability review detail")
+        assert_contains(
+            result,
+            "writes_review_artifacts=False",
+            "status report portability review no-write detail",
+        )
         assert_contains(result, "direct_drop_in_answer=NO_DIRECT_DROP_IN", "status report portability review non-drop-in detail")
         assert_contains(result, "universal_drop_in_ready=False", "status report portability non-claim detail")
         assert_contains(

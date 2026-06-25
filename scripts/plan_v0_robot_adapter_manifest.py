@@ -74,6 +74,16 @@ def _interface(value: str | None) -> dict[str, Any]:
     }
 
 
+def _side_effects(*, writes_adapter_manifest: bool) -> dict[str, bool]:
+    return {
+        "writes_adapter_manifest": writes_adapter_manifest,
+        "creates_paid_instance": False,
+        "runs_remote_code": False,
+        "starts_isaac": False,
+        "calls_ros_or_robot": False,
+    }
+
+
 def build_adapter(
     *,
     template_path: Path,
@@ -153,6 +163,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "adapter_contract_status": None if checker_report is None else checker_report.get("status"),
         "adapter_contract_blockers": [] if checker_report is None else checker_report.get("blockers", []),
         "next_action": next_action,
+        "side_effects": _side_effects(writes_adapter_manifest=adapter is not None and not args.no_output),
         "not_claims": [
             "not ready for hardware execution",
             "not verified on this robot",

@@ -689,10 +689,16 @@ def external_robot_adapter_status() -> Check:
     status = str(facts.get("status") or "BLOCKED")
     target = facts.get("target_robot") if isinstance(facts.get("target_robot"), dict) else {}
     blockers = facts.get("blockers") if isinstance(facts.get("blockers"), list) else []
+    side_effects = facts.get("side_effects") if isinstance(facts.get("side_effects"), dict) else {}
     detail = (
         f"adapter={facts.get('adapter')}; robot_id={target.get('robot_id')}; "
         f"ready_for_external_robot={facts.get('ready_for_external_robot')}; "
-        f"blockers={len(blockers)}; next_action={facts.get('next_action')}."
+        f"blockers={len(blockers)}; "
+        f"writes_adapter_report={side_effects.get('writes_adapter_report')}; "
+        f"starts_isaac={side_effects.get('starts_isaac')}; "
+        f"calls_ros_or_robot={side_effects.get('calls_ros_or_robot')}; "
+        f"creates_paid_instance={side_effects.get('creates_paid_instance')}; "
+        f"next_action={facts.get('next_action')}."
     )
     return Check("External robot adapter", status, detail)
 
@@ -717,13 +723,19 @@ def cross_robot_portability_status() -> Check:
 
     status = str(facts.get("status") or "BLOCKED")
     blockers = facts.get("blockers") if isinstance(facts.get("blockers"), list) else []
+    side_effects = facts.get("side_effects") if isinstance(facts.get("side_effects"), dict) else {}
     detail = (
         f"readiness_label={facts.get('readiness_label')}; "
         f"universal_drop_in_ready={facts.get('universal_drop_in_ready')}; "
         f"target_robot_id={facts.get('target_robot_id')}; "
         f"skill_readiness={facts.get('skill_readiness_status')}; "
         f"adapter={facts.get('adapter_status')}; "
-        f"blockers={len(blockers)}; next_action={facts.get('next_action')}."
+        f"blockers={len(blockers)}; "
+        f"writes_boundary_report={side_effects.get('writes_boundary_report')}; "
+        f"starts_isaac={side_effects.get('starts_isaac')}; "
+        f"calls_ros_or_robot={side_effects.get('calls_ros_or_robot')}; "
+        f"creates_paid_instance={side_effects.get('creates_paid_instance')}; "
+        f"next_action={facts.get('next_action')}."
     )
     return Check("Cross-robot portability", status, detail)
 
@@ -752,6 +764,7 @@ def v0_portability_review_packet_status() -> Check:
     blockers = facts.get("current_blockers") if isinstance(facts.get("current_blockers"), list) else []
     target_preview = facts.get("target_adapter_preview") if isinstance(facts.get("target_adapter_preview"), dict) else {}
     workplan = facts.get("adapter_workplan") if isinstance(facts.get("adapter_workplan"), dict) else {}
+    side_effects = facts.get("side_effects") if isinstance(facts.get("side_effects"), dict) else {}
     evidence_groups = (
         workplan.get("required_evidence_groups")
         if isinstance(workplan.get("required_evidence_groups"), dict)
@@ -771,7 +784,12 @@ def v0_portability_review_packet_status() -> Check:
         f"target_adapter_blockers={target_preview.get('blocker_count')}; "
         f"skill_readiness={summary.get('skill_readiness_status')}; "
         f"adapter={summary.get('adapter_status')}; "
-        f"blockers={len(blockers)}; next_action={summary.get('next_action')}."
+        f"blockers={len(blockers)}; "
+        f"writes_review_artifacts={side_effects.get('writes_review_artifacts')}; "
+        f"starts_isaac={side_effects.get('starts_isaac')}; "
+        f"calls_ros_or_robot={side_effects.get('calls_ros_or_robot')}; "
+        f"creates_paid_instance={side_effects.get('creates_paid_instance')}; "
+        f"next_action={summary.get('next_action')}."
     )
     return Check("V0 portability review packet", status, detail)
 

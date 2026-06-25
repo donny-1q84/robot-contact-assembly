@@ -107,6 +107,17 @@ REQUIRED_BLOCKED_NOT_CLAIMS = {
 }
 
 
+def _side_effects(*, writes_adapter_report: bool) -> dict[str, bool]:
+    return {
+        "writes_adapter_report": writes_adapter_report,
+        "writes_adapter_manifest": False,
+        "creates_paid_instance": False,
+        "runs_remote_code": False,
+        "starts_isaac": False,
+        "calls_ros_or_robot": False,
+    }
+
+
 def _rel(path: Path) -> str:
     try:
         return str(path.resolve().relative_to(REPO_ROOT))
@@ -368,6 +379,7 @@ def build_report(adapter_path: Path) -> dict[str, Any]:
         "blockers": unique_blockers,
         "warnings": warnings,
         "next_action": next_action,
+        "side_effects": _side_effects(writes_adapter_report=False),
         "not_claims": list(not_claims),
     }
 
@@ -381,6 +393,7 @@ def main() -> int:
 
     report = build_report(args.adapter)
     if args.output_json is not None:
+        report["side_effects"] = _side_effects(writes_adapter_report=True)
         output_json = _resolve(args.output_json)
         output_json.parent.mkdir(parents=True, exist_ok=True)
         output_json.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")

@@ -54,6 +54,17 @@ ROBOT_SPECIFIC_LAYERS = [
 ]
 
 
+def _side_effects(*, writes_boundary_report: bool) -> dict[str, bool]:
+    return {
+        "writes_boundary_report": writes_boundary_report,
+        "writes_adapter_manifest": False,
+        "creates_paid_instance": False,
+        "runs_remote_code": False,
+        "starts_isaac": False,
+        "calls_ros_or_robot": False,
+    }
+
+
 def _rel(path: Path) -> str:
     try:
         return str(path.resolve().relative_to(REPO_ROOT))
@@ -147,6 +158,7 @@ def build_report(
         "robot_specific_layers": ROBOT_SPECIFIC_LAYERS,
         "blockers": list(dict.fromkeys(blockers)),
         "next_action": _next_action(skill_readiness, adapter),
+        "side_effects": _side_effects(writes_boundary_report=False),
         "not_claims": [
             "not universal cross-robot-ready",
             "not direct drop-in precision on another robot arm",
@@ -182,6 +194,7 @@ def main() -> int:
     )
 
     if args.output_json is not None:
+        report["side_effects"] = _side_effects(writes_boundary_report=True)
         output_json = _resolve(args.output_json)
         output_json.parent.mkdir(parents=True, exist_ok=True)
         output_json.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
