@@ -3,10 +3,12 @@
 
 Use this only after reading the current Brev UI organization credit balance.
 The helper writes fresh git-ignored credit evidence, arms the git-ignored local
-env for one short-lived run, then runs the normal read-only --check-only gate.
+env for one short-lived run, runs the normal read-only --check-only gate to
+refresh the run packet, then runs the aggregate paid lifecycle preflight.
 
 It does not create, start, stop, delete, copy to, or execute on Brev instances.
-If the final --check-only gate fails after arming, it disarms the local env.
+If the --check-only gate or aggregate preflight fails after arming, it disarms
+the local env.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ sys.dont_write_bytecode = True
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = REPO_ROOT / "configs" / "success_variation_batch_run.local.env"
 DEFAULT_CREDIT_OUTPUT = REPO_ROOT / "configs" / "brev_credit_verification.local.json"
+DEFAULT_RUN_PACKET = REPO_ROOT / "artifacts" / "analysis" / "success_variation_run_packet_2026-06-25.json"
 
 
 def _rel(path: Path) -> str:
@@ -52,6 +55,19 @@ def _run(args: list[str]) -> int:
     print("[success-variation-paid-prepare] run: " + " ".join(args), flush=True)
     result = subprocess.run(args, cwd=REPO_ROOT, check=False)
     return int(result.returncode)
+
+
+def _read_config_value(config: Path, key: str) -> str | None:
+    if not config.is_file():
+        return None
+    for raw_line in config.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        current_key, value = line.split("=", 1)
+        if current_key == key:
+            return value.strip()
+    return None
 
 
 def _disarm(config: Path) -> None:
@@ -100,6 +116,8 @@ def main() -> int:
 
     config = _resolve(args.config)
     credit_output = _resolve(args.credit_output)
+    run_packet_raw = _read_config_value(config, "RCA_SUCCESS_VARIATION_RUN_PACKET_JSON")
+    run_packet = _resolve(Path(run_packet_raw)) if run_packet_raw else DEFAULT_RUN_PACKET
     if not args.i_understand_this_arms_paid_run:
         print("[success-variation-paid-prepare] BLOCKED")
         print("- pass --i-understand-this-arms-paid-run after checking the current Brev UI balance")
@@ -137,12 +155,23 @@ def main() -> int:
         str(config),
         "--check-only",
     ]
+    preflight_cmd = [
+        "python3",
+        "scripts/check_success_variation_paid_lifecycle_preflight.py",
+        "--config",
+        str(config),
+        "--run-packet",
+        str(run_packet),
+        "--no-output",
+        "--fail-on-blocked",
+    ]
 
     if args.dry_run:
         print("[success-variation-paid-prepare] DRY_RUN")
         print("- credit_evidence: " + " ".join(credit_cmd))
         print("- arm_local_env: " + " ".join(arm_cmd))
         print("- check_only: " + " ".join(check_cmd))
+        print("- aggregate_preflight: " + " ".join(preflight_cmd))
         print("[success-variation-paid-prepare] would not create a paid instance")
         return 0
 
@@ -162,6 +191,11 @@ def main() -> int:
         return status
 
     status = _run(check_cmd)
+    if status != 0:
+        _disarm(config)
+        return status
+
+    status = _run(preflight_cmd)
     if status != 0:
         _disarm(config)
         return status

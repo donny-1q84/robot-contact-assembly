@@ -3493,6 +3493,12 @@ def run_success_variation_manifest_tests() -> None:
         assert_status(result, 0, "success variation paid prepare dry-run succeeds")
         assert_contains(result, "DRY_RUN", "paid prepare dry-run marker")
         assert_contains(result, "would not create a paid instance", "paid prepare dry-run safety detail")
+        assert_contains(result, "aggregate_preflight", "paid prepare aggregate preflight label")
+        assert_contains(
+            result,
+            "check_success_variation_paid_lifecycle_preflight.py",
+            "paid prepare aggregate preflight command",
+        )
         result = run(
             [
                 "python3",
@@ -3510,7 +3516,9 @@ def run_success_variation_manifest_tests() -> None:
             "write_brev_credit_evidence.py",
             "arm_success_variation_paid_env.py",
             "run_success_variation_batch_from_config.sh",
+            "check_success_variation_paid_lifecycle_preflight.py",
             "--check-only",
+            "aggregate_preflight",
             "READY_FOR_SINGLE_PAID_RUN",
             "would not create a paid instance",
             "disarms the local env",
