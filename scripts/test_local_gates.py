@@ -1344,6 +1344,7 @@ def run_v0_skill_api_contract_tests() -> None:
     policy_api_review_path = REPO_ROOT / "scripts" / "prepare_v0_policy_api_review.py"
     policy_dataset_audit_path = REPO_ROOT / "scripts" / "audit_v0_policy_dataset.py"
     policy_experiment_path = REPO_ROOT / "scripts" / "plan_v0_policy_experiment.py"
+    policy_feature_dry_run_path = REPO_ROOT / "scripts" / "plan_v0_policy_feature_dry_run.py"
     robot_adapter_path = REPO_ROOT / "configs" / "v0_external_robot_adapter.template.json"
     robot_adapter_checker_path = REPO_ROOT / "scripts" / "check_v0_robot_adapter_contract.py"
     robot_adapter_planner_path = REPO_ROOT / "scripts" / "plan_v0_robot_adapter_manifest.py"
@@ -1386,6 +1387,11 @@ def run_v0_skill_api_contract_tests() -> None:
     assert_contains(result, "[v0-policy-dataset-audit] status=BLOCKED", "V0 policy dataset audit blocked detail")
     result = run(["python3", str(policy_dataset_audit_path), "--no-output", "--fail-on-blocked"])
     assert_status(result, 1, "V0 policy dataset audit can fail closed before dataset exists")
+    result = run(["python3", str(policy_feature_dry_run_path), "--no-output"])
+    assert_status(result, 0, "V0 policy feature dry-run reports blocked current state without failing by default")
+    assert_contains(result, "[v0-policy-feature-dry-run] status=BLOCKED", "V0 policy feature dry-run blocked detail")
+    result = run(["python3", str(policy_feature_dry_run_path), "--no-output", "--fail-on-blocked"])
+    assert_status(result, 1, "V0 policy feature dry-run can fail closed before dataset audit and experiment plan exist")
 
     checker = checker_path.read_text(encoding="utf-8")
     request_checker = request_checker_path.read_text(encoding="utf-8")
@@ -1395,6 +1401,7 @@ def run_v0_skill_api_contract_tests() -> None:
     policy_api_review = policy_api_review_path.read_text(encoding="utf-8")
     policy_dataset_audit = policy_dataset_audit_path.read_text(encoding="utf-8")
     policy_experiment = policy_experiment_path.read_text(encoding="utf-8")
+    policy_feature_dry_run = policy_feature_dry_run_path.read_text(encoding="utf-8")
     robot_adapter_checker = robot_adapter_checker_path.read_text(encoding="utf-8")
     robot_adapter_planner = robot_adapter_planner_path.read_text(encoding="utf-8")
     for expected_snippet in (
@@ -1494,6 +1501,19 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"V0 policy experiment planner missing snippet: {expected_snippet}")
     if "brev create" in policy_experiment or '"${BREV_BIN}" create' in policy_experiment:
         raise AssertionError("V0 policy experiment planner must be offline and must not create Brev instances")
+    for expected_snippet in (
+        "Dry-run V0 residual-policy feature extraction",
+        "READY_FOR_FEATURE_EXTRACTION_REVIEW",
+        "target_status",
+        "NOT_GENERATED",
+        "raw_joint_targets",
+        "does not train a policy, call Brev, start Isaac",
+        "not direct drop-in precision on another robot arm",
+    ):
+        if expected_snippet not in policy_feature_dry_run:
+            raise AssertionError(f"V0 policy feature dry-run missing snippet: {expected_snippet}")
+    if "brev create" in policy_feature_dry_run or '"${BREV_BIN}" create' in policy_feature_dry_run:
+        raise AssertionError("V0 policy feature dry-run must be offline and must not create Brev instances")
     for expected_snippet in (
         "external-arm portability",
         "ready_for_external_robot cannot be true while adapter evidence blockers remain",
@@ -2171,6 +2191,53 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError("policy experiment plan must preserve raw joint command ban")
         if "V0 Residual Policy Experiment Plan" not in policy_experiment_md.read_text(encoding="utf-8"):
             raise AssertionError("policy experiment plan README should include a clear title")
+        policy_feature_json = tmp_dir / "policy_feature_dry_run" / "features.json"
+        policy_feature_md = tmp_dir / "policy_feature_dry_run" / "README.md"
+        result = run(
+            [
+                "python3",
+                "scripts/plan_v0_policy_feature_dry_run.py",
+                "--dataset",
+                str(dataset_json),
+                "--dataset-audit",
+                str(dataset_audit_json),
+                "--policy-experiment-plan",
+                str(policy_experiment_json),
+                "--output-json",
+                str(policy_feature_json),
+                "--output-md",
+                str(policy_feature_md),
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 0, "V0 policy feature dry-run accepts audited dataset and experiment plan")
+        assert_contains(
+            result,
+            "READY_FOR_FEATURE_EXTRACTION_REVIEW",
+            "V0 policy feature dry-run ready detail",
+        )
+        policy_feature_dry_run = json.loads(policy_feature_json.read_text(encoding="utf-8"))
+        if policy_feature_dry_run["ready_for_training"] is not False:
+            raise AssertionError(f"feature dry-run must not mark training ready: {policy_feature_dry_run}")
+        if policy_feature_dry_run["sample_count"] != len(dataset["cases"]):
+            raise AssertionError(f"feature dry-run should preview every dataset case: {policy_feature_dry_run}")
+        if "socket_delta_x_m" not in policy_feature_dry_run["feature_names"]:
+            raise AssertionError(f"feature dry-run missing socket_delta_x_m: {policy_feature_dry_run}")
+        if policy_feature_dry_run["target_schema"]["target_status"] != "NOT_GENERATED":
+            raise AssertionError(f"feature dry-run must not generate residual targets: {policy_feature_dry_run}")
+        feature_payload = json.dumps(
+            {
+                "feature_names": policy_feature_dry_run["feature_names"],
+                "sample_preview": policy_feature_dry_run["sample_preview"],
+            },
+            sort_keys=True,
+        )
+        if "raw_joint_targets" in feature_payload:
+            raise AssertionError("feature dry-run must not expose raw joint targets as features or samples")
+        if "raw_joint_targets" not in policy_feature_dry_run["target_schema"]["forbidden_targets"]:
+            raise AssertionError("feature dry-run must keep raw joint targets forbidden")
+        if "V0 Policy Feature Dry Run" not in policy_feature_md.read_text(encoding="utf-8"):
+            raise AssertionError("feature dry-run README should include a clear title")
         result = run(
             [
                 "python3",

@@ -148,6 +148,7 @@ skill_readiness: scripts/check_v0_skill_readiness.py is blocked until variation 
 policy_api_review_packet: scripts/prepare_v0_policy_api_review.py is blocked until skill readiness is READY
 policy_dataset_audit: scripts/audit_v0_policy_dataset.py checks dataset provenance, case coverage, negative-control exclusion, and review-packet alignment before policy experiment work
 policy_experiment_plan: scripts/plan_v0_policy_experiment.py stays blocked until the V0 policy/API review packet and dataset exist; it only designs a residual-policy experiment
+policy_feature_dry_run: scripts/plan_v0_policy_feature_dry_run.py stays blocked until the dataset audit and experiment plan are ready; it previews local features only and never generates training targets
 external_robot_adapter_planner: scripts/plan_v0_robot_adapter_manifest.py writes named-arm manifests that remain safely blocked
 external_robot_adapter: configs/v0_external_robot_adapter.template.json is safely blocked by scripts/check_v0_robot_adapter_contract.py
 dataset_preparation: blocked until the result gate passes
