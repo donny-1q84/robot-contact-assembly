@@ -108,8 +108,10 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    `scripts/validate_v0_skill_request.py`; `scripts/plan_v0_skill_request.py`
    provides the narrow deterministic language-to-skill shim, and
    `scripts/check_v0_skill_readiness.py` connects a validated request to the
-   current Phase 2, variation-result, and dataset evidence. The future
-   external-robot adapter shape is checked separately by
+   current Phase 2, variation-result, and dataset evidence.
+   `scripts/prepare_v0_policy_api_review.py` writes the post-readiness
+   policy/API review packet only after those gates and the dataset are ready.
+   The future external-robot adapter shape is checked separately by
    `configs/v0_external_robot_adapter.template.json` and
    `scripts/plan_v0_robot_adapter_manifest.py` plus
    `scripts/check_v0_robot_adapter_contract.py`, which must remain blocked until
@@ -140,6 +142,7 @@ skill_api_promotion_coverage: requires strict-success seed/reset plus socket X/Y
 skill_request_contract: configs/v0_skill_request.example.json passes local request check
 skill_request_planner: scripts/plan_v0_skill_request.py maps supported insert instructions only
 skill_readiness: scripts/check_v0_skill_readiness.py is blocked until variation traces and dataset exist
+policy_api_review_packet: scripts/prepare_v0_policy_api_review.py is blocked until skill readiness is READY
 external_robot_adapter_planner: scripts/plan_v0_robot_adapter_manifest.py writes named-arm manifests that remain safely blocked
 external_robot_adapter: configs/v0_external_robot_adapter.template.json is safely blocked by scripts/check_v0_robot_adapter_contract.py
 dataset_preparation: blocked until the result gate passes

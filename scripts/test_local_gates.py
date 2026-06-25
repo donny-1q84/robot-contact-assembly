@@ -1340,6 +1340,7 @@ def run_v0_skill_api_contract_tests() -> None:
     request_checker_path = REPO_ROOT / "scripts" / "validate_v0_skill_request.py"
     planner_path = REPO_ROOT / "scripts" / "plan_v0_skill_request.py"
     readiness_checker_path = REPO_ROOT / "scripts" / "check_v0_skill_readiness.py"
+    policy_api_review_path = REPO_ROOT / "scripts" / "prepare_v0_policy_api_review.py"
     robot_adapter_path = REPO_ROOT / "configs" / "v0_external_robot_adapter.template.json"
     robot_adapter_checker_path = REPO_ROOT / "scripts" / "check_v0_robot_adapter_contract.py"
     robot_adapter_planner_path = REPO_ROOT / "scripts" / "plan_v0_robot_adapter_manifest.py"
@@ -1363,6 +1364,7 @@ def run_v0_skill_api_contract_tests() -> None:
     request_checker = request_checker_path.read_text(encoding="utf-8")
     planner = planner_path.read_text(encoding="utf-8")
     readiness_checker = readiness_checker_path.read_text(encoding="utf-8")
+    policy_api_review = policy_api_review_path.read_text(encoding="utf-8")
     robot_adapter_checker = robot_adapter_checker_path.read_text(encoding="utf-8")
     robot_adapter_planner = robot_adapter_planner_path.read_text(encoding="utf-8")
     for expected_snippet in (
@@ -1411,6 +1413,17 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"V0 skill readiness checker missing snippet: {expected_snippet}")
     if "brev create" in readiness_checker or '"${BREV_BIN}" create' in readiness_checker:
         raise AssertionError("V0 skill readiness checker must be offline and must not create Brev instances")
+    for expected_snippet in (
+        "READY_FOR_POLICY_API_REVIEW",
+        "manual_review_checklist",
+        "not a direct low-level VLM controller",
+        "It does not train a policy, call Brev, start Isaac",
+        "[v0-policy-api-review] BLOCKED",
+    ):
+        if expected_snippet not in policy_api_review:
+            raise AssertionError(f"V0 policy/API review prep missing snippet: {expected_snippet}")
+    if "brev create" in policy_api_review or '"${BREV_BIN}" create' in policy_api_review:
+        raise AssertionError("V0 policy/API review prep must be offline and must not create Brev instances")
     for expected_snippet in (
         "external-arm portability",
         "ready_for_external_robot cannot be true while adapter evidence blockers remain",
@@ -1609,6 +1622,23 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"current V0 readiness should be blocked before variation batch: {current_readiness}")
         if current_readiness["next_action"] != "run_fixed_budget_success_variation_batch_after_paid_ack":
             raise AssertionError(f"current V0 readiness should point to variation batch: {current_readiness}")
+        blocked_review_json = tmp_dir / "blocked_v0_policy_api_review.json"
+        blocked_review_md = tmp_dir / "blocked_v0_policy_api_review.md"
+        result = run(
+            [
+                "python3",
+                str(policy_api_review_path),
+                "--skip-phase2-contact-gate",
+                "--output-json",
+                str(blocked_review_json),
+                "--output-md",
+                str(blocked_review_md),
+            ]
+        )
+        assert_status(result, 1, "V0 policy/API review prep blocks current incomplete state")
+        assert_contains(result, "[v0-policy-api-review] BLOCKED", "blocked V0 policy/API review detail")
+        if blocked_review_json.exists() or blocked_review_md.exists():
+            raise AssertionError("blocked V0 policy/API review must not write artifacts")
 
 
 def run_success_variation_manifest_tests() -> None:
@@ -1916,6 +1946,37 @@ def run_success_variation_manifest_tests() -> None:
         ready_skill = json.loads(ready_skill_json.read_text(encoding="utf-8"))
         if ready_skill["next_action"] != "ready_for_policy_api_review":
             raise AssertionError(f"ready V0 skill should point to policy/API review: {ready_skill}")
+        policy_review_json = tmp_dir / "policy_api_review" / "review_packet.json"
+        policy_review_md = tmp_dir / "policy_api_review" / "README.md"
+        result = run(
+            [
+                "python3",
+                "scripts/prepare_v0_policy_api_review.py",
+                "configs/v0_skill_request.example.json",
+                "--manifest",
+                str(pass_manifest_path),
+                "--dataset",
+                str(dataset_json),
+                "--skip-phase2-contact-gate",
+                "--output-json",
+                str(policy_review_json),
+                "--output-md",
+                str(policy_review_md),
+            ]
+        )
+        assert_status(result, 0, "V0 policy/API review prep accepts promotable manifest plus dataset")
+        assert_contains(result, "READY_FOR_POLICY_API_REVIEW", "V0 policy/API review ready detail")
+        policy_review = json.loads(policy_review_json.read_text(encoding="utf-8"))
+        if policy_review["status"] != "READY_FOR_POLICY_API_REVIEW":
+            raise AssertionError(f"policy/API review packet should be ready: {policy_review}")
+        if policy_review["dataset"]["case_count"] != len(dataset["cases"]):
+            raise AssertionError(f"policy/API review should summarize dataset cases: {policy_review['dataset']}")
+        if "direct_force_commands" not in policy_review["proposed_api_boundary"]["forbidden_outputs"]:
+            raise AssertionError("policy/API review must preserve direct force-command ban")
+        if "not sim-to-real" not in policy_review["not_claims"]:
+            raise AssertionError("policy/API review must preserve sim-to-real non-claim")
+        if "V0 Policy/API Review Packet" not in policy_review_md.read_text(encoding="utf-8"):
+            raise AssertionError("policy/API review README should include a clear title")
         result = run(
             [
                 "python3",

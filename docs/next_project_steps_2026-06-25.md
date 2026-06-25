@@ -175,6 +175,7 @@ configs/v0_skill_request.example.json
 scripts/plan_v0_skill_request.py
 scripts/validate_v0_skill_request.py
 scripts/check_v0_skill_readiness.py
+scripts/prepare_v0_policy_api_review.py
 configs/v0_external_robot_adapter.template.json
 scripts/plan_v0_robot_adapter_manifest.py
 scripts/check_v0_robot_adapter_contract.py
@@ -196,6 +197,10 @@ request and contract validation, Phase 2 contact proof, success-variation result
 gate, and the V0 scripted-skill dataset. In the current baseline-only state it
 must remain blocked and point to the fixed-budget variation batch as the next
 physical step.
+After that readiness gate is `READY`, `scripts/prepare_v0_policy_api_review.py`
+writes the structured policy/API review packet. It does not train a policy or
+start ROS; it packages the validated request, dataset summary, gate summary, API
+boundary, manual review checklist, and explicit non-claims.
 The robot-adapter checker encodes the portability boundary from the other side:
 the committed template is `BLOCKED`, not `READY`, and a future named arm must
 supply concrete URDF/USD or equivalent model sources, TCP/base/fixture
@@ -225,6 +230,7 @@ python3 scripts/check_v0_skill_api_contract.py
 python3 scripts/plan_v0_skill_request.py "insert the peg into the left socket"
 python3 scripts/validate_v0_skill_request.py
 python3 scripts/check_v0_skill_readiness.py --skip-phase2-contact-gate
+python3 scripts/prepare_v0_policy_api_review.py --skip-phase2-contact-gate
 python3 scripts/plan_v0_robot_adapter_manifest.py \
   --robot-id demo_arm_v0 \
   --robot-family demo_6dof_arm \
@@ -465,6 +471,7 @@ manifest with:
 ```bash
 python3 scripts/prepare_success_variation_dataset.py \
   artifacts/manifests/success_trace_variations_2026-06-25.json
+python3 scripts/prepare_v0_policy_api_review.py
 ```
 
 The dataset prep script is offline/read-only. In the current baseline-only
@@ -474,6 +481,8 @@ control trace are missing. When the batch is complete, it writes:
 ```text
 artifacts/datasets/v0_scripted_skill_success_variations/manifest.json
 artifacts/datasets/v0_scripted_skill_success_variations/README.md
+artifacts/reviews/v0_policy_api/review_packet.json
+artifacts/reviews/v0_policy_api/README.md
 ```
 
 Those files are allowed to support residual-policy and skill-API design, but
