@@ -200,7 +200,7 @@ external_robot_adapter_planner: scripts/plan_v0_robot_adapter_manifest.py writes
 external_robot_adapter: configs/v0_external_robot_adapter.template.json is safely blocked by scripts/check_v0_robot_adapter_contract.py; docs/v0_robot_adapter_contract.md defines command/frame/runtime guards so portability is adapter-specific, not drop-in
 portability_boundary: scripts/check_v0_portability_boundary.py combines V0 skill readiness with the named adapter contract and keeps universal_drop_in_ready=false
 portability_review_packet: scripts/prepare_v0_portability_review.py packages the portability boundary, reusable layers, robot-specific layers, current blockers, exact non-drop-in answer, adapter_workplan, and optional target_adapter_preview into JSON/Markdown without touching Brev, Isaac, ROS, or hardware
-dataset_preparation: blocked until the result gate passes
+dataset_preparation: scripts/prepare_success_variation_dataset.py is blocked until the result gate passes; --dry-run/--no-output emits parseable facts with writes_dataset_artifacts=false for status-report use
 ```
 
 Do not open another paid GPU run for a prettier video, old Abs IK/JointPos

@@ -619,19 +619,24 @@ If a fixed-budget batch only fills some traces, use
 already satisfied strict-success cases and the fail-closed negative control, and
 blocks if the negative control unexpectedly succeeds.
 
-Only after that result gate passes, freeze the first V0 scripted-skill dataset
-manifest with:
+Only after that result gate passes, preview and then freeze the first V0
+scripted-skill dataset manifest with:
 
 ```bash
+python3 scripts/prepare_success_variation_dataset.py \
+  artifacts/manifests/success_trace_variations_2026-06-25.json --dry-run
 python3 scripts/prepare_success_variation_dataset.py \
   artifacts/manifests/success_trace_variations_2026-06-25.json
 python3 scripts/prepare_v0_policy_api_review.py
 python3 scripts/run_v0_offline_policy_readiness_pipeline.py
 ```
 
-The dataset prep script is offline/read-only. In the current baseline-only
-state it must fail closed because the planned variation traces and the negative
-control trace are missing. When the batch is complete, it writes:
+The dataset prep script is offline and never calls Brev, Isaac, ROS, or
+hardware. Use `--dry-run` or `--no-output` for read-only status checks; those
+paths emit `[success-variation-dataset] facts=` and do not write dataset
+artifacts. In the current baseline-only state it must fail closed because the
+planned variation traces and the negative control trace are missing. When the
+batch is complete and run without dry-run, it writes:
 
 ```text
 artifacts/datasets/v0_scripted_skill_success_variations/manifest.json

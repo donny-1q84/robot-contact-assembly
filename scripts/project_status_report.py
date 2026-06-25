@@ -185,6 +185,38 @@ def success_variation_status() -> Check:
     )
 
 
+def success_variation_dataset_prep_status() -> Check:
+    result = run_script(
+        "python3",
+        "scripts/prepare_success_variation_dataset.py",
+        str(SUCCESS_VARIATION_MANIFEST),
+        "--no-output",
+    )
+    marker = "[success-variation-dataset] facts="
+    if marker not in result.stdout:
+        return Check(
+            "V0 scripted-skill dataset prep",
+            "FAIL",
+            "Could not parse scripts/prepare_success_variation_dataset.py output.",
+        )
+    try:
+        facts = _json_prefix(result.stdout.split(marker, 1)[1])
+    except (json.JSONDecodeError, ValueError) as exc:
+        return Check("V0 scripted-skill dataset prep", "FAIL", f"Dataset prep JSON parse failed: {exc}")
+
+    status = "READY" if facts.get("status") == "READY_FOR_POLICY_API_REVIEW" else str(facts.get("status") or "BLOCKED")
+    side_effects = facts.get("side_effects") if isinstance(facts.get("side_effects"), dict) else {}
+    failures = facts.get("failures") if isinstance(facts.get("failures"), list) else []
+    detail = (
+        f"manifest={facts.get('manifest')}; result_gate_pass={facts.get('result_gate_pass')}; "
+        f"case_count={facts.get('case_count')}; excluded_case_count={facts.get('excluded_case_count')}; "
+        f"writes_dataset_artifacts={side_effects.get('writes_dataset_artifacts')}; "
+        f"failures={len(failures)}; next_action="
+        f"{'run_policy_api_review' if status == 'READY' else 'finish_success_variation_batch'}."
+    )
+    return Check("V0 scripted-skill dataset prep", status, detail)
+
+
 def success_variation_paid_lifecycle_preflight_status() -> Check:
     result = run_script(
         "python3",
@@ -797,6 +829,7 @@ def checks() -> list[Check]:
         contact_gate_status(),
         post_smoke_trace_status(),
         success_variation_status(),
+        success_variation_dataset_prep_status(),
         success_variation_pre_batch_assumption_audit_status(),
         success_variation_paid_lifecycle_preflight_status(),
         brev_credit_review_status(),
@@ -1024,6 +1057,7 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "python3 scripts/check_phase2_contact_gate.py",
             "python3 scripts/check_success_variation_batch_plan.py artifacts/manifests/success_trace_variations_2026-06-25.json",
             "python3 scripts/check_success_variation_batch_results.py artifacts/manifests/success_trace_variations_2026-06-25.json",
+            "python3 scripts/prepare_success_variation_dataset.py artifacts/manifests/success_trace_variations_2026-06-25.json --dry-run",
             "python3 scripts/audit_success_variation_assumptions.py artifacts/manifests/success_trace_variations_2026-06-25.json --phase pre-batch --run-packet artifacts/analysis/success_variation_run_packet_2026-06-25.json --no-output",
             "python3 scripts/plan_success_variation_recovery_batch.py artifacts/manifests/success_trace_variations_2026-06-25.json",
             "python3 scripts/prepare_brev_credit_review.py --no-output",

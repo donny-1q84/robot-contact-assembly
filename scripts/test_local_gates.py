@@ -2336,6 +2336,25 @@ def run_success_variation_manifest_tests() -> None:
         assert_contains(result, "[success-variation-dataset] BLOCKED", "blocked dataset prep detail")
         if blocked_dataset_json.exists() or blocked_dataset_md.exists():
             raise AssertionError("blocked dataset prep must not write dataset artifacts")
+        blocked_dry_run_json = tmp_dir / "blocked_dataset_dry_run" / "manifest.json"
+        blocked_dry_run_md = tmp_dir / "blocked_dataset_dry_run" / "README.md"
+        result = run(
+            [
+                "python3",
+                "scripts/prepare_success_variation_dataset.py",
+                str(manifest_path),
+                "--output-json",
+                str(blocked_dry_run_json),
+                "--output-md",
+                str(blocked_dry_run_md),
+                "--no-output",
+            ]
+        )
+        assert_status(result, 1, "success variation dataset dry-run rejects incomplete batch")
+        assert_contains(result, "[success-variation-dataset] facts=", "blocked dataset dry-run facts detail")
+        assert_contains(result, '"writes_dataset_artifacts": false', "blocked dataset dry-run no-write detail")
+        if blocked_dry_run_json.exists() or blocked_dry_run_md.exists():
+            raise AssertionError("blocked dataset dry-run must not write dataset artifacts")
 
         review_json = tmp_dir / "success_variation_review.json"
         review_md = tmp_dir / "success_variation_review.md"
@@ -2427,6 +2446,26 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"promotable batch should have no recovery reruns: {recovery}")
         dataset_json = tmp_dir / "dataset" / "manifest.json"
         dataset_md = tmp_dir / "dataset" / "README.md"
+        dataset_dry_run_json = tmp_dir / "dataset_dry_run" / "manifest.json"
+        dataset_dry_run_md = tmp_dir / "dataset_dry_run" / "README.md"
+        result = run(
+            [
+                "python3",
+                "scripts/prepare_success_variation_dataset.py",
+                str(pass_manifest_path),
+                "--output-json",
+                str(dataset_dry_run_json),
+                "--output-md",
+                str(dataset_dry_run_md),
+                "--dry-run",
+            ]
+        )
+        assert_status(result, 0, "success variation dataset dry-run accepts promotable batch")
+        assert_contains(result, "[success-variation-dataset] DRY_RUN", "dataset dry-run marker")
+        assert_contains(result, '"status": "READY_FOR_POLICY_API_REVIEW"', "dataset dry-run ready facts detail")
+        assert_contains(result, '"writes_dataset_artifacts": false', "dataset dry-run no-write detail")
+        if dataset_dry_run_json.exists() or dataset_dry_run_md.exists():
+            raise AssertionError("dataset dry-run must not write dataset artifacts")
         result = run(
             [
                 "python3",
@@ -4227,7 +4266,10 @@ def run_success_variation_manifest_tests() -> None:
             "check_success_variation_batch_results",
             "classify_success_variation_results",
             "result_gate_pass",
+            "[success-variation-dataset] facts=",
             "[success-variation-dataset] BLOCKED",
+            "[success-variation-dataset] DRY_RUN",
+            "writes_dataset_artifacts",
             "READY_FOR_POLICY_API_REVIEW",
         ):
             if expected_snippet not in dataset_script:
@@ -5882,6 +5924,21 @@ def main() -> int:
             "Success variation pre-batch assumption audit | BLOCKED",
             "status report pre-batch assumption audit detail",
         )
+        assert_contains(
+            result,
+            "V0 scripted-skill dataset prep | BLOCKED",
+            "status report dataset prep detail",
+        )
+        assert_contains(
+            result,
+            "result_gate_pass=False",
+            "status report dataset prep result-gate detail",
+        )
+        assert_contains(
+            result,
+            "writes_dataset_artifacts=False",
+            "status report dataset prep no-write detail",
+        )
         assert_contains(result, "audit_status=BLOCKED; phase=pre-batch", "status report audit status detail")
         assert_contains(result, "Brev UI credit review | BLOCKED", "status report Brev credit review detail")
         assert_contains(
@@ -5904,6 +5961,11 @@ def main() -> int:
             result,
             "--dry-run",
             "status report includes paid preview dry-run commands",
+        )
+        assert_contains(
+            result,
+            "python3 scripts/prepare_success_variation_dataset.py artifacts/manifests/success_trace_variations_2026-06-25.json --dry-run",
+            "status report dataset prep dry-run command detail",
         )
         assert_contains(
             result,

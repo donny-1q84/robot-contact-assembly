@@ -228,6 +228,47 @@ def _render_markdown(dataset: dict[str, Any]) -> str:
     return "\n".join(rows) + "\n"
 
 
+def _build_report(
+    *,
+    manifest_path: Path,
+    gate: dict[str, Any],
+    dataset: dict[str, Any] | None,
+    output_json: Path,
+    output_md: Path,
+    writes_outputs: bool,
+) -> dict[str, Any]:
+    failures = gate.get("failures") if isinstance(gate.get("failures"), list) else []
+    dataset_cases = dataset.get("cases") if isinstance(dataset, dict) and isinstance(dataset.get("cases"), list) else []
+    excluded_cases = (
+        dataset.get("excluded_cases")
+        if isinstance(dataset, dict) and isinstance(dataset.get("excluded_cases"), list)
+        else []
+    )
+    return {
+        "status": "READY_FOR_POLICY_API_REVIEW" if gate.get("pass") else "BLOCKED",
+        "result_gate_pass": bool(gate.get("pass")),
+        "manifest": _rel(manifest_path),
+        "output_json": _rel(output_json),
+        "output_md": _rel(output_md),
+        "case_count": len(dataset_cases),
+        "excluded_case_count": len(excluded_cases),
+        "failures": failures,
+        "side_effects": {
+            "writes_dataset_artifacts": bool(writes_outputs),
+            "creates_paid_instance": False,
+            "runs_remote_code": False,
+            "starts_isaac": False,
+            "calls_ros_or_robot": False,
+        },
+        "not_claims": [
+            "not learned policy",
+            "not sim-to-real",
+            "not cross-robot-ready",
+            "not hardware execution approval",
+        ],
+    }
+
+
 def _resolve_input_path(path: Path) -> Path:
     path = path.expanduser()
     if path.is_absolute():
@@ -245,6 +286,8 @@ def main() -> int:
     parser.add_argument("--allow-missing", action="store_true")
     parser.add_argument("--output-json", type=Path, default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--output-md", type=Path, default=DEFAULT_OUTPUT_MD)
+    parser.add_argument("--dry-run", action="store_true", help="Report readiness without writing dataset artifacts.")
+    parser.add_argument("--no-output", action="store_true", help="Alias for --dry-run for status/report callers.")
     args = parser.parse_args()
 
     manifest_path = _resolve_input_path(args.manifest)
@@ -259,6 +302,26 @@ def main() -> int:
         allow_missing=args.allow_missing,
     )
 
+    no_write = bool(args.dry_run or args.no_output)
+    dataset: dict[str, Any] | None = None
+    if gate["pass"]:
+        dataset = _build_dataset(
+            manifest,
+            classification,
+            gate,
+            source_manifest_path=manifest_path,
+            negative_control_id=args.negative_control_id,
+        )
+    report = _build_report(
+        manifest_path=manifest_path,
+        gate=gate,
+        dataset=dataset,
+        output_json=args.output_json,
+        output_md=args.output_md,
+        writes_outputs=bool(gate["pass"] and not no_write),
+    )
+
+    print("[success-variation-dataset] facts=" + json.dumps(report, indent=2, sort_keys=True))
     print("[success-variation-dataset] result_gate_pass=" + str(gate["pass"]))
     if not gate["pass"]:
         print("[success-variation-dataset] BLOCKED")
@@ -266,13 +329,13 @@ def main() -> int:
             print(f"- {failure}")
         return 1
 
-    dataset = _build_dataset(
-        manifest,
-        classification,
-        gate,
-        source_manifest_path=manifest_path,
-        negative_control_id=args.negative_control_id,
-    )
+    if no_write:
+        print("[success-variation-dataset] DRY_RUN")
+        print("[success-variation-dataset] would not write dataset artifacts")
+        print(f"[success-variation-dataset] cases={report['case_count']}")
+        print("[success-variation-dataset] READY_FOR_POLICY_API_REVIEW")
+        return 0
+
     args.output_json.parent.mkdir(parents=True, exist_ok=True)
     args.output_json.write_text(json.dumps(dataset, indent=2, sort_keys=True), encoding="utf-8")
     args.output_md.parent.mkdir(parents=True, exist_ok=True)
