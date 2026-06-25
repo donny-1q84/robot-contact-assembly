@@ -5720,6 +5720,13 @@ def main() -> int:
             "prepare_command=python3 scripts/prepare_success_variation_paid_batch.py",
             "status report prepare helper detail",
         )
+        assert_contains(result, "V0 language instruction suite | PASS", "status report V0 language suite detail")
+        assert_contains(result, "cases=6/6", "status report V0 language suite case count detail")
+        assert_contains(
+            result,
+            "not_cross_robot_ready=True",
+            "status report V0 language suite portability non-claim detail",
+        )
         assert_contains(result, "V0 skill readiness | BLOCKED", "status report V0 readiness detail")
         assert_contains(result, "V0 policy/API review packet | BLOCKED", "status report V0 policy/API review detail")
         assert_contains(result, "V0 policy training preflight | BLOCKED", "status report V0 training preflight detail")
@@ -5750,6 +5757,11 @@ def main() -> int:
             result,
             "python3 scripts/audit_success_variation_assumptions.py artifacts/manifests/success_trace_variations_2026-06-25.json --phase pre-batch --run-packet artifacts/analysis/success_variation_run_packet_2026-06-25.json --no-output",
             "status report pre-batch assumption audit command detail",
+        )
+        assert_contains(
+            result,
+            "python3 scripts/check_v0_language_instruction_suite.py --no-output",
+            "status report V0 language suite command detail",
         )
         assert_contains(
             result,

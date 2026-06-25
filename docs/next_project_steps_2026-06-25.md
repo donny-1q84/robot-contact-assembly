@@ -204,6 +204,9 @@ normalize to high-level requests, while low-level joint commands, substring
 socket aliases, and force-like commands without a valid socket must fail
 closed. `scripts/check_v0_language_instruction_suite.py` checks that suite
 without calling any model, simulator, paid service, ROS stack, or hardware.
+`scripts/project_status_report.py` also surfaces this suite as its own V0
+status row before downstream skill readiness, policy, adapter, or portability
+claims.
 `scripts/run_v0_language_skill_dry_run.py` is the local language-to-skill
 handoff report. It takes a natural-language instruction, runs the deterministic
 request planner, validates the request against the V0 contract, and connects it

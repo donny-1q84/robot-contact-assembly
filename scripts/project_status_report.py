@@ -292,6 +292,33 @@ def brev_credit_review_status() -> Check:
     return Check("Brev UI credit review", status, detail)
 
 
+def v0_language_instruction_suite_status() -> Check:
+    result = run_script("python3", "scripts/check_v0_language_instruction_suite.py", "--no-output")
+    marker = "[v0-language-suite] facts="
+    if marker not in result.stdout:
+        return Check(
+            "V0 language instruction suite",
+            "FAIL",
+            "Could not parse scripts/check_v0_language_instruction_suite.py output.",
+        )
+    try:
+        facts = _json_prefix(result.stdout.split(marker, 1)[1])
+    except (json.JSONDecodeError, ValueError) as exc:
+        return Check("V0 language instruction suite", "FAIL", f"Language suite JSON parse failed: {exc}")
+
+    status = str(facts.get("status") or "FAIL")
+    cases = facts.get("cases") if isinstance(facts.get("cases"), list) else []
+    accepted_cases = sum(1 for case in cases if case.get("expected_status") == "PASS")
+    rejected_cases = sum(1 for case in cases if case.get("expected_status") == "FAIL")
+    not_claims = facts.get("not_claims") if isinstance(facts.get("not_claims"), list) else []
+    detail = (
+        f"suite={facts.get('suite')}; cases={facts.get('pass_count')}/{facts.get('case_count')}; "
+        f"accepted_cases={accepted_cases}; rejected_cases={rejected_cases}; "
+        f"not_cross_robot_ready={'not cross-robot-ready' in not_claims}."
+    )
+    return Check("V0 language instruction suite", status, detail)
+
+
 def v0_skill_readiness_status() -> Check:
     result = run_script(
         "python3",
@@ -710,6 +737,7 @@ def checks() -> list[Check]:
         success_variation_pre_batch_assumption_audit_status(),
         success_variation_paid_lifecycle_preflight_status(),
         brev_credit_review_status(),
+        v0_language_instruction_suite_status(),
         v0_skill_readiness_status(),
         v0_policy_api_review_status(),
         v0_policy_training_preflight_status(),
