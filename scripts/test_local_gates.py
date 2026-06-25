@@ -1342,6 +1342,7 @@ def run_v0_skill_api_contract_tests() -> None:
     readiness_checker_path = REPO_ROOT / "scripts" / "check_v0_skill_readiness.py"
     execution_planner_path = REPO_ROOT / "scripts" / "plan_v0_skill_execution.py"
     policy_api_review_path = REPO_ROOT / "scripts" / "prepare_v0_policy_api_review.py"
+    policy_dataset_audit_path = REPO_ROOT / "scripts" / "audit_v0_policy_dataset.py"
     policy_experiment_path = REPO_ROOT / "scripts" / "plan_v0_policy_experiment.py"
     robot_adapter_path = REPO_ROOT / "configs" / "v0_external_robot_adapter.template.json"
     robot_adapter_checker_path = REPO_ROOT / "scripts" / "check_v0_robot_adapter_contract.py"
@@ -1380,6 +1381,11 @@ def run_v0_skill_api_contract_tests() -> None:
     assert_contains(result, "[v0-policy-experiment-plan] status=BLOCKED", "V0 policy experiment blocked detail")
     result = run(["python3", str(policy_experiment_path), "--no-output", "--fail-on-blocked"])
     assert_status(result, 1, "V0 policy experiment planner can fail closed before review packet exists")
+    result = run(["python3", str(policy_dataset_audit_path), "--no-output"])
+    assert_status(result, 0, "V0 policy dataset audit reports blocked current state without failing by default")
+    assert_contains(result, "[v0-policy-dataset-audit] status=BLOCKED", "V0 policy dataset audit blocked detail")
+    result = run(["python3", str(policy_dataset_audit_path), "--no-output", "--fail-on-blocked"])
+    assert_status(result, 1, "V0 policy dataset audit can fail closed before dataset exists")
 
     checker = checker_path.read_text(encoding="utf-8")
     request_checker = request_checker_path.read_text(encoding="utf-8")
@@ -1387,6 +1393,7 @@ def run_v0_skill_api_contract_tests() -> None:
     readiness_checker = readiness_checker_path.read_text(encoding="utf-8")
     execution_planner = execution_planner_path.read_text(encoding="utf-8")
     policy_api_review = policy_api_review_path.read_text(encoding="utf-8")
+    policy_dataset_audit = policy_dataset_audit_path.read_text(encoding="utf-8")
     policy_experiment = policy_experiment_path.read_text(encoding="utf-8")
     robot_adapter_checker = robot_adapter_checker_path.read_text(encoding="utf-8")
     robot_adapter_planner = robot_adapter_planner_path.read_text(encoding="utf-8")
@@ -1461,6 +1468,19 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"V0 policy/API review prep missing snippet: {expected_snippet}")
     if "brev create" in policy_api_review or '"${BREV_BIN}" create' in policy_api_review:
         raise AssertionError("V0 policy/API review prep must be offline and must not create Brev instances")
+    for expected_snippet in (
+        "Audit the V0 policy dataset",
+        "v0_policy_dataset_audit",
+        "coverage_groups",
+        "dataset source_manifest_sha256",
+        "negative-control case",
+        "not trained policy",
+        "does not train a policy, call Brev, start Isaac",
+    ):
+        if expected_snippet not in policy_dataset_audit:
+            raise AssertionError(f"V0 policy dataset audit missing snippet: {expected_snippet}")
+    if "brev create" in policy_dataset_audit or '"${BREV_BIN}" create' in policy_dataset_audit:
+        raise AssertionError("V0 policy dataset audit must be offline and must not create Brev instances")
     for expected_snippet in (
         "Plan the first V0 residual-policy experiment",
         "READY_FOR_LOCAL_POLICY_EXPERIMENT_DESIGN",
@@ -2090,6 +2110,35 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError("policy/API review must preserve sim-to-real non-claim")
         if "V0 Policy/API Review Packet" not in policy_review_md.read_text(encoding="utf-8"):
             raise AssertionError("policy/API review README should include a clear title")
+        dataset_audit_json = tmp_dir / "policy_dataset_audit" / "audit.json"
+        dataset_audit_md = tmp_dir / "policy_dataset_audit" / "README.md"
+        result = run(
+            [
+                "python3",
+                "scripts/audit_v0_policy_dataset.py",
+                "--review-packet",
+                str(policy_review_json),
+                "--dataset",
+                str(dataset_json),
+                "--output-json",
+                str(dataset_audit_json),
+                "--output-md",
+                str(dataset_audit_md),
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 0, "V0 policy dataset audit accepts review packet plus dataset")
+        assert_contains(result, "[v0-policy-dataset-audit] status=PASS", "V0 policy dataset audit PASS detail")
+        dataset_audit = json.loads(dataset_audit_json.read_text(encoding="utf-8"))
+        if dataset_audit["ready_for_training"] is not False:
+            raise AssertionError(f"dataset audit should not mark training ready: {dataset_audit}")
+        for group in ("seed_or_reset", "socket_x", "socket_y", "socket_z"):
+            if group not in dataset_audit["coverage_groups"]:
+                raise AssertionError(f"dataset audit missing coverage group {group}: {dataset_audit}")
+        if "socket_x_pos_25mm_negative_control" in dataset_audit["dataset_case_ids"]:
+            raise AssertionError("dataset audit must confirm negative-control exclusion")
+        if "V0 Policy Dataset Audit" not in dataset_audit_md.read_text(encoding="utf-8"):
+            raise AssertionError("dataset audit README should include a clear title")
         policy_experiment_json = tmp_dir / "policy_experiment" / "plan.json"
         policy_experiment_md = tmp_dir / "policy_experiment" / "README.md"
         result = run(
