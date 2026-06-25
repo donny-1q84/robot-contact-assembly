@@ -216,6 +216,38 @@ def success_variation_paid_lifecycle_preflight_status() -> Check:
     return Check("Success variation paid lifecycle preflight", status, detail)
 
 
+def brev_credit_review_status() -> Check:
+    result = run_script("python3", "scripts/prepare_brev_credit_review.py", "--no-output")
+    marker = "[brev-credit-review] facts="
+    if marker not in result.stdout:
+        return Check(
+            "Brev UI credit review",
+            "FAIL",
+            "Could not parse scripts/prepare_brev_credit_review.py output.",
+        )
+    try:
+        facts = _json_prefix(result.stdout.split(marker, 1)[1])
+    except (json.JSONDecodeError, ValueError) as exc:
+        return Check("Brev UI credit review", "FAIL", f"Brev credit review JSON parse failed: {exc}")
+
+    packet_status = str(facts.get("status") or "BLOCKED")
+    side_effects = facts.get("side_effects") if isinstance(facts.get("side_effects"), dict) else {}
+    preflight = facts.get("paid_lifecycle_preflight") if isinstance(facts.get("paid_lifecycle_preflight"), dict) else {}
+    credit = preflight.get("credit_evidence") if isinstance(preflight.get("credit_evidence"), dict) else {}
+    commands = facts.get("next_commands") if isinstance(facts.get("next_commands"), dict) else {}
+    write_command = commands.get("write_credit_evidence")
+    detail = (
+        f"packet_status={packet_status}; dashboard_url={facts.get('dashboard_url')}; "
+        f"credit_evidence_path={facts.get('credit_evidence_path')}; "
+        f"credit_status={credit.get('status')}; budget_eur={facts.get('budget_eur')}; "
+        f"writes_credit_evidence={side_effects.get('writes_credit_evidence')}; "
+        f"creates_paid_instance={side_effects.get('creates_paid_instance')}; "
+        f"write_command={' '.join(write_command) if isinstance(write_command, list) else '<missing>'}."
+    )
+    status = "READY" if packet_status == "READY_FOR_PAID_LIFECYCLE" else "BLOCKED"
+    return Check("Brev UI credit review", status, detail)
+
+
 def v0_skill_readiness_status() -> Check:
     result = run_script(
         "python3",
@@ -632,6 +664,7 @@ def checks() -> list[Check]:
         post_smoke_trace_status(),
         success_variation_status(),
         success_variation_paid_lifecycle_preflight_status(),
+        brev_credit_review_status(),
         v0_skill_readiness_status(),
         v0_policy_api_review_status(),
         v0_policy_training_preflight_status(),

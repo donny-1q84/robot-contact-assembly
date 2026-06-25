@@ -319,6 +319,7 @@ scripts/write_success_variation_run_packet.py
 scripts/audit_success_variation_assumptions.py
 scripts/check_brev_credit_evidence.py
 scripts/write_brev_credit_evidence.py
+scripts/prepare_brev_credit_review.py
 scripts/arm_success_variation_paid_env.py
 scripts/check_success_variation_paid_lifecycle_preflight.py
 scripts/check_v0_skill_api_contract.py
@@ -400,6 +401,12 @@ python3 scripts/check_success_variation_paid_lifecycle_preflight.py --no-output
 It summarizes clean source state, current contact-smoke bundle readiness, Brev
 UI credit evidence, `SAFE_NO_VISIBLE_PAID_INSTANCE`, local env armability, and
 batch-plan readiness. It does not arm the env or create a paid instance.
+`scripts/prepare_brev_credit_review.py --no-output` is the read-only bridge for
+the remaining external blocker: it prints the Brev organization dashboard URL,
+the missing credit-evidence status, the exact `write_brev_credit_evidence.py`
+command, the rerun-preflight command, and the one-shot paid lifecycle command.
+It does not open paid compute, write credit evidence, or arm the local env unless
+the explicit follow-up commands are run separately.
 
 After manually reading the current Brev UI balance, the preferred local prepare
 step is:

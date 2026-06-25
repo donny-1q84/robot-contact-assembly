@@ -5629,6 +5629,22 @@ def main() -> int:
             "Success variation paid lifecycle preflight | BLOCKED",
             "status report paid lifecycle preflight detail",
         )
+        assert_contains(result, "Brev UI credit review | BLOCKED", "status report Brev credit review detail")
+        assert_contains(
+            result,
+            "packet_status=NEEDS_BREV_UI_CREDIT_EVIDENCE",
+            "status report Brev credit review packet detail",
+        )
+        assert_contains(
+            result,
+            "dashboard_url=https://brev.nvidia.com/org/org-3BaYGdtoRGmgc77Z7NHHhPSD254/environments",
+            "status report Brev dashboard URL detail",
+        )
+        assert_contains(
+            result,
+            "write_command=python3 scripts/write_brev_credit_evidence.py",
+            "status report write credit command detail",
+        )
         assert_contains(result, "V0 skill readiness | BLOCKED", "status report V0 readiness detail")
         assert_contains(result, "V0 policy/API review packet | BLOCKED", "status report V0 policy/API review detail")
         assert_contains(result, "V0 policy training preflight | BLOCKED", "status report V0 training preflight detail")
