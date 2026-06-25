@@ -54,13 +54,22 @@ skill baseline with negative controls, variation checks, and a clean API shape.
 
 ## Immediate Work
 
+Status update after the first local continuation:
+
+- `scripts/check_success_deliverable_bundle.py` now validates the success
+  deliverable as a complete evidence bundle.
+- `scripts/test_local_gates.py` includes positive and negative bundle controls:
+  the real 2026-06-21 and 2026-06-23 bundles must pass, while video-only,
+  semantically failed-trace, and checksum-corrupted bundles must fail.
+- `./scripts/run_local_quality_checks.sh` passes with these checks included.
+
 1. Merge or keep-current the GitHub PR
 
    - Confirm PR #1 is still draft intentionally.
    - Decide whether to merge it into `master` or keep iterating on the branch.
    - If it remains draft, document what would make it ready.
 
-2. Add a success-bundle validator
+2. Add a success-bundle validator - done
 
    Create a small validator that checks a complete deliverable bundle, not just
    one trace file. It should verify:
@@ -72,7 +81,7 @@ skill baseline with negative controls, variation checks, and a clean API shape.
    - `SHA256SUMS.txt` matches the files in the bundle;
    - Brev safety snapshot contains `SAFE_NO_VISIBLE_PAID_INSTANCE`.
 
-3. Add negative controls before any new paid run
+3. Add negative controls before any new paid run - done
 
    At minimum:
 
@@ -177,9 +186,9 @@ ffprobe -hide_banner -v error -select_streams v:0 -show_entries stream=width,hei
 Then implement:
 
 ```text
-scripts/check_success_deliverable_bundle.py
-tests in scripts/test_local_gates.py for positive and negative bundle cases
-docs/current_project_handoff.md update for the 2026-06-23 replay deliverable
+successful-trace variation manifest and local classification tooling
+tests in scripts/test_local_gates.py for the variation manifest / classifier
+docs/current_project_handoff.md update for the next dataset-preparation branch
 ```
 
 Only after that should a new remote run be considered.

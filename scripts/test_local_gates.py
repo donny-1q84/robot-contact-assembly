@@ -11,6 +11,7 @@ import ast
 import json
 import os
 from pathlib import Path
+import shutil
 import stat
 import subprocess
 import sys
@@ -1230,6 +1231,80 @@ def run_trace_frame_alignment_tests() -> None:
             raise AssertionError(f"frame audit missed physical proxy failure: {failures}")
 
 
+def run_success_deliverable_bundle_tests() -> None:
+    success_trace_bundle = REPO_ROOT / "artifacts/deliverables/2026-06-21-peg-in-hole-success-trace"
+    isaac_replay_bundle = REPO_ROOT / "artifacts/deliverables/2026-06-23-isaac-trace-replay-video"
+    source_trace = success_trace_bundle / "video_trace.json"
+    source_video = isaac_replay_bundle / "isaac_trace_replay_trimmed.mp4"
+
+    result = run(["python3", "scripts/check_success_deliverable_bundle.py", str(isaac_replay_bundle)])
+    assert_status(result, 0, "success bundle validator accepts Isaac replay deliverable")
+    assert_contains(result, "[success-bundle] PASS", "success bundle replay PASS detail")
+    assert_contains(result, "gate: peg-video-candidate PASS", "success bundle semantic gate detail")
+
+    result = run(["python3", "scripts/check_success_deliverable_bundle.py", str(success_trace_bundle)])
+    assert_status(result, 0, "success bundle validator accepts source trace deliverable")
+    assert_contains(result, "gate: trace-frame-alignment PASS", "success bundle frame audit detail")
+
+    def write_bundle_sha256(bundle: Path) -> None:
+        rows = []
+        for path in sorted(child for child in bundle.iterdir() if child.is_file() and child.name != "SHA256SUMS.txt"):
+            rows.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  ./{path.name}")
+        (bundle / "SHA256SUMS.txt").write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    with tempfile.TemporaryDirectory(prefix="rca-success-bundle-tests-") as tmp_dir_raw:
+        tmp_dir = Path(tmp_dir_raw)
+
+        video_only_bundle = tmp_dir / "video-only-bundle"
+        video_only_bundle.mkdir()
+        shutil.copy2(source_video, video_only_bundle / source_video.name)
+        (video_only_bundle / "brev_paid_safety_status.txt").write_text(
+            "\n".join(
+                [
+                    "[brev-safety] visible_instances=0",
+                    "[brev-safety] status=SAFE_NO_VISIBLE_PAID_INSTANCE",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        write_bundle_sha256(video_only_bundle)
+        result = run(["python3", "scripts/check_success_deliverable_bundle.py", str(video_only_bundle)])
+        assert_status(result, 1, "success bundle validator rejects video-only bundle")
+        assert_contains(result, "could not locate source trace", "video-only bundle failure detail")
+
+        bad_trace = tmp_dir / "bad_video_trace.json"
+        payload = json.loads(source_trace.read_text(encoding="utf-8"))
+        if isinstance(payload.get("summary"), dict):
+            payload["summary"]["success_step"] = None
+            payload["summary"]["final_success_rate"] = 0.0
+            payload["summary"]["best_lateral"] = 0.050
+        for step in payload.get("steps", []):
+            if isinstance(step, dict):
+                step["success"] = False
+                step["lateral"] = 0.050
+        bad_trace.write_text(json.dumps(payload), encoding="utf-8")
+        result = run(
+            [
+                "python3",
+                "scripts/check_success_deliverable_bundle.py",
+                str(isaac_replay_bundle),
+                "--trace-json",
+                str(bad_trace),
+            ]
+        )
+        assert_status(result, 1, "success bundle validator rejects semantically failed trace")
+        assert_contains(result, "peg-video-candidate failed", "failed trace bundle detail")
+
+        corrupt_bundle = tmp_dir / "corrupt-checksum-bundle"
+        shutil.copytree(isaac_replay_bundle, corrupt_bundle)
+        readme = corrupt_bundle / "README.md"
+        readme.write_text(readme.read_text(encoding="utf-8") + "\nchecksum corruption test\n", encoding="utf-8")
+        result = run(["python3", "scripts/check_success_deliverable_bundle.py", str(corrupt_bundle)])
+        assert_status(result, 1, "success bundle validator rejects checksum mismatch")
+        assert_contains(result, "checksum mismatch", "checksum mismatch failure detail")
+
+
 def write_action_response_trace(
     path: Path,
     *,
@@ -1350,6 +1425,7 @@ def main() -> int:
     run_isaac_trace_replay_video_static_tests()
     run_trace_video_renderer_static_tests()
     run_trace_frame_alignment_tests()
+    run_success_deliverable_bundle_tests()
 
     with tempfile.TemporaryDirectory(prefix="rca-gate-tests-") as tmp_dir_raw:
         tmp_dir = Path(tmp_dir_raw)

@@ -28,11 +28,12 @@ sim-to-real readiness, or direct portability to another robot arm.
 The next phase should be a local-first V0 reproducible assembly skill baseline:
 
 1. keep or merge the draft PR intentionally;
-2. add a deliverable-bundle validator that checks semantic trace success,
-   final-contact boundary diagnostics, trace-frame alignment, MP4 metadata,
-   checksums, and `SAFE_NO_VISIBLE_PAID_INSTANCE`;
-3. add negative controls so failed traces or video-only bundles cannot pass;
-4. then build successful-trace variation and dataset preparation across small
+2. use `scripts/check_success_deliverable_bundle.py` to validate semantic trace
+   success, final-contact boundary diagnostics, trace-frame alignment, MP4
+   metadata, checksums, and `SAFE_NO_VISIBLE_PAID_INSTANCE`;
+3. keep the local negative controls in `scripts/test_local_gates.py` so failed
+   traces, video-only bundles, and checksum-corrupted bundles cannot pass;
+4. build successful-trace variation and dataset preparation across small
    socket/reset perturbations.
 
 Do not open another paid GPU run for a prettier video, old Abs IK/JointPos
