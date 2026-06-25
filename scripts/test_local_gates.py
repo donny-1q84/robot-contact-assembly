@@ -2047,6 +2047,8 @@ def run_v0_skill_api_contract_tests() -> None:
         )
         assert_status(result, 0, "V0 robot adapter planner writes safe blocked manifest")
         assert_contains(result, "PASS_SAFE_BLOCKED", "V0 robot adapter planner safe-blocked detail")
+        if "adapter manifest was not written" in (result.stderr or ""):
+            raise AssertionError(f"V0 adapter planner must not claim no write after writing: {result.stderr}")
         planned_adapter = json.loads(planned_adapter_path.read_text(encoding="utf-8"))
         if planned_adapter["target_robot"]["robot_id"] != "demo_arm_v0":
             raise AssertionError(f"planned adapter has wrong robot id: {planned_adapter['target_robot']}")

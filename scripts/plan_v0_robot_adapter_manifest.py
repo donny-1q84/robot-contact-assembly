@@ -177,7 +177,7 @@ def main() -> int:
     args = parser.parse_args()
 
     report = build_report(args)
-    if report["status"] != "PASS" and not args.no_output:
+    if report["status"] == "FAIL" and not args.no_output:
         print("[v0-robot-adapter-planner] blocked: adapter manifest was not written", file=sys.stderr)
 
     print("[v0-robot-adapter-planner] facts=" + json.dumps(report, indent=2, sort_keys=True))
