@@ -3019,6 +3019,8 @@ def run_success_variation_manifest_tests() -> None:
         prepare_paid_script = (
             REPO_ROOT / "scripts" / "prepare_success_variation_paid_batch.py"
         ).read_text(encoding="utf-8")
+        credit_review_path = REPO_ROOT / "scripts" / "prepare_brev_credit_review.py"
+        credit_review_script = credit_review_path.read_text(encoding="utf-8")
         paid_preflight_path = REPO_ROOT / "scripts" / "check_success_variation_paid_lifecycle_preflight.py"
         paid_preflight_script = paid_preflight_path.read_text(encoding="utf-8")
         lifecycle_script = (
@@ -3210,6 +3212,47 @@ def run_success_variation_manifest_tests() -> None:
         if "brev create" in prepare_paid_script or '"${BREV_BIN}" create' in prepare_paid_script:
             raise AssertionError("success variation paid prepare helper must not create Brev instances")
 
+        result = run(["python3", str(credit_review_path), "--no-output"])
+        assert_status(result, 0, "Brev credit review packet reports current blocked state")
+        assert_contains(result, "NEEDS_BREV_UI_CREDIT_EVIDENCE", "Brev credit review missing evidence detail")
+        assert_contains(result, "dashboard_url=https://brev.nvidia.com/org/", "Brev credit review dashboard detail")
+        assert_contains(result, "write_credit_evidence=", "Brev credit review follow-up command detail")
+        result = run(["python3", str(credit_review_path), "--no-output", "--fail-on-blocked"])
+        assert_status(result, 1, "Brev credit review can fail closed while UI evidence is missing")
+
+        fake_open_log = tmp_dir / "brev_credit_review_open.log"
+        fake_open_bin = tmp_dir / "fake-open-brev-credit-review.sh"
+        fake_open_bin.write_text(
+            "#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > \"$RCA_FAKE_OPEN_LOG\"\n",
+            encoding="utf-8",
+        )
+        fake_open_bin.chmod(0o755)
+        result = run(
+            ["python3", str(credit_review_path), "--open-dashboard", "--no-output"],
+            env={"RCA_OPEN_BIN": str(fake_open_bin), "RCA_FAKE_OPEN_LOG": str(fake_open_log)},
+        )
+        assert_status(result, 0, "Brev credit review can open dashboard without creating paid resources")
+        if "https://brev.nvidia.com/org/org-3BaYGdtoRGmgc77Z7NHHhPSD254/environments" not in fake_open_log.read_text(
+            encoding="utf-8"
+        ):
+            raise AssertionError("Brev credit review should open the organization dashboard URL")
+
+        for expected_snippet in (
+            "Prepare the Brev UI credit review before a paid success-variation run",
+            "NEEDS_BREV_UI_CREDIT_EVIDENCE",
+            "READY_FOR_PAID_LIFECYCLE",
+            "write_brev_credit_evidence.py",
+            "check_success_variation_paid_lifecycle_preflight.py",
+            "run_success_variation_paid_lifecycle.py",
+            "opens_dashboard",
+            "creates_paid_instance",
+            "By default it does not open a browser, write credit evidence",
+        ):
+            if expected_snippet not in credit_review_script:
+                raise AssertionError(f"Brev credit review helper missing snippet: {expected_snippet}")
+        if "brev create" in credit_review_script or '"${BREV_BIN}" create' in credit_review_script:
+            raise AssertionError("Brev credit review helper must not create Brev instances")
+
         result = run(["python3", str(paid_preflight_path), "--no-output"])
         assert_status(result, 0, "success variation paid lifecycle preflight reports blocked current state")
         assert_contains(result, "[success-variation-paid-preflight] status=BLOCKED", "paid lifecycle preflight blocked marker")
@@ -3277,6 +3320,32 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"paid lifecycle preflight must remain side-effect free: {ready_preflight}")
         if "Success Variation Paid Lifecycle Preflight" not in ready_preflight_md.read_text(encoding="utf-8"):
             raise AssertionError("paid lifecycle preflight README should include a clear title")
+        ready_credit_review_json = tmp_dir / "paid_lifecycle_preflight_ready" / "credit_review.json"
+        ready_credit_review_md = tmp_dir / "paid_lifecycle_preflight_ready" / "credit_review.md"
+        result = run(
+            [
+                "python3",
+                str(credit_review_path),
+                "--config",
+                str(ready_config_path),
+                "--brev-safety-output",
+                str(fake_safe_brev),
+                "--output-json",
+                str(ready_credit_review_json),
+                "--output-md",
+                str(ready_credit_review_md),
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 0, "Brev credit review packet has a READY offline path")
+        assert_contains(result, "READY_FOR_PAID_LIFECYCLE", "Brev credit review READY detail")
+        ready_credit_review = json.loads(ready_credit_review_json.read_text(encoding="utf-8"))
+        if ready_credit_review["status"] != "READY_FOR_PAID_LIFECYCLE":
+            raise AssertionError(f"Brev credit review should be ready with valid evidence: {ready_credit_review}")
+        if ready_credit_review["side_effects"]["creates_paid_instance"] is not False:
+            raise AssertionError(f"Brev credit review must not create paid instances: {ready_credit_review}")
+        if "Brev Credit Review Packet" not in ready_credit_review_md.read_text(encoding="utf-8"):
+            raise AssertionError("Brev credit review README should include a clear title")
 
         for expected_snippet in (
             "success_variation_paid_lifecycle_preflight",
@@ -5086,6 +5155,11 @@ def main() -> int:
             result,
             "python3 scripts/prepare_v0_policy_api_review.py --skip-phase2-contact-gate",
             "status report V0 policy/API review command detail",
+        )
+        assert_contains(
+            result,
+            "python3 scripts/prepare_brev_credit_review.py --no-output",
+            "status report Brev credit review command detail",
         )
         assert_contains(
             result,
