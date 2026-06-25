@@ -1348,6 +1348,7 @@ def run_v0_skill_api_contract_tests() -> None:
     policy_label_source_audit_path = REPO_ROOT / "scripts" / "audit_v0_policy_label_sources.py"
     policy_label_dry_run_path = REPO_ROOT / "scripts" / "plan_v0_policy_label_dry_run.py"
     policy_label_dataset_path = REPO_ROOT / "scripts" / "extract_v0_policy_label_dataset.py"
+    policy_training_preflight_path = REPO_ROOT / "scripts" / "check_v0_policy_training_preflight.py"
     robot_adapter_path = REPO_ROOT / "configs" / "v0_external_robot_adapter.template.json"
     robot_adapter_checker_path = REPO_ROOT / "scripts" / "check_v0_robot_adapter_contract.py"
     robot_adapter_planner_path = REPO_ROOT / "scripts" / "plan_v0_robot_adapter_manifest.py"
@@ -1410,6 +1411,11 @@ def run_v0_skill_api_contract_tests() -> None:
     assert_contains(result, "[v0-policy-label-dataset] status=BLOCKED", "V0 policy label dataset blocked detail")
     result = run(["python3", str(policy_label_dataset_path), "--no-output", "--fail-on-blocked"])
     assert_status(result, 1, "V0 policy label dataset extractor can fail closed before label dry-run exists")
+    result = run(["python3", str(policy_training_preflight_path), "--no-output"])
+    assert_status(result, 0, "V0 policy training preflight reports blocked current state without failing by default")
+    assert_contains(result, "[v0-policy-training-preflight] status=BLOCKED", "V0 policy training preflight blocked detail")
+    result = run(["python3", str(policy_training_preflight_path), "--no-output", "--fail-on-blocked"])
+    assert_status(result, 1, "V0 policy training preflight can fail closed before label dataset exists")
 
     checker = checker_path.read_text(encoding="utf-8")
     request_checker = request_checker_path.read_text(encoding="utf-8")
@@ -1423,6 +1429,7 @@ def run_v0_skill_api_contract_tests() -> None:
     policy_label_source_audit = policy_label_source_audit_path.read_text(encoding="utf-8")
     policy_label_dry_run = policy_label_dry_run_path.read_text(encoding="utf-8")
     policy_label_dataset = policy_label_dataset_path.read_text(encoding="utf-8")
+    policy_training_preflight = policy_training_preflight_path.read_text(encoding="utf-8")
     robot_adapter_checker = robot_adapter_checker_path.read_text(encoding="utf-8")
     robot_adapter_planner = robot_adapter_planner_path.read_text(encoding="utf-8")
     for expected_snippet in (
@@ -1575,6 +1582,19 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"V0 policy label dataset extractor missing snippet: {expected_snippet}")
     if "brev create" in policy_label_dataset or '"${BREV_BIN}" create' in policy_label_dataset:
         raise AssertionError("V0 policy label dataset extractor must be offline and must not create Brev instances")
+    for expected_snippet in (
+        "Check V0 residual-policy training preflight",
+        "READY_FOR_TRAINING_SCRIPT_IMPLEMENTATION",
+        "jsonl_sha256",
+        "raw_action",
+        "training_script_status",
+        "It does not train a policy",
+        "do not use Brev or paid GPU",
+    ):
+        if expected_snippet not in policy_training_preflight:
+            raise AssertionError(f"V0 policy training preflight missing snippet: {expected_snippet}")
+    if "brev create" in policy_training_preflight or '"${BREV_BIN}" create' in policy_training_preflight:
+        raise AssertionError("V0 policy training preflight must be offline and must not create Brev instances")
     for expected_snippet in (
         "external-arm portability",
         "ready_for_external_robot cannot be true while adapter evidence blockers remain",
@@ -2441,6 +2461,43 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError("label dataset samples must not contain raw action or joint target fields")
         if "V0 Residual Policy Label Dataset" not in policy_label_dataset_md.read_text(encoding="utf-8"):
             raise AssertionError("label dataset README should include a clear title")
+        policy_training_preflight_json = tmp_dir / "policy_training_preflight" / "preflight.json"
+        policy_training_preflight_md = tmp_dir / "policy_training_preflight" / "README.md"
+        result = run(
+            [
+                "python3",
+                "scripts/check_v0_policy_training_preflight.py",
+                "--label-dataset-manifest",
+                str(policy_label_dataset_manifest),
+                "--output-json",
+                str(policy_training_preflight_json),
+                "--output-md",
+                str(policy_training_preflight_md),
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 0, "V0 policy training preflight accepts checked label dataset")
+        assert_contains(
+            result,
+            "READY_FOR_TRAINING_SCRIPT_IMPLEMENTATION",
+            "V0 policy training preflight ready detail",
+        )
+        policy_training_preflight = json.loads(policy_training_preflight_json.read_text(encoding="utf-8"))
+        if policy_training_preflight["ready_for_training"] is not False:
+            raise AssertionError(f"training preflight must not mark training ready: {policy_training_preflight}")
+        if policy_training_preflight["ready_for_training_launch"] is not False:
+            raise AssertionError(f"training preflight must not mark launch ready: {policy_training_preflight}")
+        if policy_training_preflight["training_script_status"] != "NOT_IMPLEMENTED":
+            raise AssertionError(f"training preflight must remain script-not-implemented: {policy_training_preflight}")
+        if policy_training_preflight["sample_count"] != policy_label_dataset["sample_count"]:
+            raise AssertionError(f"training preflight sample_count mismatch: {policy_training_preflight}")
+        expected_jsonl_sha = hashlib.sha256(policy_label_dataset_jsonl.read_bytes()).hexdigest()
+        if policy_training_preflight["jsonl_sha256"] != expected_jsonl_sha:
+            raise AssertionError(f"training preflight checksum mismatch: {policy_training_preflight}")
+        if "raw_action" not in policy_training_preflight["forbidden_sample_tokens"]:
+            raise AssertionError("training preflight should preserve raw_action forbidden-token check")
+        if "V0 Policy Training Preflight" not in policy_training_preflight_md.read_text(encoding="utf-8"):
+            raise AssertionError("training preflight README should include a clear title")
         result = run(
             [
                 "python3",

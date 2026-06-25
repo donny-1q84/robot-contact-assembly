@@ -238,6 +238,7 @@ python3 scripts/plan_v0_policy_feature_dry_run.py --no-output
 python3 scripts/audit_v0_policy_label_sources.py --no-output
 python3 scripts/plan_v0_policy_label_dry_run.py --no-output
 python3 scripts/extract_v0_policy_label_dataset.py --no-output
+python3 scripts/check_v0_policy_training_preflight.py --no-output
 python3 scripts/plan_v0_robot_adapter_manifest.py \
   --robot-id demo_arm_v0 \
   --robot-family demo_6dof_arm \

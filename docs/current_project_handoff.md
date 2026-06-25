@@ -152,6 +152,7 @@ policy_feature_dry_run: scripts/plan_v0_policy_feature_dry_run.py stays blocked 
 policy_label_source_audit: scripts/audit_v0_policy_label_sources.py stays blocked until the feature dry-run is ready; it audits allowed skill-controller residual target sources while excluding raw_action/joint targets
 policy_label_dry_run: scripts/plan_v0_policy_label_dry_run.py stays blocked until the label-source audit is ready; it previews allowed residual labels only and never writes a training dataset/checkpoint
 policy_label_dataset: scripts/extract_v0_policy_label_dataset.py stays blocked until label dry-run is ready; it writes JSONL plus manifest/checksum for allowed residual labels only, not a trained policy
+policy_training_preflight: scripts/check_v0_policy_training_preflight.py stays blocked until the label dataset exists; it checks JSONL checksum/schema and keeps training_script_status=NOT_IMPLEMENTED
 external_robot_adapter_planner: scripts/plan_v0_robot_adapter_manifest.py writes named-arm manifests that remain safely blocked
 external_robot_adapter: configs/v0_external_robot_adapter.template.json is safely blocked by scripts/check_v0_robot_adapter_contract.py
 dataset_preparation: blocked until the result gate passes
