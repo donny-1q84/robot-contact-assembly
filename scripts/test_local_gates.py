@@ -1670,6 +1670,22 @@ def run_v0_skill_api_contract_tests() -> None:
     result = run(["python3", str(policy_promotion_gate_path), "--skip-phase2-contact-gate", "--no-output"])
     assert_status(result, 0, "V0 policy promotion gate reports blocked current state without failing by default")
     assert_contains(result, "[v0-policy-promotion-gate] BLOCKED", "V0 policy promotion gate blocked detail")
+    blocked_promotion_report, _ = json.JSONDecoder().raw_decode(
+        result.stdout.split("[v0-policy-promotion-gate] facts=", 1)[1].lstrip()
+    )
+    if blocked_promotion_report["status"] != "BLOCKED":
+        raise AssertionError(f"blocked promotion gate should expose BLOCKED facts: {blocked_promotion_report}")
+    for key in (
+        "writes_promotion_report",
+        "writes_checkpoint",
+        "trains_policy",
+        "creates_paid_instance",
+        "runs_remote_code",
+        "starts_isaac",
+        "calls_ros_or_robot",
+    ):
+        if blocked_promotion_report["side_effects"][key] is not False:
+            raise AssertionError(f"blocked promotion gate side effect must be false for {key}: {blocked_promotion_report}")
     result = run(
         [
             "python3",
@@ -2285,6 +2301,11 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"current V0 readiness should be blocked before variation batch: {current_readiness}")
         if current_readiness["next_action"] != "run_fixed_budget_success_variation_batch_after_paid_ack":
             raise AssertionError(f"current V0 readiness should point to variation batch: {current_readiness}")
+        if current_readiness["side_effects"]["writes_readiness_report"] is not True:
+            raise AssertionError(f"current V0 readiness should disclose local report write: {current_readiness}")
+        for key in ("writes_dataset_artifacts", "creates_paid_instance", "runs_remote_code", "starts_isaac", "calls_ros_or_robot"):
+            if current_readiness["side_effects"][key] is not False:
+                raise AssertionError(f"current V0 readiness side effect must be false for {key}: {current_readiness}")
         blocked_review_json = tmp_dir / "blocked_v0_policy_api_review.json"
         blocked_review_md = tmp_dir / "blocked_v0_policy_api_review.md"
         result = run(
@@ -2300,6 +2321,24 @@ def run_v0_skill_api_contract_tests() -> None:
         )
         assert_status(result, 1, "V0 policy/API review prep blocks current incomplete state")
         assert_contains(result, "[v0-policy-api-review] BLOCKED", "blocked V0 policy/API review detail")
+        blocked_policy_review, _ = json.JSONDecoder().raw_decode(
+            result.stdout.split("[v0-policy-api-review] facts=", 1)[1].lstrip()
+        )
+        if blocked_policy_review["status"] != "BLOCKED":
+            raise AssertionError(f"blocked V0 policy/API review should expose BLOCKED facts: {blocked_policy_review}")
+        for key in (
+            "writes_review_artifacts",
+            "writes_dataset_artifacts",
+            "writes_policy_artifacts",
+            "writes_checkpoint",
+            "trains_policy",
+            "creates_paid_instance",
+            "runs_remote_code",
+            "starts_isaac",
+            "calls_ros_or_robot",
+        ):
+            if blocked_policy_review["side_effects"][key] is not False:
+                raise AssertionError(f"blocked V0 policy/API review side effect must be false for {key}: {blocked_policy_review}")
         if blocked_review_json.exists() or blocked_review_md.exists():
             raise AssertionError("blocked V0 policy/API review must not write artifacts")
 
@@ -2735,6 +2774,11 @@ def run_success_variation_manifest_tests() -> None:
         ready_skill = json.loads(ready_skill_json.read_text(encoding="utf-8"))
         if ready_skill["next_action"] != "ready_for_policy_api_review":
             raise AssertionError(f"ready V0 skill should point to policy/API review: {ready_skill}")
+        if ready_skill["side_effects"]["writes_readiness_report"] is not True:
+            raise AssertionError(f"ready V0 skill should disclose local report write: {ready_skill}")
+        for key in ("writes_dataset_artifacts", "creates_paid_instance", "runs_remote_code", "starts_isaac", "calls_ros_or_robot"):
+            if ready_skill["side_effects"][key] is not False:
+                raise AssertionError(f"ready V0 skill side effect must be false for {key}: {ready_skill}")
         ready_adapter = json.loads((REPO_ROOT / "configs" / "v0_external_robot_adapter.template.json").read_text(encoding="utf-8"))
         evidence_dir = tmp_dir / "adapter_evidence"
         evidence_dir.mkdir()
@@ -3025,6 +3069,20 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError("policy/API review must preserve direct force-command ban")
         if "not sim-to-real" not in policy_review["not_claims"]:
             raise AssertionError("policy/API review must preserve sim-to-real non-claim")
+        if policy_review["side_effects"]["writes_review_artifacts"] is not True:
+            raise AssertionError(f"policy/API review should disclose local review artifact writes: {policy_review}")
+        for key in (
+            "writes_dataset_artifacts",
+            "writes_policy_artifacts",
+            "writes_checkpoint",
+            "trains_policy",
+            "creates_paid_instance",
+            "runs_remote_code",
+            "starts_isaac",
+            "calls_ros_or_robot",
+        ):
+            if policy_review["side_effects"][key] is not False:
+                raise AssertionError(f"policy/API review side effect must be false for {key}: {policy_review}")
         if "V0 Policy/API Review Packet" not in policy_review_md.read_text(encoding="utf-8"):
             raise AssertionError("policy/API review README should include a clear title")
         dataset_audit_json = tmp_dir / "policy_dataset_audit" / "audit.json"
@@ -3571,6 +3629,11 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"promotion gate must not imply external robot readiness: {policy_promotion}")
         if policy_promotion["isaac_closed_loop_eval"]["checkpoint_sha256"] != fake_checkpoint_sha:
             raise AssertionError(f"promotion gate should preserve checkpoint checksum: {policy_promotion}")
+        if policy_promotion["side_effects"]["writes_promotion_report"] is not True:
+            raise AssertionError(f"promotion gate should disclose local report write: {policy_promotion}")
+        for key in ("writes_checkpoint", "trains_policy", "creates_paid_instance", "runs_remote_code", "starts_isaac", "calls_ros_or_robot"):
+            if policy_promotion["side_effects"][key] is not False:
+                raise AssertionError(f"ready promotion gate side effect must be false for {key}: {policy_promotion}")
         result = run(
             [
                 "python3",
@@ -6382,7 +6445,22 @@ def main() -> int:
             "status report V0 language dry-run no-paid-instance detail",
         )
         assert_contains(result, "V0 skill readiness | BLOCKED", "status report V0 readiness detail")
+        assert_contains(
+            result,
+            "writes_readiness_report=False",
+            "status report V0 readiness no-write detail",
+        )
         assert_contains(result, "V0 policy/API review packet | BLOCKED", "status report V0 policy/API review detail")
+        assert_contains(
+            result,
+            "writes_review_artifacts=False",
+            "status report V0 policy/API review no-write detail",
+        )
+        assert_contains(
+            result,
+            "trains_policy=False",
+            "status report V0 policy/API review no-training detail",
+        )
         assert_contains(
             result,
             "V0 offline policy-readiness pipeline | BLOCKED",
@@ -6402,6 +6480,11 @@ def main() -> int:
         assert_contains(result, "training_script_status=IMPLEMENTED", "status report V0 training script detail")
         assert_contains(result, "V0 residual policy eval | BLOCKED", "status report V0 residual eval detail")
         assert_contains(result, "V0 policy promotion gate | BLOCKED", "status report V0 policy promotion detail")
+        assert_contains(
+            result,
+            "writes_promotion_report=False",
+            "status report V0 policy promotion no-write detail",
+        )
         assert_contains(result, "External robot adapter | BLOCKED", "status report external adapter detail")
         assert_contains(
             result,

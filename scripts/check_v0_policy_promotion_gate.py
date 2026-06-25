@@ -45,6 +45,18 @@ SUPERVISED_STATUS = "SUPERVISED_EVAL_NEEDS_ISAAC_POLICY_GATE"
 ISAAC_EVAL_NAME = "v0_residual_policy_isaac_closed_loop"
 
 
+def _side_effects(*, writes_promotion_report: bool) -> dict[str, bool]:
+    return {
+        "writes_promotion_report": writes_promotion_report,
+        "writes_checkpoint": False,
+        "trains_policy": False,
+        "creates_paid_instance": False,
+        "runs_remote_code": False,
+        "starts_isaac": False,
+        "calls_ros_or_robot": False,
+    }
+
+
 def _rel(path: Path | None) -> str | None:
     if path is None:
         return None
@@ -357,6 +369,7 @@ def build_report(
         "blockers": unique_blockers,
         "warnings": warnings,
         "next_action": _next_action(unique_blockers),
+        "side_effects": _side_effects(writes_promotion_report=False),
         "required_before_policy_promotion": [
             "V0 skill readiness READY with strict success variations and fail-closed negative control",
             "supervised residual-policy evaluation summary from the trained checkpoint",
@@ -407,6 +420,7 @@ def main() -> int:
     )
 
     if args.output_json is not None and not args.no_output:
+        report["side_effects"] = _side_effects(writes_promotion_report=True)
         output_json = _resolve(args.output_json) or args.output_json
         output_json.parent.mkdir(parents=True, exist_ok=True)
         output_json.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")

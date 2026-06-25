@@ -36,6 +36,17 @@ DEFAULT_MANIFEST = REPO_ROOT / "artifacts" / "manifests" / "success_trace_variat
 DEFAULT_DATASET = REPO_ROOT / "artifacts" / "datasets" / "v0_scripted_skill_success_variations" / "manifest.json"
 
 
+def _side_effects(*, writes_readiness_report: bool) -> dict[str, bool]:
+    return {
+        "writes_readiness_report": writes_readiness_report,
+        "writes_dataset_artifacts": False,
+        "creates_paid_instance": False,
+        "runs_remote_code": False,
+        "starts_isaac": False,
+        "calls_ros_or_robot": False,
+    }
+
+
 def _rel(path: Path) -> str:
     try:
         return str(path.resolve().relative_to(REPO_ROOT))
@@ -194,6 +205,7 @@ def build_report(
         "blockers": unique_blockers,
         "warnings": warnings,
         "next_action": _next_action(unique_blockers, variation, dataset),
+        "side_effects": _side_effects(writes_readiness_report=False),
         "not_claims": [
             "not learned policy",
             "not sim-to-real",
@@ -227,6 +239,7 @@ def main() -> int:
     )
 
     if args.output_json is not None:
+        report["side_effects"] = _side_effects(writes_readiness_report=True)
         output_json = _resolve(args.output_json)
         output_json.parent.mkdir(parents=True, exist_ok=True)
         output_json.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")

@@ -35,6 +35,20 @@ DEFAULT_OUTPUT_JSON = DEFAULT_OUTPUT_DIR / "review_packet.json"
 DEFAULT_OUTPUT_MD = DEFAULT_OUTPUT_DIR / "README.md"
 
 
+def _side_effects(*, writes_review_artifacts: bool) -> dict[str, bool]:
+    return {
+        "writes_review_artifacts": writes_review_artifacts,
+        "writes_dataset_artifacts": False,
+        "writes_policy_artifacts": False,
+        "writes_checkpoint": False,
+        "trains_policy": False,
+        "creates_paid_instance": False,
+        "runs_remote_code": False,
+        "starts_isaac": False,
+        "calls_ros_or_robot": False,
+    }
+
+
 def _rel(path: Path) -> str:
     try:
         return str(path.resolve().relative_to(REPO_ROOT))
@@ -144,6 +158,30 @@ def _build_packet(readiness: dict[str, Any], dataset_path: Path) -> dict[str, An
     }
 
 
+def _build_blocked_packet(readiness: dict[str, Any], dataset_path: Path) -> dict[str, Any]:
+    blockers = readiness.get("blockers") if isinstance(readiness.get("blockers"), list) else []
+    return {
+        "review_name": "v0_policy_api_review_packet",
+        "status": "BLOCKED",
+        "readiness_status": readiness.get("status"),
+        "readiness_name": readiness.get("readiness_name"),
+        "request": readiness.get("request"),
+        "contract": readiness.get("contract"),
+        "manifest": readiness.get("manifest"),
+        "dataset": _rel(dataset_path),
+        "blockers": blockers,
+        "next_action": readiness.get("next_action"),
+        "side_effects": _side_effects(writes_review_artifacts=False),
+        "not_claims": [
+            "not learned policy",
+            "not sim-to-real",
+            "not cross-robot-ready",
+            "not direct drop-in precision on another robot arm",
+            "not a direct low-level VLM controller",
+        ],
+    }
+
+
 def _render_markdown(packet: dict[str, Any]) -> str:
     rows = [
         "# V0 Policy/API Review Packet",
@@ -203,6 +241,8 @@ def main() -> int:
 
     print("[v0-policy-api-review] readiness_status=" + str(readiness.get("status")))
     if readiness.get("status") != "READY":
+        packet = _build_blocked_packet(readiness, dataset_path)
+        print("[v0-policy-api-review] facts=" + json.dumps(packet, indent=2, sort_keys=True))
         print("[v0-policy-api-review] BLOCKED")
         for blocker in readiness.get("blockers", []):
             print(f"- {blocker}")
@@ -210,6 +250,7 @@ def main() -> int:
         return 1
 
     packet = _build_packet(readiness, dataset_path)
+    packet["side_effects"] = _side_effects(writes_review_artifacts=not args.no_output)
     if args.no_output:
         print("[v0-policy-api-review] facts=" + json.dumps(packet, indent=2, sort_keys=True))
         print("[v0-policy-api-review] READY_FOR_POLICY_API_REVIEW")

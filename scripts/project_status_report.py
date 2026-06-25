@@ -518,42 +518,64 @@ def v0_skill_readiness_status() -> Check:
     status = str(facts.get("status") or "BLOCKED")
     next_action = facts.get("next_action", "<unknown>")
     blockers = facts.get("blockers") if isinstance(facts.get("blockers"), list) else []
+    side_effects = facts.get("side_effects") if isinstance(facts.get("side_effects"), dict) else {}
     detail = (
         f"request={facts.get('request')}; dataset={facts.get('dataset')}; "
-        f"next_action={next_action}; blockers={len(blockers)}. "
+        f"next_action={next_action}; blockers={len(blockers)}; "
+        f"writes_readiness_report={side_effects.get('writes_readiness_report')}; "
+        f"starts_isaac={side_effects.get('starts_isaac')}; "
+        f"calls_ros_or_robot={side_effects.get('calls_ros_or_robot')}; "
+        f"creates_paid_instance={side_effects.get('creates_paid_instance')}. "
         "Phase 2 is checked separately in this report."
     )
     return Check("V0 skill readiness", status, detail)
 
 
 def v0_policy_api_review_status() -> Check:
-    readiness = v0_skill_readiness_status()
-    if readiness.status == "FAIL":
+    result = run_script(
+        "python3",
+        "scripts/prepare_v0_policy_api_review.py",
+        "--skip-phase2-contact-gate",
+        "--no-output",
+    )
+    marker = "[v0-policy-api-review] facts="
+    if marker not in result.stdout:
         return Check(
             "V0 policy/API review packet",
             "FAIL",
-            "Cannot evaluate policy/API review readiness because the V0 skill readiness check failed. "
-            + readiness.detail,
+            "Could not parse scripts/prepare_v0_policy_api_review.py output.",
         )
-    if readiness.status != "READY":
-        return Check(
-            "V0 policy/API review packet",
-            "BLOCKED",
-            "Blocked until V0 skill readiness is READY; "
-            "scripts/prepare_v0_policy_api_review.py must not write artifacts yet. "
-            + readiness.detail,
-        )
-    if not V0_POLICY_API_REVIEW_PACKET.is_file():
-        return Check(
-            "V0 policy/API review packet",
-            "MISSING",
-            f"V0 skill readiness is READY but review packet is missing: {V0_POLICY_API_REVIEW_PACKET}",
-        )
-    return Check(
-        "V0 policy/API review packet",
-        "READY",
-        f"Review packet exists and is gated by V0 skill readiness: {V0_POLICY_API_REVIEW_PACKET}",
+    try:
+        facts = _json_prefix(result.stdout.split(marker, 1)[1])
+    except (json.JSONDecodeError, ValueError) as exc:
+        return Check("V0 policy/API review packet", "FAIL", f"Policy/API review JSON parse failed: {exc}")
+
+    status = str(facts.get("status") or "BLOCKED")
+    blockers = facts.get("blockers") if isinstance(facts.get("blockers"), list) else []
+    dataset = facts.get("dataset")
+    if isinstance(dataset, dict):
+        dataset_detail = dataset.get("dataset")
+        dataset_cases = dataset.get("case_count")
+    else:
+        dataset_detail = dataset
+        dataset_cases = None
+    side_effects = facts.get("side_effects") if isinstance(facts.get("side_effects"), dict) else {}
+    detail = (
+        f"readiness_status={facts.get('readiness_status')}; "
+        f"dataset={dataset_detail}; dataset_cases={dataset_cases}; "
+        f"blockers={len(blockers)}; next_action={facts.get('next_action')}; "
+        f"writes_review_artifacts={side_effects.get('writes_review_artifacts')}; "
+        f"writes_policy_artifacts={side_effects.get('writes_policy_artifacts')}; "
+        f"trains_policy={side_effects.get('trains_policy')}; "
+        f"starts_isaac={side_effects.get('starts_isaac')}; "
+        f"calls_ros_or_robot={side_effects.get('calls_ros_or_robot')}; "
+        f"creates_paid_instance={side_effects.get('creates_paid_instance')}."
     )
+    if status == "READY_FOR_POLICY_API_REVIEW" and not V0_POLICY_API_REVIEW_PACKET.is_file():
+        return Check("V0 policy/API review packet", "MISSING", detail + f" Missing {V0_POLICY_API_REVIEW_PACKET}.")
+    if status == "READY_FOR_POLICY_API_REVIEW":
+        status = "READY"
+    return Check("V0 policy/API review packet", status, detail)
 
 
 def v0_offline_policy_readiness_pipeline_status() -> Check:
@@ -671,13 +693,20 @@ def v0_policy_promotion_gate_status() -> Check:
     blockers = facts.get("blockers") if isinstance(facts.get("blockers"), list) else []
     supervised = facts.get("supervised_eval") if isinstance(facts.get("supervised_eval"), dict) else {}
     isaac_eval = facts.get("isaac_closed_loop_eval") if isinstance(facts.get("isaac_closed_loop_eval"), dict) else {}
+    side_effects = facts.get("side_effects") if isinstance(facts.get("side_effects"), dict) else {}
     detail = (
         f"skill_readiness={facts.get('skill_readiness_status')}; "
         f"supervised_eval={supervised.get('status')}; "
         f"isaac_closed_loop_eval={isaac_eval.get('status')}; "
         f"ready_for_policy_promotion_review={facts.get('ready_for_policy_promotion_review')}; "
         f"ready_for_external_robot={facts.get('ready_for_external_robot')}; "
-        f"blockers={len(blockers)}; next_action={facts.get('next_action')}."
+        f"blockers={len(blockers)}; "
+        f"writes_promotion_report={side_effects.get('writes_promotion_report')}; "
+        f"trains_policy={side_effects.get('trains_policy')}; "
+        f"starts_isaac={side_effects.get('starts_isaac')}; "
+        f"calls_ros_or_robot={side_effects.get('calls_ros_or_robot')}; "
+        f"creates_paid_instance={side_effects.get('creates_paid_instance')}; "
+        f"next_action={facts.get('next_action')}."
     )
     return Check("V0 policy promotion gate", "READY" if status != "BLOCKED" else "BLOCKED", detail)
 
