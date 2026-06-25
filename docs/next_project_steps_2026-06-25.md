@@ -414,7 +414,9 @@ the missing credit-evidence status, preview and real
 `prepare_success_variation_paid_batch.py` commands, the rerun-preflight command,
 and the one-shot paid lifecycle command. It does not open paid compute, write
 credit evidence, or arm the local env unless the explicit follow-up commands are
-run separately.
+run separately. After reading the current UI balance, add
+`--balance-eur <current-brev-ui-balance>` to this review helper to get concrete
+preview/write/prepare commands instead of placeholders.
 
 To preview the credit evidence payload after reading the current UI balance,
 without writing the ignored JSON file, use:

@@ -58,6 +58,16 @@ def _command_text(command: list[str]) -> str:
     return " ".join(command)
 
 
+def _nonnegative_float(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"must be numeric, got {value!r}") from exc
+    if parsed < 0:
+        raise argparse.ArgumentTypeError(f"must be non-negative, got {value!r}")
+    return parsed
+
+
 def _status_from_preflight(preflight: dict[str, Any]) -> str:
     if preflight.get("status") == "READY_FOR_SINGLE_PAID_LIFECYCLE":
         return "READY_FOR_PAID_LIFECYCLE"
@@ -77,6 +87,7 @@ def build_packet(
     brev_safety_output: Path | None,
     source_status_output: Path | None,
     open_requested: bool,
+    balance_eur: float | None,
 ) -> dict[str, Any]:
     preflight = paid_preflight.build_report(
         config_path=config_path,
@@ -89,11 +100,18 @@ def build_packet(
     budget = float(preflight.get("budget_eur") or 6.0)
     max_age = int(preflight.get("credit_max_age_minutes") or credit_gate.DEFAULT_MAX_AGE_MINUTES)
     credit_path = str(preflight.get("credit_evidence_path") or "configs/brev_credit_verification.local.json")
+    balance_arg = f"{balance_eur:.2f}" if balance_eur is not None else "<current-brev-ui-balance>"
+    balance_preview = {
+        "status": "NOT_PROVIDED" if balance_eur is None else ("PASS" if balance_eur + 1e-9 >= budget else "BLOCKED"),
+        "balance_eur": round(balance_eur, 2) if balance_eur is not None else None,
+        "budget_eur": budget,
+        "covers_budget": None if balance_eur is None else balance_eur + 1e-9 >= budget,
+    }
     write_credit_command = [
         "python3",
         "scripts/write_brev_credit_evidence.py",
         "--balance-eur",
-        "<current-brev-ui-balance>",
+        balance_arg,
         "--budget-eur",
         f"{budget:.2f}",
         "--output",
@@ -112,7 +130,7 @@ def build_packet(
         "python3",
         "scripts/run_success_variation_paid_lifecycle.py",
         "--balance-eur",
-        "<current-brev-ui-balance>",
+        balance_arg,
         "--run",
         "--i-understand-this-can-create-paid-instance",
     ]
@@ -120,7 +138,7 @@ def build_packet(
         "python3",
         "scripts/prepare_success_variation_paid_batch.py",
         "--balance-eur",
-        "<current-brev-ui-balance>",
+        balance_arg,
         "--budget-eur",
         f"{budget:.2f}",
         "--force-credit",
@@ -136,6 +154,9 @@ def build_packet(
         "open_dashboard_requested": open_requested,
         "credit_evidence_path": credit_path,
         "budget_eur": budget,
+        "balance_eur_for_preview": round(balance_eur, 2) if balance_eur is not None else None,
+        "balance_placeholder_used": balance_eur is None,
+        "balance_preview": balance_preview,
         "credit_max_age_minutes": max_age,
         "paid_lifecycle_preflight": preflight,
         "next_commands": {
@@ -150,6 +171,7 @@ def build_packet(
             "Log in to Brev/NVIDIA in the browser if required.",
             "Open the organization dashboard and read the current organization credit balance from the Brev UI.",
             "Use the current UI balance in the preview_credit_evidence command first; do not reuse an old email or memory value.",
+            "Pass --balance-eur to this review helper after reading the UI if you want concrete commands instead of placeholders.",
             "If the preview is correct, use the same current UI balance in the write_credit_evidence or preview_prepare_paid_batch command.",
             "Prefer the prepare_paid_batch command to write credit evidence, arm the local env, refresh the run packet, and rerun the aggregate preflight in one fail-closed step.",
             "Rerun the paid lifecycle preflight before any paid create.",
@@ -182,6 +204,8 @@ def _render_markdown(packet: dict[str, Any]) -> str:
         f"- dashboard_url: {packet['dashboard_url']}",
         f"- credit_evidence_path: {packet['credit_evidence_path']}",
         f"- budget_eur: {packet['budget_eur']:.2f}",
+        f"- balance_eur_for_preview: {packet['balance_eur_for_preview']}",
+        f"- balance_placeholder_used: {packet['balance_placeholder_used']}",
         "",
         "## Instructions",
         "",
@@ -228,6 +252,7 @@ def main() -> int:
     parser.add_argument("--source-status-output", type=Path)
     parser.add_argument("--output-json", type=Path, default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--output-md", type=Path, default=DEFAULT_OUTPUT_MD)
+    parser.add_argument("--balance-eur", type=_nonnegative_float)
     parser.add_argument("--open-dashboard", action="store_true")
     parser.add_argument("--no-output", action="store_true")
     parser.add_argument("--fail-on-blocked", action="store_true")
@@ -251,6 +276,7 @@ def main() -> int:
         brev_safety_output=safety_output,
         source_status_output=source_status_output,
         open_requested=args.open_dashboard,
+        balance_eur=args.balance_eur,
     )
 
     if args.open_dashboard:
@@ -273,6 +299,7 @@ def main() -> int:
     print("[brev-credit-review] facts=" + json.dumps(packet, indent=2, sort_keys=True))
     print("[brev-credit-review] status=" + packet["status"])
     print("[brev-credit-review] dashboard_url=" + packet["dashboard_url"])
+    print("[brev-credit-review] balance_preview_status=" + str(packet["balance_preview"]["status"]))
     print("[brev-credit-review] preview_credit_evidence=" + _command_text(packet["next_commands"]["preview_credit_evidence"]))
     print("[brev-credit-review] write_credit_evidence=" + _command_text(packet["next_commands"]["write_credit_evidence"]))
     print("[brev-credit-review] preview_prepare_paid_batch=" + _command_text(packet["next_commands"]["preview_prepare_paid_batch"]))

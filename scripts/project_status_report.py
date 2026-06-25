@@ -273,6 +273,7 @@ def brev_credit_review_status() -> Check:
         return Check("Brev UI credit review", "FAIL", f"Brev credit review JSON parse failed: {exc}")
 
     packet_status = str(facts.get("status") or "BLOCKED")
+    balance_preview = facts.get("balance_preview") if isinstance(facts.get("balance_preview"), dict) else {}
     side_effects = facts.get("side_effects") if isinstance(facts.get("side_effects"), dict) else {}
     preflight = facts.get("paid_lifecycle_preflight") if isinstance(facts.get("paid_lifecycle_preflight"), dict) else {}
     credit = preflight.get("credit_evidence") if isinstance(preflight.get("credit_evidence"), dict) else {}
@@ -284,6 +285,7 @@ def brev_credit_review_status() -> Check:
     detail = (
         f"packet_status={packet_status}; dashboard_url={facts.get('dashboard_url')}; "
         f"credit_evidence_path={facts.get('credit_evidence_path')}; "
+        f"balance_preview_status={balance_preview.get('status')}; "
         f"credit_status={credit.get('status')}; budget_eur={facts.get('budget_eur')}; "
         f"writes_credit_evidence={side_effects.get('writes_credit_evidence')}; "
         f"creates_paid_instance={side_effects.get('creates_paid_instance')}; "
@@ -1006,6 +1008,7 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "python3 scripts/audit_success_variation_assumptions.py artifacts/manifests/success_trace_variations_2026-06-25.json --phase pre-batch --run-packet artifacts/analysis/success_variation_run_packet_2026-06-25.json --no-output",
             "python3 scripts/plan_success_variation_recovery_batch.py artifacts/manifests/success_trace_variations_2026-06-25.json",
             "python3 scripts/prepare_brev_credit_review.py --no-output",
+            "python3 scripts/prepare_brev_credit_review.py --balance-eur <current-brev-ui-balance> --no-output",
             "python3 scripts/write_brev_credit_evidence.py --balance-eur <current-brev-ui-balance> --budget-eur 6.00 --dry-run",
             "python3 scripts/prepare_success_variation_paid_batch.py --balance-eur <current-brev-ui-balance> --force-credit --i-understand-this-arms-paid-run --dry-run",
             "python3 scripts/prepare_success_variation_paid_batch.py --balance-eur <current-brev-ui-balance> --force-credit --i-understand-this-arms-paid-run",
