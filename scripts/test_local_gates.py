@@ -1895,6 +1895,8 @@ def run_success_variation_manifest_tests() -> None:
         credit_template_path = REPO_ROOT / "configs" / "brev_credit_verification.template.json"
         credit_checker_path = REPO_ROOT / "scripts" / "check_brev_credit_evidence.py"
         credit_checker = credit_checker_path.read_text(encoding="utf-8")
+        credit_writer_path = REPO_ROOT / "scripts" / "write_brev_credit_evidence.py"
+        credit_writer = credit_writer_path.read_text(encoding="utf-8")
         gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
 
         for expected_snippet in (
@@ -1997,6 +1999,19 @@ def run_success_variation_manifest_tests() -> None:
                 raise AssertionError(f"Brev credit evidence checker missing snippet: {expected_snippet}")
         if "brev create" in credit_checker or '"${BREV_BIN}" create' in credit_checker:
             raise AssertionError("Brev credit evidence checker must not create Brev instances")
+        for expected_snippet in (
+            "write configs/brev_credit_verification.local.json",
+            "--balance-eur",
+            "balance",
+            "is below budget",
+            "use --force after re-checking the current Brev UI balance",
+            "Generated from manually checked Brev UI balance",
+            "[brev-credit-evidence-write] PASS",
+        ):
+            if expected_snippet not in credit_writer:
+                raise AssertionError(f"Brev credit evidence writer missing snippet: {expected_snippet}")
+        if "brev create" in credit_writer or '"${BREV_BIN}" create' in credit_writer:
+            raise AssertionError("Brev credit evidence writer must not create Brev instances")
 
         for expected_snippet in (
             "classify_success_variation_results",
@@ -2287,6 +2302,7 @@ def run_success_variation_manifest_tests() -> None:
             "check_success_variation_batch_readiness.py",
             "run_success_variation_batch_from_config.sh",
             "finalize_success_variation_batch.sh",
+            "write_brev_credit_evidence.py",
             "audit_success_variation_assumptions.py",
             "--phase pre-batch",
             "RCA_BREV_CREDITS_VERIFIED",
@@ -2299,6 +2315,58 @@ def run_success_variation_manifest_tests() -> None:
                 raise AssertionError(f"success variation run packet script missing snippet: {expected_snippet}")
         if "brev create" in run_packet_script or '"${BREV_BIN}" create' in run_packet_script:
             raise AssertionError("success variation run packet must not create Brev instances")
+
+        written_credit_path = tmp_dir / "written_brev_credit.local.json"
+        result = run(
+            [
+                "python3",
+                "scripts/write_brev_credit_evidence.py",
+                "--balance-eur",
+                "20.00",
+                "--budget-eur",
+                "6.00",
+                "--output",
+                str(written_credit_path),
+            ]
+        )
+        assert_status(result, 0, "Brev credit evidence writer writes sufficient UI evidence")
+        assert_contains(result, "[brev-credit-evidence-write] PASS", "Brev credit evidence writer PASS detail")
+        written_credit = json.loads(written_credit_path.read_text(encoding="utf-8"))
+        if written_credit["organization_id"] != "org-3BaYGdtoRGmgc77Z7NHHhPSD254":
+            raise AssertionError(f"credit writer used wrong org: {written_credit}")
+        if written_credit["balance_eur"] != 20.0 or written_credit["budget_eur"] != 6.0:
+            raise AssertionError(f"credit writer wrote wrong amounts: {written_credit}")
+        result = run(
+            [
+                "python3",
+                "scripts/write_brev_credit_evidence.py",
+                "--balance-eur",
+                "20.00",
+                "--budget-eur",
+                "6.00",
+                "--output",
+                str(written_credit_path),
+            ]
+        )
+        assert_status(result, 2, "Brev credit evidence writer refuses overwrite without force")
+        assert_contains(result, "use --force", "Brev credit evidence writer overwrite detail")
+        low_written_credit_path = tmp_dir / "low_written_brev_credit.local.json"
+        result = run(
+            [
+                "python3",
+                "scripts/write_brev_credit_evidence.py",
+                "--balance-eur",
+                "1.00",
+                "--budget-eur",
+                "6.00",
+                "--output",
+                str(low_written_credit_path),
+            ]
+        )
+        assert_status(result, 1, "Brev credit evidence writer refuses insufficient balance")
+        assert_contains(result, "below budget", "Brev credit evidence writer insufficient balance detail")
+        if low_written_credit_path.exists():
+            raise AssertionError("credit writer must not write insufficient-balance evidence")
 
         credit_evidence_path = tmp_dir / "brev_credit_verification.local.json"
         fresh_credit_evidence = {

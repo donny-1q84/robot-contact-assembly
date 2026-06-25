@@ -54,11 +54,11 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    run blocker, and only then run
    `scripts/prepare_success_variation_local_env.py` if the local env file needs
    to be created in its default fail-closed state before editing for a single
-   reviewed run. Before setting `RCA_BREV_CREDITS_VERIFIED=1`, copy
-   `configs/brev_credit_verification.template.json` to the git-ignored
-   `configs/brev_credit_verification.local.json` and record the current Brev UI
-   org balance so `scripts/check_brev_credit_evidence.py` can verify it covers
-   the run budget. Then run
+   reviewed run. Before setting `RCA_BREV_CREDITS_VERIFIED=1`, run
+   `scripts/write_brev_credit_evidence.py --balance-eur <current-brev-ui-balance> --budget-eur 6.00 --force`
+   to write the git-ignored `configs/brev_credit_verification.local.json` from
+   the current Brev UI org balance and validate it covers the run budget. Then
+   run
    `scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --check-only` before
    `scripts/recreate_brev_and_run_success_variation_batch.sh`, which delegates
    paid preflight, watchdog, artifact pull, deletion, and empty-org confirmation
@@ -101,7 +101,7 @@ batch_plan_sh: artifacts/analysis/success_trace_variation_batch_plan_2026-06-25.
 result: 1 strict_success positive control, 8 missing planned cases
 negative_control: socket_x_pos_25mm_negative_control expected fail_closed
 paid_compute_allowed: false
-credit_evidence: configs/brev_credit_verification.local.json is ignored and must pass scripts/check_brev_credit_evidence.py before RCA_BREV_CREDITS_VERIFIED=1
+credit_evidence: configs/brev_credit_verification.local.json is ignored and must pass scripts/check_brev_credit_evidence.py; use scripts/write_brev_credit_evidence.py after checking the Brev UI balance before RCA_BREV_CREDITS_VERIFIED=1
 pre_batch_assumption_audit: blocked until one-run paid acknowledgements exist; planned traces may still be missing
 post_batch_assumption_audit: blocked until planned traces and negative control results exist
 skill_api_contract: configs/v0_skill_api_contract.json passes local contract check

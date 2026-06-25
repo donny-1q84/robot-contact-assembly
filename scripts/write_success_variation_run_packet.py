@@ -137,6 +137,10 @@ def _commands(config_path: Path, manifest: Path) -> dict[str, str]:
             "python3 scripts/prepare_success_variation_local_env.py "
             "--packet artifacts/analysis/success_variation_run_packet_2026-06-25.json"
         ),
+        "write_credit_evidence_after_ui_check": (
+            "python3 scripts/write_brev_credit_evidence.py "
+            "--balance-eur <current-brev-ui-balance> --budget-eur 6.00 --force"
+        ),
         "safety": "./scripts/brev_paid_safety_status.sh",
     }
 
@@ -223,7 +227,7 @@ def _build_packet(
         "safety_notes": [
             "This packet is read-only and does not create or delete Brev instances.",
             "Do not set RCA_ALLOW_PAID_BREV_CREATE=1 until running one deliberate paid batch.",
-            "Do not set RCA_BREV_CREDITS_VERIFIED=1 without a passing git-ignored Brev UI credit evidence JSON.",
+            "Generate a passing git-ignored Brev UI credit evidence JSON before setting RCA_BREV_CREDITS_VERIFIED=1.",
             "Do not set RCA_ACK_BREV_LIFECYCLE_RISK=1 unless accepting one retry while lifecycle hold is active.",
             "After the run, use the finalizer before dataset, residual policy, VLM, ROS, or sim-to-real claims.",
         ],

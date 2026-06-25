@@ -245,6 +245,7 @@ scripts/finalize_success_variation_batch.sh
 scripts/write_success_variation_run_packet.py
 scripts/audit_success_variation_assumptions.py
 scripts/check_brev_credit_evidence.py
+scripts/write_brev_credit_evidence.py
 scripts/check_v0_skill_api_contract.py
 scripts/plan_v0_skill_request.py
 scripts/validate_v0_skill_request.py
@@ -344,13 +345,14 @@ This writes `configs/success_variation_batch_run.local.env` with
 deliberate reviewed run after current Brev credits and deletion safety are
 confirmed.
 
-Before setting `RCA_BREV_CREDITS_VERIFIED=1`, copy the credit-evidence template
-to the ignored local path and record the current Brev UI org balance:
+Before setting `RCA_BREV_CREDITS_VERIFIED=1`, record the current Brev UI org
+balance into the ignored local evidence file:
 
 ```bash
-cp configs/brev_credit_verification.template.json \
-  configs/brev_credit_verification.local.json
-# edit verified_at_utc, balance_eur, budget_eur after checking the Brev UI
+python3 scripts/write_brev_credit_evidence.py \
+  --balance-eur <current-brev-ui-balance> \
+  --budget-eur 6.00 \
+  --force
 python3 scripts/check_brev_credit_evidence.py \
   --evidence configs/brev_credit_verification.local.json \
   --required-budget-eur 6.00
