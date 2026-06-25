@@ -1885,6 +1885,18 @@ def run_success_variation_manifest_tests() -> None:
         assert_status(result, 1, "success variation result gate rejects successful negative control")
         assert_contains(result, "must be fail_closed", "negative-control success result-gate detail")
 
+        negative_expected_manifest = json.loads(pass_manifest_path.read_text(encoding="utf-8"))
+        for case in negative_expected_manifest["cases"]:
+            if case["case_id"] == "socket_x_pos_25mm_negative_control":
+                case["expected"] = "strict_success"
+        negative_expected_manifest_path = tmp_dir / "success_variations_negative_expected_wrong.json"
+        negative_expected_manifest_path.write_text(json.dumps(negative_expected_manifest), encoding="utf-8")
+        result = run(
+            ["python3", "scripts/check_success_variation_batch_results.py", str(negative_expected_manifest_path)]
+        )
+        assert_status(result, 1, "success variation result gate rejects a mislabeled negative control")
+        assert_contains(result, "expected=fail_closed", "negative-control expected result-gate detail")
+
         batch_runner = (REPO_ROOT / "scripts" / "run_remote_success_variation_batch.sh").read_text(
             encoding="utf-8"
         )

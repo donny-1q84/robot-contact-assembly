@@ -78,6 +78,10 @@ def _build_gate(
     negative = by_case.get(negative_control_id)
     if not negative:
         failures.append(f"missing negative control: {negative_control_id}")
+    elif negative.get("expected") != "fail_closed":
+        failures.append(
+            f"{negative_control_id} must have expected=fail_closed, got {negative.get('expected')}"
+        )
     elif negative.get("classification") != "fail_closed":
         failures.append(
             f"{negative_control_id} must be fail_closed, got {negative.get('classification')}"
