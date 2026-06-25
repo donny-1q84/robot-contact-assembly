@@ -1609,6 +1609,11 @@ def run_success_variation_manifest_tests() -> None:
             'PLANNER_ARGS+=(--task "${TASK_NAME}")',
             'plan_success_variation_batch.py" "${PLANNER_ARGS[@]}"',
             "this script uses an existing remote environment; it does not create or delete Brev instances",
+            "plan_status=$?",
+            "artifact pull failed status=",
+            "classification failed status=",
+            "returning generated plan status=",
+            "[success-variation-batch] PASS",
         ):
             if expected_snippet not in batch_runner:
                 raise AssertionError(f"success variation batch runner missing snippet: {expected_snippet}")

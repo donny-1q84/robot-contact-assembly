@@ -42,16 +42,47 @@ fi
 python3 "${SCRIPT_DIR}/plan_success_variation_batch.py" "${PLANNER_ARGS[@]}"
 
 echo "[success-variation-batch] executing generated plan ${PLAN_SH}"
+set +e
 bash "${PLAN_SH}"
+plan_status=$?
+set -e
+echo "[success-variation-batch] generated plan exit_status=${plan_status}"
 
 echo "[success-variation-batch] pulling remote artifacts before local classification"
+set +e
 RCA_REMOTE_OPERATION_PURPOSE=post_contact_gate \
   "${SCRIPT_DIR}/pull_artifacts.sh" "${ENV_NAME}" "${REMOTE_ROOT}" "${LOCAL_ARTIFACT_ROOT}"
+pull_status=$?
+set -e
+if [[ "${pull_status}" -ne 0 ]]; then
+  echo "[success-variation-batch] artifact pull failed status=${pull_status}" >&2
+fi
 
 echo "[success-variation-batch] classifying pulled traces"
+set +e
 python3 "${SCRIPT_DIR}/classify_success_variation_results.py" "${MANIFEST}" \
   --output-json "${CLASSIFICATION_JSON}" \
   --output-md "${CLASSIFICATION_MD}"
+classification_status=$?
+set -e
+if [[ "${classification_status}" -ne 0 ]]; then
+  echo "[success-variation-batch] classification failed status=${classification_status}" >&2
+fi
 
 echo "[success-variation-batch] wrote ${CLASSIFICATION_JSON}"
 echo "[success-variation-batch] wrote ${CLASSIFICATION_MD}"
+
+if [[ "${plan_status}" -ne 0 ]]; then
+  echo "[success-variation-batch] FAIL: returning generated plan status=${plan_status}" >&2
+  exit "${plan_status}"
+fi
+if [[ "${pull_status}" -ne 0 ]]; then
+  echo "[success-variation-batch] FAIL: returning artifact pull status=${pull_status}" >&2
+  exit "${pull_status}"
+fi
+if [[ "${classification_status}" -ne 0 ]]; then
+  echo "[success-variation-batch] FAIL: returning classification status=${classification_status}" >&2
+  exit "${classification_status}"
+fi
+
+echo "[success-variation-batch] PASS"
