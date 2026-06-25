@@ -2839,11 +2839,73 @@ def run_success_variation_manifest_tests() -> None:
         result = run(["python3", str(paid_preflight_path), "--no-output", "--fail-on-blocked"])
         assert_status(result, 1, "success variation paid lifecycle preflight can fail closed")
 
+        ready_credit_path = tmp_dir / "paid_lifecycle_preflight_ready" / "brev_credit_verification.local.json"
+        result = run(
+            [
+                "python3",
+                "scripts/write_brev_credit_evidence.py",
+                "--balance-eur",
+                "20.00",
+                "--budget-eur",
+                "6.00",
+                "--output",
+                str(ready_credit_path),
+            ]
+        )
+        assert_status(result, 0, "test fixture writes valid Brev credit evidence")
+        ready_config_path = tmp_dir / "paid_lifecycle_preflight_ready" / "success_variation_batch_run.local.env"
+        ready_config_text = (REPO_ROOT / "configs" / "success_variation_batch_run.local.env").read_text(
+            encoding="utf-8"
+        )
+        ready_config_text = ready_config_text.replace(
+            "RCA_BREV_CREDIT_EVIDENCE_JSON=configs/brev_credit_verification.local.json",
+            f"RCA_BREV_CREDIT_EVIDENCE_JSON={ready_credit_path}",
+        )
+        ready_config_path.write_text(ready_config_text, encoding="utf-8")
+        fake_safe_brev = tmp_dir / "paid_lifecycle_preflight_ready" / "brev_safety_safe.txt"
+        fake_safe_brev.write_text("[brev-safety] status=SAFE_NO_VISIBLE_PAID_INSTANCE\n", encoding="utf-8")
+        ready_preflight_json = tmp_dir / "paid_lifecycle_preflight_ready" / "preflight.json"
+        ready_preflight_md = tmp_dir / "paid_lifecycle_preflight_ready" / "README.md"
+        result = run(
+            [
+                "python3",
+                str(paid_preflight_path),
+                "--config",
+                str(ready_config_path),
+                "--brev-safety-output",
+                str(fake_safe_brev),
+                "--output-json",
+                str(ready_preflight_json),
+                "--output-md",
+                str(ready_preflight_md),
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 0, "success variation paid lifecycle preflight has a READY offline path")
+        assert_contains(
+            result,
+            "READY_FOR_SINGLE_PAID_LIFECYCLE",
+            "paid lifecycle preflight READY detail",
+        )
+        ready_preflight = json.loads(ready_preflight_json.read_text(encoding="utf-8"))
+        if ready_preflight["status"] != "READY_FOR_SINGLE_PAID_LIFECYCLE":
+            raise AssertionError(f"paid lifecycle preflight should be ready with valid offline evidence: {ready_preflight}")
+        if ready_preflight["credit_evidence"]["status"] != "PASS":
+            raise AssertionError(f"paid lifecycle preflight should accept valid credit evidence: {ready_preflight}")
+        if ready_preflight["armability"]["status"] != "PASS":
+            raise AssertionError(f"paid lifecycle preflight should accept safe armability fixture: {ready_preflight}")
+        if any(ready_preflight["side_effects"].values()):
+            raise AssertionError(f"paid lifecycle preflight must remain side-effect free: {ready_preflight}")
+        if "Success Variation Paid Lifecycle Preflight" not in ready_preflight_md.read_text(encoding="utf-8"):
+            raise AssertionError("paid lifecycle preflight README should include a clear title")
+
         for expected_snippet in (
             "success_variation_paid_lifecycle_preflight",
             "credit evidence, Brev empty-org safety",
+            "--brev-safety-output",
             "check_success_variation_batch_plan.py",
             "arm_success_variation_paid_env",
+            "READY_FOR_SINGLE_PAID_LIFECYCLE",
             "not a paid run",
             "not armed local env",
             "writes_local_env",

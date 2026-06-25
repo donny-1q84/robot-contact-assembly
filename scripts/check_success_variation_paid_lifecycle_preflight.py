@@ -122,6 +122,7 @@ def build_report(
     config_path: Path,
     manifest_path: Path,
     command_timeout_seconds: int,
+    brev_safety_output: Path | None = None,
 ) -> dict[str, Any]:
     config_path = _resolve(config_path)
     manifest_path = _resolve(manifest_path)
@@ -156,7 +157,7 @@ def build_report(
 
     arm_report: dict[str, Any] | None = None
     if not failures and config_path.is_file():
-        arm_report = arm_gate.build_report(config_path)
+        arm_report = arm_gate.build_report(config_path, brev_safety_output=brev_safety_output)
         if arm_report.get("status") != "PASS":
             blockers.append("local env cannot be armed for the paid lifecycle yet")
 
@@ -256,6 +257,11 @@ def main() -> int:
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--command-timeout-seconds", type=int, default=120)
+    parser.add_argument(
+        "--brev-safety-output",
+        type=Path,
+        help="Use saved brev_paid_safety_status.sh output for offline tests; default runs the live safety check.",
+    )
     parser.add_argument("--output-json", type=Path, default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--output-md", type=Path, default=DEFAULT_OUTPUT_MD)
     parser.add_argument("--no-output", action="store_true")
@@ -271,6 +277,7 @@ def main() -> int:
         config_path=args.config,
         manifest_path=args.manifest,
         command_timeout_seconds=args.command_timeout_seconds,
+        brev_safety_output=args.brev_safety_output,
     )
     if not args.no_output:
         output_json = _resolve(args.output_json)
