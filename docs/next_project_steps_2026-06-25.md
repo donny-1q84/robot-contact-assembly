@@ -255,6 +255,19 @@ It does not create, delete, copy to, or execute on Brev instances.
 The config launcher also writes this packet automatically before each
 `--check-only` or `--run`.
 
+Prepare the ignored local env file in a fail-closed state with:
+
+```bash
+python3 scripts/prepare_success_variation_local_env.py \
+  --packet artifacts/analysis/success_variation_run_packet_2026-06-25.json
+```
+
+This writes `configs/success_variation_batch_run.local.env` with
+`RCA_ALLOW_PAID_BREV_CREATE=0`, `RCA_BREV_CREDITS_VERIFIED=0`, and
+`RCA_ACK_BREV_LIFECYCLE_RISK=0`; those three values must only be changed for one
+deliberate reviewed run after current Brev credits and deletion safety are
+confirmed.
+
 ```bash
 scripts/run_success_variation_batch_from_config.sh \
   configs/success_variation_batch_run.local.env \

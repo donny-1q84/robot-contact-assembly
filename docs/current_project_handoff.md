@@ -48,6 +48,9 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    reviewed template, put real one-run values in the git-ignored
    `configs/success_variation_batch_run.local.env`, generate the current
    read-only packet with `scripts/write_success_variation_run_packet.py`, and run
+   `scripts/prepare_success_variation_local_env.py` if the local env file needs
+   to be created in its default fail-closed state before editing for a single
+   reviewed run. Then run
    `scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --check-only` before
    `scripts/recreate_brev_and_run_success_variation_batch.sh`, which delegates
    paid preflight, watchdog, artifact pull, deletion, and empty-org confirmation

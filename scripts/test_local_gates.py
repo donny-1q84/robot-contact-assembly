@@ -1654,6 +1654,9 @@ def run_success_variation_manifest_tests() -> None:
         run_packet_script = (
             REPO_ROOT / "scripts" / "write_success_variation_run_packet.py"
         ).read_text(encoding="utf-8")
+        local_env_script = (
+            REPO_ROOT / "scripts" / "prepare_success_variation_local_env.py"
+        ).read_text(encoding="utf-8")
         gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
 
         for expected_snippet in (
@@ -1882,6 +1885,60 @@ def run_success_variation_manifest_tests() -> None:
                 raise AssertionError(f"success variation run packet script missing snippet: {expected_snippet}")
         if "brev create" in run_packet_script or '"${BREV_BIN}" create' in run_packet_script:
             raise AssertionError("success variation run packet must not create Brev instances")
+
+        local_env_path = tmp_dir / "success_variation_batch_run.local.env"
+        result = run(
+            [
+                "python3",
+                "scripts/prepare_success_variation_local_env.py",
+                "--packet",
+                str(run_packet_json),
+                "--output",
+                str(local_env_path),
+            ]
+        )
+        assert_status(result, 0, "success variation local env generator writes fail-closed env")
+        assert_contains(result, "acknowledgements remain fail-closed", "local env fail-closed detail")
+        local_env_text = local_env_path.read_text(encoding="utf-8")
+        for expected_snippet in (
+            "RCA_ALLOW_PAID_BREV_CREATE=0",
+            "RCA_BREV_CREDITS_VERIFIED=0",
+            "RCA_ACK_BREV_LIFECYCLE_RISK=0",
+        ):
+            if expected_snippet not in local_env_text:
+                raise AssertionError(f"local env generator missing fail-closed marker: {expected_snippet}")
+        for forbidden_snippet in (
+            "RCA_ALLOW_PAID_BREV_CREATE=1",
+            "RCA_BREV_CREDITS_VERIFIED=1",
+            "RCA_ACK_BREV_LIFECYCLE_RISK=1",
+        ):
+            if forbidden_snippet in local_env_text:
+                raise AssertionError(f"local env generator must not grant acknowledgement: {forbidden_snippet}")
+        result = run(
+            [
+                "python3",
+                "scripts/prepare_success_variation_local_env.py",
+                "--packet",
+                str(run_packet_json),
+                "--output",
+                str(local_env_path),
+            ]
+        )
+        assert_status(result, 2, "success variation local env generator refuses overwrite")
+        assert_contains(result, "use --force", "local env overwrite guidance")
+
+        for expected_snippet in (
+            "success_variation_batch_run.local.env",
+            "RCA_ALLOW_PAID_BREV_CREATE=0",
+            "RCA_BREV_CREDITS_VERIFIED=0",
+            "RCA_ACK_BREV_LIFECYCLE_RISK=0",
+            "does not create, delete, copy to, or execute on Brev instances",
+            "use --force",
+        ):
+            if expected_snippet not in local_env_script:
+                raise AssertionError(f"success variation local env generator missing snippet: {expected_snippet}")
+        if "brev create" in local_env_script or '"${BREV_BIN}" create' in local_env_script:
+            raise AssertionError("success variation local env generator must not create Brev instances")
 
 
 def write_action_response_trace(

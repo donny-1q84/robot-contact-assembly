@@ -127,6 +127,10 @@ def _commands(config_path: Path, manifest: Path) -> dict[str, str]:
         "check_only": f"scripts/run_success_variation_batch_from_config.sh {config_ref} --check-only",
         "run": f"scripts/run_success_variation_batch_from_config.sh {config_ref} --run",
         "finalize": f"scripts/finalize_success_variation_batch.sh {manifest_ref}",
+        "prepare_fail_closed_local_env": (
+            "python3 scripts/prepare_success_variation_local_env.py "
+            "--packet artifacts/analysis/success_variation_run_packet_2026-06-25.json"
+        ),
         "safety": "./scripts/brev_paid_safety_status.sh",
     }
 
