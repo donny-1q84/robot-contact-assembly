@@ -3184,6 +3184,24 @@ def run_success_variation_manifest_tests() -> None:
         assert_contains(result, "dataset must record negative_control_evidence", "missing negative evidence failure detail")
         if "V0 Policy Dataset Audit" not in dataset_audit_md.read_text(encoding="utf-8"):
             raise AssertionError("dataset audit README should include a clear title")
+        result = run(
+            [
+                "python3",
+                "scripts/plan_v0_policy_experiment.py",
+                "--review-packet",
+                str(broken_review_json),
+                "--dataset",
+                str(dataset_json),
+                "--no-output",
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 1, "V0 policy experiment plan rejects review packet missing negative-control evidence")
+        assert_contains(
+            result,
+            "policy/API review must preserve negative_control_evidence",
+            "experiment plan missing negative review evidence detail",
+        )
         policy_experiment_json = tmp_dir / "policy_experiment" / "plan.json"
         policy_experiment_md = tmp_dir / "policy_experiment" / "README.md"
         result = run(
@@ -3212,10 +3230,21 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"policy experiment plan should still require review before training: {policy_experiment_plan}")
         if policy_experiment_plan["experiment"]["policy_family"] != "residual_policy_over_scripted_baseline":
             raise AssertionError(f"policy experiment should be residual over scripted baseline: {policy_experiment_plan}")
+        experiment_negative_evidence = policy_experiment_plan.get("negative_control_evidence")
+        if not isinstance(experiment_negative_evidence, dict):
+            raise AssertionError(f"policy experiment should carry negative-control evidence: {policy_experiment_plan}")
+        if experiment_negative_evidence.get("case_id") != "socket_x_pos_25mm_negative_control":
+            raise AssertionError(f"policy experiment should name the negative-control case: {experiment_negative_evidence}")
+        if experiment_negative_evidence.get("classification") != "fail_closed":
+            raise AssertionError(f"policy experiment should preserve fail-closed evidence: {experiment_negative_evidence}")
+        if experiment_negative_evidence.get("excluded_from_training_cases") is not True:
+            raise AssertionError(f"policy experiment should preserve training exclusion: {experiment_negative_evidence}")
         if "raw_joint_targets" not in policy_experiment_plan["experiment"]["forbidden_outputs"]:
             raise AssertionError("policy experiment plan must preserve raw joint command ban")
         if "V0 Residual Policy Experiment Plan" not in policy_experiment_md.read_text(encoding="utf-8"):
             raise AssertionError("policy experiment plan README should include a clear title")
+        if "Negative Control Evidence" not in policy_experiment_md.read_text(encoding="utf-8"):
+            raise AssertionError("policy experiment plan README should surface negative-control evidence")
         policy_feature_json = tmp_dir / "policy_feature_dry_run" / "features.json"
         policy_feature_md = tmp_dir / "policy_feature_dry_run" / "README.md"
         result = run(
