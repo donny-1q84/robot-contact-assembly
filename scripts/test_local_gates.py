@@ -1970,6 +1970,8 @@ def run_success_variation_manifest_tests() -> None:
             "RCA_PAID_ESTIMATED_EUR_PER_HOUR=4.50",
             "RCA_BREV_CREDIT_EVIDENCE_JSON=configs/brev_credit_verification.local.json",
             "RCA_BREV_CREDIT_EVIDENCE_MAX_AGE_MINUTES=60",
+            "RCA_PAID_ARMED_AT_UTC=",
+            "RCA_PAID_ARMING_MAX_AGE_MINUTES=15",
             "RCA_ALLOW_PAID_BREV_CREATE=0",
             "RCA_BREV_CREDITS_VERIFIED=0",
             "RCA_ACK_BREV_LIFECYCLE_RISK=0",
@@ -2029,6 +2031,8 @@ def run_success_variation_manifest_tests() -> None:
             "RCA_PAID_ESTIMATED_EUR_PER_HOUR",
             "RCA_BREV_CREDIT_EVIDENCE_JSON",
             "RCA_BREV_CREDIT_EVIDENCE_MAX_AGE_MINUTES",
+            "RCA_PAID_ARMED_AT_UTC",
+            "paid arming is too old",
             "check_brev_credit_evidence",
             "RCA_BREV_CREDITS_VERIFIED=1 requires passing current Brev UI credit evidence",
             "Brev instance price search",
@@ -2307,6 +2311,7 @@ def run_success_variation_manifest_tests() -> None:
             "finalize_success_variation_batch.sh",
             "write_brev_credit_evidence.py",
             "arm_success_variation_paid_env.py",
+            "--disarm",
             "audit_success_variation_assumptions.py",
             "--phase pre-batch",
             "RCA_BREV_CREDITS_VERIFIED",
@@ -2326,6 +2331,8 @@ def run_success_variation_manifest_tests() -> None:
             "RCA_ALLOW_PAID_BREV_CREATE",
             "RCA_BREV_CREDITS_VERIFIED",
             "RCA_ACK_BREV_LIFECYCLE_RISK",
+            "RCA_PAID_ARMED_AT_UTC",
+            "--disarm",
             "--i-understand-this-arms-paid-run",
             "--brev-safety-output",
             "does not create, start, stop, delete, copy to, or execute on Brev instances",
@@ -2451,6 +2458,8 @@ def run_success_variation_manifest_tests() -> None:
             "RCA_ALLOW_PAID_BREV_CREATE=0",
             "RCA_BREV_CREDITS_VERIFIED=0",
             "RCA_ACK_BREV_LIFECYCLE_RISK=0",
+            "RCA_PAID_ARMED_AT_UTC=",
+            "RCA_PAID_ARMING_MAX_AGE_MINUTES=15",
         ):
             if expected_snippet not in local_env_text:
                 raise AssertionError(f"local env generator missing fail-closed marker: {expected_snippet}")
@@ -2526,6 +2535,30 @@ def run_success_variation_manifest_tests() -> None:
         ):
             if expected_snippet not in armed_env_text:
                 raise AssertionError(f"armed env missing acknowledgement: {expected_snippet}")
+        if "RCA_PAID_ARMED_AT_UTC=" not in armed_env_text or "RCA_PAID_ARMING_MAX_AGE_MINUTES=15" not in armed_env_text:
+            raise AssertionError(f"armed env missing arming timestamp or max age: {armed_env_text}")
+        result = run(
+            [
+                "python3",
+                "scripts/arm_success_variation_paid_env.py",
+                "--config",
+                str(armed_env_path),
+                "--output",
+                str(armed_env_path),
+                "--disarm",
+            ]
+        )
+        assert_status(result, 0, "success variation arm helper can disarm env")
+        assert_contains(result, "disarmed env", "arm helper disarm detail")
+        disarmed_env_text = armed_env_path.read_text(encoding="utf-8")
+        for expected_snippet in (
+            "RCA_ALLOW_PAID_BREV_CREATE=0",
+            "RCA_BREV_CREDITS_VERIFIED=0",
+            "RCA_ACK_BREV_LIFECYCLE_RISK=0",
+            "RCA_PAID_ARMED_AT_UTC=",
+        ):
+            if expected_snippet not in disarmed_env_text:
+                raise AssertionError(f"disarmed env missing fail-closed marker: {expected_snippet}")
         result = run(
             [
                 "python3",

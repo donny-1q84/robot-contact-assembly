@@ -9,6 +9,7 @@ proceed.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -30,6 +31,7 @@ import check_brev_credit_evidence as credit_gate  # noqa: E402
 DEFAULT_MANIFEST = REPO_ROOT / "artifacts" / "manifests" / "success_trace_variations_2026-06-25.json"
 LIFECYCLE_HOLD_FILE = REPO_ROOT / "docs" / "brev_launchable_lifecycle_hold.md"
 DEFAULT_CREDIT_EVIDENCE = REPO_ROOT / "configs" / "brev_credit_verification.local.json"
+DEFAULT_ARMING_MAX_AGE_MINUTES = 15
 
 
 def _rel(path: Path) -> str:
@@ -75,6 +77,37 @@ def _parse_positive_int_env(name: str, default: int, blockers: list[str]) -> int
         blockers.append(f"{name} must be positive, got {value!r}")
         return None
     return parsed
+
+
+def _check_paid_arming_freshness(blockers: list[str], facts: dict[str, Any]) -> None:
+    max_age = _parse_positive_int_env(
+        "RCA_PAID_ARMING_MAX_AGE_MINUTES",
+        DEFAULT_ARMING_MAX_AGE_MINUTES,
+        blockers,
+    )
+    armed_at_raw = os.environ.get("RCA_PAID_ARMED_AT_UTC", "").strip()
+    facts["paid_arming_max_age_minutes"] = max_age
+    facts["paid_armed_at_utc"] = armed_at_raw or None
+    if not armed_at_raw:
+        blockers.append("RCA_PAID_ARMED_AT_UTC is required when paid acknowledgements are armed")
+        return
+    normalized = armed_at_raw[:-1] + "+00:00" if armed_at_raw.endswith("Z") else armed_at_raw
+    try:
+        armed_at = datetime.fromisoformat(normalized)
+    except ValueError:
+        blockers.append(f"RCA_PAID_ARMED_AT_UTC is not parseable: {armed_at_raw!r}")
+        return
+    if armed_at.tzinfo is None:
+        blockers.append("RCA_PAID_ARMED_AT_UTC must include UTC timezone")
+        return
+    age_minutes = (datetime.now(timezone.utc) - armed_at.astimezone(timezone.utc)).total_seconds() / 60.0
+    facts["paid_arming_age_minutes"] = round(age_minutes, 2)
+    if age_minutes < -1:
+        blockers.append("RCA_PAID_ARMED_AT_UTC is in the future")
+    elif max_age is not None and age_minutes > max_age:
+        blockers.append(
+            f"paid arming is too old: {age_minutes:.1f} minutes > {max_age} minutes; disarm and re-arm"
+        )
 
 
 def _parse_ttl_minutes(blockers: list[str]) -> int | None:
@@ -264,17 +297,21 @@ def _check_manifest_contract(manifest_path: Path, blockers: list[str], facts: di
 
 
 def _check_paid_env(blockers: list[str], facts: dict[str, Any]) -> None:
-    if os.environ.get("RCA_ALLOW_PAID_BREV_CREATE") != "1":
+    paid_create_allowed = os.environ.get("RCA_ALLOW_PAID_BREV_CREATE") == "1"
+    lifecycle_acknowledged = os.environ.get("RCA_ACK_BREV_LIFECYCLE_RISK") == "1"
+    if not paid_create_allowed:
         blockers.append("set RCA_ALLOW_PAID_BREV_CREATE=1 only for the deliberate paid batch run")
     credits_verified = os.environ.get("RCA_BREV_CREDITS_VERIFIED") == "1"
     if not credits_verified:
         blockers.append(
             "set RCA_BREV_CREDITS_VERIFIED=1 only after the current Brev UI/org credit balance covers this budget"
         )
-    if LIFECYCLE_HOLD_FILE.is_file() and os.environ.get("RCA_ACK_BREV_LIFECYCLE_RISK") != "1":
+    if LIFECYCLE_HOLD_FILE.is_file() and not lifecycle_acknowledged:
         blockers.append(
             "Brev lifecycle hold is active; set RCA_ACK_BREV_LIFECYCLE_RISK=1 only for a consciously chosen single retry"
         )
+    if paid_create_allowed and credits_verified and lifecycle_acknowledged:
+        _check_paid_arming_freshness(blockers, facts)
 
     ttl_minutes = _parse_ttl_minutes(blockers)
     budget = _parse_float_env("RCA_PAID_BUDGET_EUR", blockers)

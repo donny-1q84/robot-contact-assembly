@@ -145,6 +145,7 @@ def _commands(config_path: Path, manifest: Path) -> dict[str, str]:
             "python3 scripts/arm_success_variation_paid_env.py "
             "--i-understand-this-arms-paid-run"
         ),
+        "disarm_paid_local_env": "python3 scripts/arm_success_variation_paid_env.py --disarm",
         "safety": "./scripts/brev_paid_safety_status.sh",
     }
 
@@ -167,6 +168,8 @@ def _local_env_template(config: dict[str, str]) -> str:
         "RCA_PAID_ESTIMATED_EUR_PER_HOUR": "4.50",
         "RCA_BREV_CREDIT_EVIDENCE_JSON": "configs/brev_credit_verification.local.json",
         "RCA_BREV_CREDIT_EVIDENCE_MAX_AGE_MINUTES": "60",
+        "RCA_PAID_ARMED_AT_UTC": "",
+        "RCA_PAID_ARMING_MAX_AGE_MINUTES": "15",
         "RCA_ALLOW_PAID_BREV_CREATE": "0",
         "RCA_BREV_CREDITS_VERIFIED": "0",
         "RCA_ACK_BREV_LIFECYCLE_RISK": "0",
@@ -197,6 +200,8 @@ def _local_env_template(config: dict[str, str]) -> str:
         "RCA_PAID_ESTIMATED_EUR_PER_HOUR",
         "RCA_BREV_CREDIT_EVIDENCE_JSON",
         "RCA_BREV_CREDIT_EVIDENCE_MAX_AGE_MINUTES",
+        "RCA_PAID_ARMED_AT_UTC",
+        "RCA_PAID_ARMING_MAX_AGE_MINUTES",
         "RCA_ALLOW_PAID_BREV_CREATE",
         "RCA_BREV_CREDITS_VERIFIED",
         "RCA_ACK_BREV_LIFECYCLE_RISK",
@@ -232,6 +237,7 @@ def _build_packet(
             "This packet is read-only and does not create or delete Brev instances.",
             "Do not set RCA_ALLOW_PAID_BREV_CREATE=1 until running one deliberate paid batch.",
             "Generate a passing git-ignored Brev UI credit evidence JSON before setting RCA_BREV_CREDITS_VERIFIED=1.",
+            "Paid local-env arming has an expiry timestamp; disarm stale acknowledgements before rechecking.",
             "Do not set RCA_ACK_BREV_LIFECYCLE_RISK=1 unless accepting one retry while lifecycle hold is active.",
             "After the run, use the finalizer before dataset, residual policy, VLM, ROS, or sim-to-real claims.",
         ],

@@ -60,7 +60,10 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    the current Brev UI org balance and validate it covers the run budget, then
    run `scripts/arm_success_variation_paid_env.py --i-understand-this-arms-paid-run`
    to write the one-run paid acknowledgements only after credit evidence and
-   Brev safety checks pass. Then run
+   Brev safety checks pass. The armed env records `RCA_PAID_ARMED_AT_UTC` and
+   expires by `RCA_PAID_ARMING_MAX_AGE_MINUTES` so stale acknowledgements cannot
+   be reused; `scripts/arm_success_variation_paid_env.py --disarm` restores the
+   three paid acknowledgement values to `0`. Then run
    `scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --check-only` before
    `scripts/recreate_brev_and_run_success_variation_batch.sh`, which delegates
    paid preflight, watchdog, artifact pull, deletion, and empty-org confirmation

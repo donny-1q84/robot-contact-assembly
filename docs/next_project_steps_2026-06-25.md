@@ -369,9 +369,15 @@ python3 scripts/arm_success_variation_paid_env.py \
 ```
 
 This only writes the three paid acknowledgement markers into the ignored local
-env after credit evidence and Brev safety checks pass. It does not create,
+env after credit evidence and Brev safety checks pass. It also writes
+`RCA_PAID_ARMED_AT_UTC`; the readiness gate treats the arming as stale after
+`RCA_PAID_ARMING_MAX_AGE_MINUTES` and blocks the paid run. It does not create,
 delete, copy to, or execute on Brev instances. Run `--check-only` immediately
-after arming and before any `--run`.
+after arming and before any `--run`. Use this to clear stale acknowledgements:
+
+```bash
+python3 scripts/arm_success_variation_paid_env.py --disarm
+```
 
 ```bash
 scripts/run_success_variation_batch_from_config.sh \

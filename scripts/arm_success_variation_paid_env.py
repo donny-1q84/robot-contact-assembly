@@ -14,6 +14,7 @@ It refuses to arm unless:
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import re
 from pathlib import Path
@@ -39,12 +40,28 @@ REQUIRED_KEYS = {
     "RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES",
     "RCA_BREV_CREDIT_EVIDENCE_JSON",
     "RCA_BREV_CREDIT_EVIDENCE_MAX_AGE_MINUTES",
+    "RCA_PAID_ARMING_MAX_AGE_MINUTES",
 }
-ARMED_VALUES = {
-    "RCA_ALLOW_PAID_BREV_CREATE": "1",
-    "RCA_BREV_CREDITS_VERIFIED": "1",
-    "RCA_ACK_BREV_LIFECYCLE_RISK": "1",
+ACK_KEYS = (
+    "RCA_ALLOW_PAID_BREV_CREATE",
+    "RCA_BREV_CREDITS_VERIFIED",
+    "RCA_ACK_BREV_LIFECYCLE_RISK",
+)
+DISARMED_VALUES = {
+    "RCA_ALLOW_PAID_BREV_CREATE": "0",
+    "RCA_BREV_CREDITS_VERIFIED": "0",
+    "RCA_ACK_BREV_LIFECYCLE_RISK": "0",
+    "RCA_PAID_ARMED_AT_UTC": "",
 }
+
+
+def _armed_values() -> dict[str, str]:
+    return {
+        "RCA_ALLOW_PAID_BREV_CREATE": "1",
+        "RCA_BREV_CREDITS_VERIFIED": "1",
+        "RCA_ACK_BREV_LIFECYCLE_RISK": "1",
+        "RCA_PAID_ARMED_AT_UTC": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
 
 
 def _rel(path: Path) -> str:
@@ -96,6 +113,8 @@ def _write_env(path: Path, values: dict[str, str]) -> None:
         "RCA_PAID_ESTIMATED_EUR_PER_HOUR",
         "RCA_BREV_CREDIT_EVIDENCE_JSON",
         "RCA_BREV_CREDIT_EVIDENCE_MAX_AGE_MINUTES",
+        "RCA_PAID_ARMED_AT_UTC",
+        "RCA_PAID_ARMING_MAX_AGE_MINUTES",
         "RCA_ALLOW_PAID_BREV_CREATE",
         "RCA_BREV_CREDITS_VERIFIED",
         "RCA_ACK_BREV_LIFECYCLE_RISK",
@@ -191,6 +210,7 @@ def build_report(config_path: Path, *, brev_safety_output: Path | None = None) -
     _float_value(values, "RCA_PAID_ESTIMATED_EUR_PER_HOUR", blockers)
     _int_value(values, "RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES", blockers)
     max_age = _int_value(values, "RCA_BREV_CREDIT_EVIDENCE_MAX_AGE_MINUTES", blockers)
+    _int_value(values, "RCA_PAID_ARMING_MAX_AGE_MINUTES", blockers)
 
     credit_report: dict[str, Any] | None = None
     credit_path_raw = values.get("RCA_BREV_CREDIT_EVIDENCE_JSON", "").strip()
@@ -214,7 +234,8 @@ def build_report(config_path: Path, *, brev_safety_output: Path | None = None) -
         "credit_evidence": credit_report,
         "brev_safety": safety,
         "budget_eur": budget,
-        "armed_values": ARMED_VALUES,
+        "armed_values": {key: "1" for key in ACK_KEYS},
+        "armed_at_key": "RCA_PAID_ARMED_AT_UTC",
     }
 
 
@@ -229,7 +250,17 @@ def main() -> int:
     )
     parser.add_argument("--i-understand-this-arms-paid-run", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--disarm", action="store_true", help="Reset paid acknowledgements to 0 and clear the armed timestamp.")
     args = parser.parse_args()
+
+    if args.disarm:
+        config_path = _resolve(args.config)
+        output_path = _resolve(args.output)
+        values = _read_env(config_path)
+        values.update(DISARMED_VALUES)
+        _write_env(output_path, values)
+        print(f"[success-variation-arm] disarmed env: {_rel(output_path)}")
+        return 0
 
     report = build_report(args.config, brev_safety_output=args.brev_safety_output)
     print("[success-variation-arm] facts=" + json.dumps(report, indent=2, sort_keys=True))
@@ -249,7 +280,7 @@ def main() -> int:
     config_path = _resolve(args.config)
     output_path = _resolve(args.output)
     values = _read_env(config_path)
-    values.update(ARMED_VALUES)
+    values.update(_armed_values())
     _write_env(output_path, values)
     print(f"[success-variation-arm] wrote armed env: {_rel(output_path)}")
     print("[success-variation-arm] next: run check-only, then one deliberate --run if it is READY")
