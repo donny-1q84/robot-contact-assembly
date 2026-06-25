@@ -3989,6 +3989,19 @@ def main() -> int:
         assert_contains(result, "Runtime source payload scope", "status report payload scope detail")
         assert_contains(result, "Runtime source payload SHA256", "status report payload detail")
         assert_contains(result, "Contact-smoke bundle", "status report contact-smoke bundle detail")
+        assert_contains(result, "V0 skill readiness | BLOCKED", "status report V0 readiness detail")
+        assert_contains(result, "V0 policy/API review packet | BLOCKED", "status report V0 policy/API review detail")
+        assert_contains(result, "External robot adapter | BLOCKED", "status report external adapter detail")
+        assert_contains(
+            result,
+            "python3 scripts/prepare_v0_policy_api_review.py --skip-phase2-contact-gate",
+            "status report V0 policy/API review command detail",
+        )
+        assert_contains(
+            result,
+            "python3 scripts/plan_v0_robot_adapter_manifest.py --robot-id demo_arm_v0",
+            "status report adapter planner command detail",
+        )
 
         stale_scope_bundle = REPO_ROOT / "artifacts" / "launchable" / "robot-contact-assembly-contact-smoke-manual-preauth-9998-stale-scope-test.tar.gz"
         stale_scope_bundle.parent.mkdir(parents=True, exist_ok=True)

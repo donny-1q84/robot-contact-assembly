@@ -21,7 +21,7 @@ from typing import Iterable
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-FAILING_STATUSES = {"BLOCKED", "STALE", "MISSING"}
+FAILING_STATUSES = {"BLOCKED", "STALE", "MISSING", "FAIL"}
 BREV_LIFECYCLE_HOLD_FILE = Path(
     os.environ.get(
         "RCA_BREV_LIFECYCLE_HOLD_FILE",
@@ -30,6 +30,9 @@ BREV_LIFECYCLE_HOLD_FILE = Path(
 )
 SUCCESS_VARIATION_MANIFEST = (
     REPO_ROOT / "artifacts" / "manifests" / "success_trace_variations_2026-06-25.json"
+)
+V0_POLICY_API_REVIEW_PACKET = (
+    REPO_ROOT / "artifacts" / "reviews" / "v0_policy_api" / "review_packet.json"
 )
 
 
@@ -180,6 +183,90 @@ def success_variation_status() -> Check:
         detail
         + " Fill the planned trace-only batch before dataset, learned-policy, VLM, ROS, or external-arm claims.",
     )
+
+
+def v0_skill_readiness_status() -> Check:
+    result = run_script(
+        "python3",
+        "scripts/check_v0_skill_readiness.py",
+        "--skip-phase2-contact-gate",
+    )
+    marker = "[v0-skill-readiness] facts="
+    if marker not in result.stdout:
+        return Check(
+            "V0 skill readiness",
+            "FAIL",
+            "Could not parse scripts/check_v0_skill_readiness.py output.",
+        )
+    try:
+        facts = _json_prefix(result.stdout.split(marker, 1)[1])
+    except (json.JSONDecodeError, ValueError) as exc:
+        return Check("V0 skill readiness", "FAIL", f"Readiness JSON parse failed: {exc}")
+
+    status = str(facts.get("status") or "BLOCKED")
+    next_action = facts.get("next_action", "<unknown>")
+    blockers = facts.get("blockers") if isinstance(facts.get("blockers"), list) else []
+    detail = (
+        f"request={facts.get('request')}; dataset={facts.get('dataset')}; "
+        f"next_action={next_action}; blockers={len(blockers)}. "
+        "Phase 2 is checked separately in this report."
+    )
+    return Check("V0 skill readiness", status, detail)
+
+
+def v0_policy_api_review_status() -> Check:
+    readiness = v0_skill_readiness_status()
+    if readiness.status == "FAIL":
+        return Check(
+            "V0 policy/API review packet",
+            "FAIL",
+            "Cannot evaluate policy/API review readiness because the V0 skill readiness check failed. "
+            + readiness.detail,
+        )
+    if readiness.status != "READY":
+        return Check(
+            "V0 policy/API review packet",
+            "BLOCKED",
+            "Blocked until V0 skill readiness is READY; "
+            "scripts/prepare_v0_policy_api_review.py must not write artifacts yet. "
+            + readiness.detail,
+        )
+    if not V0_POLICY_API_REVIEW_PACKET.is_file():
+        return Check(
+            "V0 policy/API review packet",
+            "MISSING",
+            f"V0 skill readiness is READY but review packet is missing: {V0_POLICY_API_REVIEW_PACKET}",
+        )
+    return Check(
+        "V0 policy/API review packet",
+        "READY",
+        f"Review packet exists and is gated by V0 skill readiness: {V0_POLICY_API_REVIEW_PACKET}",
+    )
+
+
+def external_robot_adapter_status() -> Check:
+    result = run_script("python3", "scripts/check_v0_robot_adapter_contract.py")
+    marker = "[v0-robot-adapter] facts="
+    if marker not in result.stdout:
+        return Check(
+            "External robot adapter",
+            "FAIL",
+            "Could not parse scripts/check_v0_robot_adapter_contract.py output.",
+        )
+    try:
+        facts = _json_prefix(result.stdout.split(marker, 1)[1])
+    except (json.JSONDecodeError, ValueError) as exc:
+        return Check("External robot adapter", "FAIL", f"Adapter JSON parse failed: {exc}")
+
+    status = str(facts.get("status") or "BLOCKED")
+    target = facts.get("target_robot") if isinstance(facts.get("target_robot"), dict) else {}
+    blockers = facts.get("blockers") if isinstance(facts.get("blockers"), list) else []
+    detail = (
+        f"adapter={facts.get('adapter')}; robot_id={target.get('robot_id')}; "
+        f"ready_for_external_robot={facts.get('ready_for_external_robot')}; "
+        f"blockers={len(blockers)}; next_action={facts.get('next_action')}."
+    )
+    return Check("External robot adapter", status, detail)
 
 
 def _json_prefix(text: str) -> dict:
@@ -364,6 +451,9 @@ def checks() -> list[Check]:
         contact_gate_status(),
         post_smoke_trace_status(),
         success_variation_status(),
+        v0_skill_readiness_status(),
+        v0_policy_api_review_status(),
+        external_robot_adapter_status(),
         action_semantics_probe_status(),
         historical_doc_status(),
         tracked_generated_metadata_status(),
@@ -390,13 +480,16 @@ def next_allowed_action(
                     "artifact pullback, deletion, and final empty-org confirmation. Do not start "
                     "dataset freezing, learned policy, VLM, ROS integration, external-arm adapter "
                     "work, or sim-to-real claims until at least 5 non-baseline strict successes and "
-                    "the fail-closed negative control pass the result gate."
+                    "the fail-closed negative control pass the result gate. Safe local contract "
+                    "commands such as V0 skill readiness, policy/API review precheck, and external "
+                    "adapter BLOCKED checks may still run because they do not claim execution readiness."
                 )
             return (
                 "The Phase 2 contact-smoke gate, post-smoke insertion trace, and success-variation "
                 "result gate are satisfied. The next allowed step is to run "
                 "scripts/finalize_success_variation_batch.sh, freeze the V0 scripted-skill dataset, "
-                "and only then review learned-policy, VLM, ROS, or external-arm adapter work."
+                "then run scripts/prepare_v0_policy_api_review.py before reviewing learned-policy, "
+                "VLM, ROS, or external-arm adapter work."
             )
         if action_probe_status == "BLOCKED":
             return (
@@ -575,11 +668,16 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "python3 scripts/check_phase2_contact_gate.py",
             "python3 scripts/check_success_variation_batch_plan.py artifacts/manifests/success_trace_variations_2026-06-25.json",
             "python3 scripts/check_success_variation_batch_results.py artifacts/manifests/success_trace_variations_2026-06-25.json",
+            "python3 scripts/check_v0_skill_readiness.py --skip-phase2-contact-gate",
+            "python3 scripts/prepare_v0_policy_api_review.py --skip-phase2-contact-gate",
+            "python3 scripts/check_v0_robot_adapter_contract.py",
+            "python3 scripts/plan_v0_robot_adapter_manifest.py --robot-id demo_arm_v0 --robot-family demo_6dof_arm --end-effector parallel_gripper --no-output",
             "scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --check-only",
             "python3 scripts/write_brev_credit_evidence.py --balance-eur <current-brev-ui-balance> --budget-eur 6.00 --force",
             "python3 scripts/arm_success_variation_paid_env.py --i-understand-this-arms-paid-run",
             "scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --run",
             "scripts/finalize_success_variation_batch.sh artifacts/manifests/success_trace_variations_2026-06-25.json",
+            "python3 scripts/prepare_v0_policy_api_review.py",
             "python3 scripts/arm_success_variation_paid_env.py --disarm",
             "python3 scripts/check_peg_in_hole_video_candidate.py artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json",
             "python3 scripts/check_final_contact_boundary_diagnostic.py artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json",
