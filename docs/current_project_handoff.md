@@ -143,6 +143,7 @@ skill_api_promotion_coverage: requires strict-success seed/reset plus socket X/Y
 success_variation_recovery: scripts/plan_success_variation_recovery_batch.py skips already satisfied traces and plans only unresolved reruns after a partial batch
 skill_request_contract: configs/v0_skill_request.example.json passes local request check
 skill_request_planner: scripts/plan_v0_skill_request.py maps supported insert instructions only
+skill_execution_plan: scripts/plan_v0_skill_execution.py stays blocked until V0 readiness is READY and never emits raw joint/force commands
 skill_readiness: scripts/check_v0_skill_readiness.py is blocked until variation traces and dataset exist
 policy_api_review_packet: scripts/prepare_v0_policy_api_review.py is blocked until skill readiness is READY
 external_robot_adapter_planner: scripts/plan_v0_robot_adapter_manifest.py writes named-arm manifests that remain safely blocked

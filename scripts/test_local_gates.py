@@ -1340,6 +1340,7 @@ def run_v0_skill_api_contract_tests() -> None:
     request_checker_path = REPO_ROOT / "scripts" / "validate_v0_skill_request.py"
     planner_path = REPO_ROOT / "scripts" / "plan_v0_skill_request.py"
     readiness_checker_path = REPO_ROOT / "scripts" / "check_v0_skill_readiness.py"
+    execution_planner_path = REPO_ROOT / "scripts" / "plan_v0_skill_execution.py"
     policy_api_review_path = REPO_ROOT / "scripts" / "prepare_v0_policy_api_review.py"
     robot_adapter_path = REPO_ROOT / "configs" / "v0_external_robot_adapter.template.json"
     robot_adapter_checker_path = REPO_ROOT / "scripts" / "check_v0_robot_adapter_contract.py"
@@ -1359,11 +1360,26 @@ def run_v0_skill_api_contract_tests() -> None:
         "next_action=fill_robot_specific_model_calibration_safety_ros2_and_revalidation_evidence",
         "V0 robot adapter next action detail",
     )
+    result = run(["python3", str(execution_planner_path), "--skip-phase2-contact-gate", "--no-output"])
+    assert_status(result, 0, "V0 skill execution planner writes blocked plan without failing by default")
+    assert_contains(result, "[v0-skill-execution-plan] status=BLOCKED", "V0 execution planner blocked detail")
+    assert_contains(result, "ready_for_execution", "V0 execution planner readiness field")
+    result = run(
+        [
+            "python3",
+            str(execution_planner_path),
+            "--skip-phase2-contact-gate",
+            "--no-output",
+            "--fail-on-blocked",
+        ]
+    )
+    assert_status(result, 1, "V0 skill execution planner can fail closed on blocked readiness")
 
     checker = checker_path.read_text(encoding="utf-8")
     request_checker = request_checker_path.read_text(encoding="utf-8")
     planner = planner_path.read_text(encoding="utf-8")
     readiness_checker = readiness_checker_path.read_text(encoding="utf-8")
+    execution_planner = execution_planner_path.read_text(encoding="utf-8")
     policy_api_review = policy_api_review_path.read_text(encoding="utf-8")
     robot_adapter_checker = robot_adapter_checker_path.read_text(encoding="utf-8")
     robot_adapter_planner = robot_adapter_planner_path.read_text(encoding="utf-8")
@@ -1413,6 +1429,20 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"V0 skill readiness checker missing snippet: {expected_snippet}")
     if "brev create" in readiness_checker or '"${BREV_BIN}" create' in readiness_checker:
         raise AssertionError("V0 skill readiness checker must be offline and must not create Brev instances")
+    for expected_snippet in (
+        "offline bridge between the language/request layer",
+        "ready_for_execution",
+        "allowed_command_boundary",
+        "forbidden_command_boundary",
+        "raw_joint_targets",
+        "direct_force_commands",
+        "not a Brev or Isaac launcher",
+        "does not call Brev, Isaac, ROS, or any robot",
+    ):
+        if expected_snippet not in execution_planner:
+            raise AssertionError(f"V0 skill execution planner missing snippet: {expected_snippet}")
+    if "brev create" in execution_planner or '"${BREV_BIN}" create' in execution_planner:
+        raise AssertionError("V0 skill execution planner must be offline and must not create Brev instances")
     for expected_snippet in (
         "READY_FOR_POLICY_API_REVIEW",
         "manual_review_checklist",
