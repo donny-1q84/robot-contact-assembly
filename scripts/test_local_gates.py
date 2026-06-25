@@ -1651,6 +1651,9 @@ def run_success_variation_manifest_tests() -> None:
         finalizer_script = (
             REPO_ROOT / "scripts" / "finalize_success_variation_batch.sh"
         ).read_text(encoding="utf-8")
+        run_packet_script = (
+            REPO_ROOT / "scripts" / "write_success_variation_run_packet.py"
+        ).read_text(encoding="utf-8")
         gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
 
         for expected_snippet in (
@@ -1810,6 +1813,72 @@ def run_success_variation_manifest_tests() -> None:
                 raise AssertionError(f"success variation finalizer missing snippet: {expected_snippet}")
         if "brev create" in finalizer_script or '"${BREV_BIN}" create' in finalizer_script:
             raise AssertionError("success variation finalizer must not create Brev instances")
+
+        fake_readiness_output = tmp_dir / "fake_readiness_output.txt"
+        fake_readiness_output.write_text(
+            "\n".join(
+                [
+                    '[success-variation-readiness] facts={',
+                    '  "brev_safety_status": "SAFE_NO_VISIBLE_PAID_INSTANCE",',
+                    '  "phase2_contact_gate": "PASS",',
+                    '  "ttl_minutes": 75,',
+                    '  "budget_eur": 6.0,',
+                    '  "estimated_eur_per_hour": 4.5,',
+                    '  "estimated_max_cost_eur": 5.625,',
+                    '  "instance_price": {"type": "g6e.xlarge", "price_per_hour": 2.2332}',
+                    '}',
+                    "[success-variation-readiness] BLOCKED",
+                    "- set RCA_ALLOW_PAID_BREV_CREATE=1 only for the deliberate paid batch run",
+                    "- set RCA_BREV_CREDITS_VERIFIED=1 only after the current Brev UI/org credit balance covers this budget",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        run_packet_json = tmp_dir / "run_packet.json"
+        run_packet_md = tmp_dir / "run_packet.md"
+        result = run(
+            [
+                "python3",
+                "scripts/write_success_variation_run_packet.py",
+                "--config",
+                "configs/success_variation_batch_run.env.example",
+                "--manifest",
+                str(manifest_path),
+                "--readiness-output",
+                str(fake_readiness_output),
+                "--output-json",
+                str(run_packet_json),
+                "--output-md",
+                str(run_packet_md),
+            ]
+        )
+        assert_status(result, 0, "success variation run packet writes from saved readiness output")
+        assert_contains(result, "status=BLOCKED", "run packet blocked status detail")
+        run_packet = json.loads(run_packet_json.read_text(encoding="utf-8"))
+        if run_packet["readiness"]["status"] != "BLOCKED":
+            raise AssertionError(f"run packet should preserve BLOCKED status: {run_packet['readiness']}")
+        if "RCA_BREV_CREDITS_VERIFIED=0" not in run_packet["one_run_local_env_template"]:
+            raise AssertionError("run packet template must keep credit acknowledgement fail-closed")
+        if "finalize_success_variation_batch.sh" not in run_packet["commands"]["finalize"]:
+            raise AssertionError(f"run packet should include finalizer command: {run_packet['commands']}")
+        run_packet_md_text = run_packet_md.read_text(encoding="utf-8")
+        if "Current Blockers" not in run_packet_md_text or "Brev UI/org credit balance" not in run_packet_md_text:
+            raise AssertionError("run packet markdown should include blocker details")
+
+        for expected_snippet in (
+            "check_success_variation_batch_readiness.py",
+            "run_success_variation_batch_from_config.sh",
+            "finalize_success_variation_batch.sh",
+            "RCA_BREV_CREDITS_VERIFIED",
+            "does not create or delete Brev instances",
+            "--readiness-output",
+            "Current Blockers",
+        ):
+            if expected_snippet not in run_packet_script:
+                raise AssertionError(f"success variation run packet script missing snippet: {expected_snippet}")
+        if "brev create" in run_packet_script or '"${BREV_BIN}" create' in run_packet_script:
+            raise AssertionError("success variation run packet must not create Brev instances")
 
 
 def write_action_response_trace(

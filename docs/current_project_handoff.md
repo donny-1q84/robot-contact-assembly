@@ -46,7 +46,8 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
 7. if a new Brev instance is required for the batch, use
    the fail-closed `configs/success_variation_batch_run.env.example` as the
    reviewed template, put real one-run values in the git-ignored
-   `configs/success_variation_batch_run.local.env`, and run
+   `configs/success_variation_batch_run.local.env`, generate the current
+   read-only packet with `scripts/write_success_variation_run_packet.py`, and run
    `scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --check-only` before
    `scripts/recreate_brev_and_run_success_variation_batch.sh`, which delegates
    paid preflight, watchdog, artifact pull, deletion, and empty-org confirmation

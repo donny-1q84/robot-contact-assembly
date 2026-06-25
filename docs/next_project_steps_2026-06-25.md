@@ -199,6 +199,7 @@ scripts/check_success_variation_batch_results.py
 scripts/review_success_variation_batch.py
 scripts/prepare_success_variation_dataset.py
 scripts/finalize_success_variation_batch.sh
+scripts/write_success_variation_run_packet.py
 configs/success_variation_batch_run.env.example
 tests in scripts/test_local_gates.py for the variation manifest / classifier
 artifacts/manifests/success_trace_variations_2026-06-25.json
@@ -241,6 +242,16 @@ If no ready environment exists and a new Brev instance is genuinely needed, use
 the config launcher instead of calling `brev create` directly. The committed
 template is fail-closed; real one-run acknowledgements belong in the git-ignored
 `configs/success_variation_batch_run.local.env` file:
+
+```bash
+python3 scripts/write_success_variation_run_packet.py \
+  --config configs/success_variation_batch_run.env.example \
+  --manifest artifacts/manifests/success_trace_variations_2026-06-25.json
+```
+
+This writes the current readiness facts, blockers, estimated cost, one-run env
+template, and exact check/run/finalize commands under `artifacts/analysis/`.
+It does not create, delete, copy to, or execute on Brev instances.
 
 ```bash
 scripts/run_success_variation_batch_from_config.sh \
