@@ -6,8 +6,8 @@ milestone. It is deliberately fail-closed: it only reaches the paid runner when
 --run, --balance-eur, and --i-understand-this-can-create-paid-instance are all
 provided. It first delegates to the prepare helper, then runs the guarded
 config runner, disarms the local env, checks Brev safety, and finally either
-finalizes the dataset gate plus V0 policy/API review packet or writes a recovery
-rerun plan.
+finalizes the dataset gate plus V0 offline policy-readiness pipeline or writes
+a recovery rerun plan.
 """
 
 from __future__ import annotations
@@ -109,9 +109,9 @@ def _build_commands(args: argparse.Namespace) -> dict[str, list[str]]:
         ],
         "safety": ["./scripts/brev_paid_safety_status.sh"],
         "finalize": ["scripts/finalize_success_variation_batch.sh", str(manifest)],
-        "policy_review": [
+        "policy_readiness": [
             "python3",
-            "scripts/prepare_v0_policy_api_review.py",
+            "scripts/run_v0_offline_policy_readiness_pipeline.py",
             "--manifest",
             str(manifest),
         ],
@@ -130,7 +130,7 @@ def _build_commands(args: argparse.Namespace) -> dict[str, list[str]]:
 def _print_dry_run(commands: dict[str, list[str]]) -> None:
     print("[success-variation-lifecycle] DRY_RUN")
     print("[success-variation-lifecycle] would not create a paid instance")
-    for label in ("prepare", "run", "disarm", "safety", "finalize", "policy_review", "recovery"):
+    for label in ("prepare", "run", "disarm", "safety", "finalize", "policy_readiness", "recovery"):
         print(f"- {label}: {_fmt(commands[label])}")
 
 
@@ -187,9 +187,9 @@ def main() -> int:
         _run("recovery", commands["recovery"])
         return finalize_status
 
-    policy_review_status = _run("policy_review", commands["policy_review"])
-    if policy_review_status != 0:
-        return policy_review_status
+    policy_readiness_status = _run("policy_readiness", commands["policy_readiness"])
+    if policy_readiness_status != 0:
+        return policy_readiness_status
 
     _run("safety_final", commands["safety"])
     print("[success-variation-lifecycle] PASS")

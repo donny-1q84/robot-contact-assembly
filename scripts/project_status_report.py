@@ -716,7 +716,7 @@ def current_decision(
             return (
                 "The Phase 2 contact-smoke gate, post-smoke insertion trace, and success-variation "
                 "result gate are satisfied. The project may move to dataset finalization and then "
-                "policy/API review."
+                "the offline policy-readiness pipeline."
             )
         if action_probe_status == "BLOCKED":
             return (
@@ -845,7 +845,7 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "python3 scripts/run_success_variation_paid_lifecycle.py --balance-eur <current-brev-ui-balance> --run --i-understand-this-can-create-paid-instance",
             "scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --run",
             "scripts/finalize_success_variation_batch.sh artifacts/manifests/success_trace_variations_2026-06-25.json",
-            "python3 scripts/prepare_v0_policy_api_review.py",
+            "python3 scripts/run_v0_offline_policy_readiness_pipeline.py",
             "python3 scripts/arm_success_variation_paid_env.py --disarm",
             "python3 scripts/check_peg_in_hole_video_candidate.py artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json",
             "python3 scripts/check_final_contact_boundary_diagnostic.py artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json",

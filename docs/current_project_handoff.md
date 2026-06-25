@@ -101,17 +101,15 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    missing planned trace artifacts before learned policy, VLM, ROS, or
    sim-to-real claims. The finalizer does not create or delete Brev instances
    and must fail closed in the current baseline-only state. The high-level paid
-   lifecycle wrapper now runs `scripts/prepare_v0_policy_api_review.py` after
-   finalize succeeds, so a passing batch writes the policy/API review packet
-   before reporting lifecycle PASS.
-   After that dataset exists, `scripts/run_v0_offline_policy_readiness_pipeline.py`
-   is the local post-batch handoff: it chains the policy/API review, dataset
-   audit, residual-policy experiment plan, feature dry-run, label-source audit,
-   label dry-run, label dataset extraction, training preflight, and
-   residual-policy training dry-run. It must stay `BLOCKED` while the variation
-   gate or dataset is missing, and it is explicitly not a paid run, Brev/Isaac
-   launcher, ROS integration, hardware execution, sim-to-real proof, or
-   cross-robot drop-in claim.
+   lifecycle wrapper now runs `scripts/run_v0_offline_policy_readiness_pipeline.py`
+   after finalize succeeds, so a passing batch advances into the local
+   post-batch handoff before reporting lifecycle PASS. The pipeline chains the
+   policy/API review, dataset audit, residual-policy experiment plan, feature
+   dry-run, label-source audit, label dry-run, label dataset extraction,
+   training preflight, and residual-policy training dry-run. It must stay
+   `BLOCKED` while the variation gate or dataset is missing, and it is
+   explicitly not a paid run, Brev/Isaac launcher, ROS integration, hardware
+   execution, sim-to-real proof, or cross-robot drop-in claim.
 9. keep the V0 language/skill/robot-adapter boundary checked by
    `configs/v0_skill_api_contract.json` and
    `scripts/check_v0_skill_api_contract.py`, with request-level examples checked
@@ -149,7 +147,7 @@ credit_evidence: configs/brev_credit_verification.local.json is ignored and must
 paid_success_variation_preflight: scripts/check_success_variation_paid_lifecycle_preflight.py summarizes credit evidence, Brev safety, local-env armability, and batch-plan readiness without arming or creating a paid instance
 pre_batch_assumption_audit: blocked until one-run paid acknowledgements exist; planned traces may still be missing
 post_batch_assumption_audit: blocked until planned traces and negative control results exist
-paid_success_variation_lifecycle: scripts/run_success_variation_paid_lifecycle.py is the one-shot paid entrypoint after current UI balance evidence; it disarms, safety-checks, and finalizes or writes a recovery plan
+paid_success_variation_lifecycle: scripts/run_success_variation_paid_lifecycle.py is the one-shot paid entrypoint after current UI balance evidence; it disarms, safety-checks, finalizes, runs the offline policy-readiness pipeline, or writes a recovery plan
 skill_api_contract: configs/v0_skill_api_contract.json passes local contract check
 skill_api_promotion_coverage: requires strict-success seed/reset plus socket X/Y/Z variation coverage before policy/API promotion
 success_variation_recovery: scripts/plan_success_variation_recovery_batch.py skips already satisfied traces and plans only unresolved reruns after a partial batch
