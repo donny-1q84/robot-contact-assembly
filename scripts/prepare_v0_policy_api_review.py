@@ -184,6 +184,7 @@ def main() -> int:
     parser.add_argument("--skip-phase2-contact-gate", action="store_true")
     parser.add_argument("--output-json", type=Path, default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--output-md", type=Path, default=DEFAULT_OUTPUT_MD)
+    parser.add_argument("--no-output", action="store_true")
     args = parser.parse_args()
 
     request_path = _resolve(args.request)
@@ -209,6 +210,11 @@ def main() -> int:
         return 1
 
     packet = _build_packet(readiness, dataset_path)
+    if args.no_output:
+        print("[v0-policy-api-review] facts=" + json.dumps(packet, indent=2, sort_keys=True))
+        print("[v0-policy-api-review] READY_FOR_POLICY_API_REVIEW")
+        return 0
+
     output_json = _resolve(args.output_json)
     output_json.parent.mkdir(parents=True, exist_ok=True)
     output_json.write_text(json.dumps(packet, indent=2, sort_keys=True), encoding="utf-8")

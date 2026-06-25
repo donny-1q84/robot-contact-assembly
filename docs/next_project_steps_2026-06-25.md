@@ -234,6 +234,9 @@ dry-run. In the current baseline-only state it must remain blocked at the
 policy/API review step; when the variation batch and dataset are complete it can
 advance to `READY_FOR_LOCAL_TRAINING_DRY_RUN` without touching paid compute,
 Brev, Isaac, ROS, or hardware.
+Use `--no-summary --no-output` when calling this pipeline from read-only status
+or audit paths; the normal post-finalize pipeline is allowed to write its review
+and local dataset/planning artifacts after the success-variation gate passes.
 The robot-adapter checker encodes the portability boundary from the other side:
 the committed template is `BLOCKED`, not `READY`, and a future named arm must
 supply concrete URDF/USD or equivalent model sources, TCP/base/fixture
@@ -296,7 +299,7 @@ python3 scripts/plan_v0_policy_label_dry_run.py --no-output
 python3 scripts/extract_v0_policy_label_dataset.py --no-output
 python3 scripts/check_v0_policy_training_preflight.py --no-output
 python3 scripts/train_v0_residual_policy.py --dry-run --no-output
-python3 scripts/run_v0_offline_policy_readiness_pipeline.py --skip-phase2-contact-gate --no-summary
+python3 scripts/run_v0_offline_policy_readiness_pipeline.py --skip-phase2-contact-gate --no-summary --no-output
 python3 scripts/evaluate_v0_residual_policy.py --dry-run --no-output
 python3 scripts/plan_v0_robot_adapter_manifest.py \
   --robot-id <target_robot_id> \

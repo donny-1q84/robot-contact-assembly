@@ -459,6 +459,43 @@ def v0_policy_api_review_status() -> Check:
     )
 
 
+def v0_offline_policy_readiness_pipeline_status() -> Check:
+    result = run_script(
+        "python3",
+        "scripts/run_v0_offline_policy_readiness_pipeline.py",
+        "--skip-phase2-contact-gate",
+        "--no-summary",
+        "--no-output",
+    )
+    marker = "[v0-offline-policy-readiness] facts="
+    if marker not in result.stdout:
+        return Check(
+            "V0 offline policy-readiness pipeline",
+            "FAIL",
+            "Could not parse scripts/run_v0_offline_policy_readiness_pipeline.py output.",
+        )
+    try:
+        facts = _json_prefix(result.stdout.split(marker, 1)[1])
+    except (json.JSONDecodeError, ValueError) as exc:
+        return Check("V0 offline policy-readiness pipeline", "FAIL", f"Pipeline JSON parse failed: {exc}")
+
+    raw_status = str(facts.get("status") or "BLOCKED")
+    status = "READY" if raw_status == "READY_FOR_LOCAL_TRAINING_DRY_RUN" else raw_status
+    steps = facts.get("steps") if isinstance(facts.get("steps"), list) else []
+    run_steps = [step for step in steps if isinstance(step, dict) and step.get("status") not in {"NOT_RUN", "DRY_RUN"}]
+    side_effects = facts.get("side_effects") if isinstance(facts.get("side_effects"), dict) else {}
+    not_claims = facts.get("not_claims") if isinstance(facts.get("not_claims"), list) else []
+    detail = (
+        f"pipeline_status={raw_status}; blocked_step={facts.get('blocked_step')}; "
+        f"ready_for_local_training_dry_run={facts.get('ready_for_local_training_dry_run')}; "
+        f"steps_run={len(run_steps)}/{facts.get('step_count')}; no_output={facts.get('no_output')}; "
+        f"writes_pipeline_summary={side_effects.get('writes_pipeline_summary')}; "
+        f"writes_policy_artifacts={side_effects.get('writes_review_dataset_plan_or_training_artifacts')}; "
+        f"not_paid_run={'not a paid run' in not_claims}; next_action={facts.get('next_action')}."
+    )
+    return Check("V0 offline policy-readiness pipeline", status, detail)
+
+
 def v0_policy_training_preflight_status() -> Check:
     result = run_script("python3", "scripts/check_v0_policy_training_preflight.py", "--no-output")
     marker = "[v0-policy-training-preflight] facts="
@@ -837,6 +874,7 @@ def checks() -> list[Check]:
         v0_language_skill_dry_run_status(),
         v0_skill_readiness_status(),
         v0_policy_api_review_status(),
+        v0_offline_policy_readiness_pipeline_status(),
         v0_policy_training_preflight_status(),
         v0_residual_policy_eval_status(),
         v0_policy_promotion_gate_status(),
@@ -1078,7 +1116,7 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "python3 scripts/extract_v0_policy_label_dataset.py --no-output",
             "python3 scripts/check_v0_policy_training_preflight.py --no-output",
             "python3 scripts/train_v0_residual_policy.py --dry-run --no-output",
-            "python3 scripts/run_v0_offline_policy_readiness_pipeline.py --skip-phase2-contact-gate --no-summary",
+            "python3 scripts/run_v0_offline_policy_readiness_pipeline.py --skip-phase2-contact-gate --no-summary --no-output",
             "python3 scripts/evaluate_v0_residual_policy.py --dry-run --no-output",
             "python3 scripts/check_v0_policy_promotion_gate.py --skip-phase2-contact-gate --no-output",
             "python3 scripts/check_v0_robot_adapter_contract.py",

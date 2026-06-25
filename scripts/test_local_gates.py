@@ -1533,12 +1533,28 @@ def run_v0_skill_api_contract_tests() -> None:
     assert_contains(result, "[v0-residual-policy-train] BLOCKED", "V0 residual trainer blocked detail")
     result = run(["python3", str(policy_readiness_pipeline_path), "--dry-run", "--no-summary"])
     assert_status(result, 0, "V0 offline policy-readiness pipeline dry-run prints its local sequence")
+    assert_contains(result, "[v0-offline-policy-readiness] facts=", "V0 offline pipeline dry-run facts marker")
     assert_contains(result, "[v0-offline-policy-readiness] status=DRY_RUN", "V0 offline pipeline dry-run marker")
     assert_contains(result, "policy_training_dry_run", "V0 offline pipeline includes training dry-run step")
-    result = run(["python3", str(policy_readiness_pipeline_path), "--skip-phase2-contact-gate", "--no-summary"])
+    result = run(
+        [
+            "python3",
+            str(policy_readiness_pipeline_path),
+            "--skip-phase2-contact-gate",
+            "--no-summary",
+            "--no-output",
+        ]
+    )
     assert_status(result, 0, "V0 offline policy-readiness pipeline reports blocked current state by default")
+    assert_contains(result, "[v0-offline-policy-readiness] facts=", "V0 offline pipeline blocked facts marker")
     assert_contains(result, "[v0-offline-policy-readiness] status=BLOCKED", "V0 offline pipeline blocked marker")
     assert_contains(result, "blocked_step=policy_api_review", "V0 offline pipeline blocked step detail")
+    assert_contains(result, '"no_output": true', "V0 offline pipeline no-output detail")
+    assert_contains(
+        result,
+        '"writes_review_dataset_plan_or_training_artifacts": false',
+        "V0 offline pipeline no-artifact-write detail",
+    )
     result = run(
         [
             "python3",
@@ -6000,6 +6016,21 @@ def main() -> int:
         )
         assert_contains(result, "V0 skill readiness | BLOCKED", "status report V0 readiness detail")
         assert_contains(result, "V0 policy/API review packet | BLOCKED", "status report V0 policy/API review detail")
+        assert_contains(
+            result,
+            "V0 offline policy-readiness pipeline | BLOCKED",
+            "status report V0 offline policy-readiness detail",
+        )
+        assert_contains(
+            result,
+            "blocked_step=policy_api_review",
+            "status report V0 offline policy-readiness blocked step detail",
+        )
+        assert_contains(
+            result,
+            "writes_policy_artifacts=False",
+            "status report V0 offline policy-readiness no-write detail",
+        )
         assert_contains(result, "V0 policy training preflight | BLOCKED", "status report V0 training preflight detail")
         assert_contains(result, "training_script_status=IMPLEMENTED", "status report V0 training script detail")
         assert_contains(result, "V0 residual policy eval | BLOCKED", "status report V0 residual eval detail")
@@ -6103,6 +6134,11 @@ def main() -> int:
             result,
             "python3 scripts/train_v0_residual_policy.py --dry-run --no-output",
             "status report V0 training dry-run command detail",
+        )
+        assert_contains(
+            result,
+            "python3 scripts/run_v0_offline_policy_readiness_pipeline.py --skip-phase2-contact-gate --no-summary --no-output",
+            "status report V0 offline policy-readiness read-only command detail",
         )
         assert_contains(
             result,

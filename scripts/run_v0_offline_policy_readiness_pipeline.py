@@ -141,8 +141,10 @@ def _build_steps(args: argparse.Namespace) -> list[Step]:
     ]
     if args.skip_phase2_contact_gate:
         review_cmd.append("--skip-phase2-contact-gate")
+    if args.no_output:
+        review_cmd.append("--no-output")
 
-    return [
+    steps = [
         Step(
             "policy_api_review",
             "prepare V0 policy/API review packet",
@@ -291,6 +293,10 @@ def _build_steps(args: argparse.Namespace) -> list[Step]:
             ],
         ),
     ]
+    if args.no_output:
+        for step in steps[1:]:
+            step.command.append("--no-output")
+    return steps
 
 
 def _run_step(step: Step) -> dict[str, Any]:
@@ -319,12 +325,15 @@ def _build_summary(
     results: list[dict[str, Any]],
     blocked_step: str | None,
     dry_run: bool,
+    no_output: bool,
+    no_summary: bool,
 ) -> dict[str, Any]:
     return {
         "pipeline_name": "v0_offline_policy_readiness_pipeline",
         "status": status,
         "ready_for_local_training_dry_run": status == READY_STATUS,
         "dry_run": dry_run,
+        "no_output": no_output,
         "blocked_step": blocked_step,
         "step_count": len(steps),
         "steps": [
@@ -339,6 +348,15 @@ def _build_summary(
             }
             for step in steps
         ],
+        "side_effects": {
+            "writes_pipeline_summary": not no_summary,
+            "writes_review_dataset_plan_or_training_artifacts": (not dry_run and not no_output),
+            "creates_paid_instance": False,
+            "runs_remote_code": False,
+            "starts_isaac": False,
+            "calls_ros_or_robot": False,
+            "writes_checkpoint_in_dry_run": False,
+        },
         "not_claims": NOT_CLAIMS,
         "next_action": (
             "finish_success_variation_batch_and_freeze_v0_skill_dataset"
@@ -409,6 +427,7 @@ def main() -> int:
     parser.add_argument("--max-samples-per-case", type=int, default=50)
     parser.add_argument("--skip-phase2-contact-gate", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--no-output", action="store_true")
     parser.add_argument("--no-summary", action="store_true")
     parser.add_argument("--fail-on-blocked", action="store_true")
     args = parser.parse_args()
@@ -425,9 +444,12 @@ def main() -> int:
             results=[],
             blocked_step=None,
             dry_run=True,
+            no_output=args.no_output,
+            no_summary=args.no_summary,
         )
         if not args.no_summary:
             _write_summary(summary, _resolve(args.summary_json), _resolve(args.summary_md))
+        print("[v0-offline-policy-readiness] facts=" + json.dumps(summary, indent=2, sort_keys=True))
         print("[v0-offline-policy-readiness] status=DRY_RUN")
         return 0
 
@@ -450,10 +472,13 @@ def main() -> int:
         results=results,
         blocked_step=blocked_step,
         dry_run=False,
+        no_output=args.no_output,
+        no_summary=args.no_summary,
     )
     if not args.no_summary:
         _write_summary(summary, _resolve(args.summary_json), _resolve(args.summary_md))
 
+    print("[v0-offline-policy-readiness] facts=" + json.dumps(summary, indent=2, sort_keys=True))
     print(f"[v0-offline-policy-readiness] status={status}")
     if blocked_step:
         print(f"[v0-offline-policy-readiness] blocked_step={blocked_step}")
