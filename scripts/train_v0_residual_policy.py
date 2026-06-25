@@ -129,8 +129,58 @@ def _build_plan(
             "checkpoint metadata records label manifest and JSONL checksums",
             "evaluation gate is added before policy promotion",
         ],
+        "side_effects": {
+            "writes_training_plan": not args.no_output,
+            "writes_checkpoint": False,
+            "writes_metadata": False,
+            "imports_torch": False,
+            "creates_paid_instance": False,
+            "starts_isaac": False,
+            "calls_ros_or_robot": False,
+        },
         "not_claims": [
             "not trained policy" if args.dry_run else "not evaluated policy",
+            "not sim-to-real",
+            "not cross-robot-ready",
+            "not direct drop-in precision on another robot arm",
+            "not a Brev or Isaac launcher",
+        ],
+    }
+
+
+def _build_blocked_report(
+    *,
+    label_dataset_manifest: Path,
+    checkpoint_path: Path,
+    metadata_path: Path,
+    output_plan: Path,
+    preflight: dict[str, Any],
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    return {
+        "plan_name": "v0_residual_policy_training",
+        "status": "BLOCKED",
+        "dry_run": bool(args.dry_run),
+        "no_output": bool(args.no_output),
+        "label_dataset_manifest": _rel(label_dataset_manifest),
+        "checkpoint": _rel(checkpoint_path),
+        "metadata": _rel(metadata_path),
+        "output_plan": _rel(output_plan),
+        "preflight": preflight,
+        "blockers": preflight.get("blockers", []),
+        "ready_for_local_training_dry_run": False,
+        "side_effects": {
+            "writes_training_plan": False,
+            "writes_checkpoint": False,
+            "writes_metadata": False,
+            "imports_torch": False,
+            "creates_paid_instance": False,
+            "starts_isaac": False,
+            "calls_ros_or_robot": False,
+        },
+        "not_claims": [
+            "not trained policy",
+            "not evaluated policy",
             "not sim-to-real",
             "not cross-robot-ready",
             "not direct drop-in precision on another robot arm",
@@ -313,7 +363,15 @@ def main() -> int:
         require_torch=not args.dry_run,
     )
     if preflight.get("status") == "BLOCKED":
-        print("[v0-residual-policy-train] preflight=" + json.dumps(preflight, indent=2, sort_keys=True))
+        blocked_report = _build_blocked_report(
+            label_dataset_manifest=label_manifest_path,
+            checkpoint_path=_resolve(args.output_checkpoint),
+            metadata_path=_resolve(args.output_metadata),
+            output_plan=_resolve(args.output_plan),
+            preflight=preflight,
+            args=args,
+        )
+        print("[v0-residual-policy-train] facts=" + json.dumps(blocked_report, indent=2, sort_keys=True))
         print("[v0-residual-policy-train] BLOCKED")
         return 1
 

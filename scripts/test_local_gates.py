@@ -1530,7 +1530,17 @@ def run_v0_skill_api_contract_tests() -> None:
     assert_status(result, 1, "V0 policy training preflight can fail closed before label dataset exists")
     result = run(["python3", str(policy_training_script_path), "--dry-run", "--no-output"])
     assert_status(result, 1, "V0 residual policy trainer dry-run blocks before label dataset exists")
+    assert_contains(result, "[v0-residual-policy-train] facts=", "V0 residual trainer blocked facts marker")
     assert_contains(result, "[v0-residual-policy-train] BLOCKED", "V0 residual trainer blocked detail")
+    blocked_training_report, _ = json.JSONDecoder().raw_decode(
+        result.stdout.split("[v0-residual-policy-train] facts=", 1)[1].lstrip()
+    )
+    if blocked_training_report["status"] != "BLOCKED":
+        raise AssertionError(f"blocked trainer should expose BLOCKED facts: {blocked_training_report}")
+    blocked_training_effects = blocked_training_report["side_effects"]
+    for key in ("writes_training_plan", "writes_checkpoint", "writes_metadata", "creates_paid_instance", "starts_isaac", "calls_ros_or_robot"):
+        if blocked_training_effects[key] is not False:
+            raise AssertionError(f"blocked trainer side effect must be false for {key}: {blocked_training_report}")
     result = run(["python3", str(policy_readiness_pipeline_path), "--dry-run", "--no-summary"])
     assert_status(result, 0, "V0 offline policy-readiness pipeline dry-run prints its local sequence")
     assert_contains(result, "[v0-offline-policy-readiness] facts=", "V0 offline pipeline dry-run facts marker")
@@ -3213,6 +3223,10 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"training dry-run should preserve residual labels: {training_plan}")
         if "not trained policy" not in training_plan["not_claims"]:
             raise AssertionError(f"training dry-run must preserve not-trained non-claim: {training_plan}")
+        if training_plan["side_effects"]["writes_checkpoint"] is not False:
+            raise AssertionError(f"training dry-run must not write checkpoints: {training_plan}")
+        if training_plan["side_effects"]["writes_metadata"] is not False:
+            raise AssertionError(f"training dry-run must not write metadata: {training_plan}")
         pipeline_dir = tmp_dir / "offline_policy_readiness_pipeline"
         pipeline_checkpoint = pipeline_dir / "policy_training" / "model.pt"
         pipeline_summary_json = pipeline_dir / "summary.json"
