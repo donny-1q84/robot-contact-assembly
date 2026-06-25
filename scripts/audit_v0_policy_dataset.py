@@ -123,7 +123,9 @@ def build_audit(
         warnings.append("policy/API review packet was not checked")
 
     cases = dataset.get("cases") if isinstance(dataset.get("cases"), list) else []
+    excluded_cases = dataset.get("excluded_cases") if isinstance(dataset.get("excluded_cases"), list) else []
     case_ids = [str(case.get("case_id")) for case in cases if isinstance(case, dict)]
+    excluded_case_ids = [str(case.get("case_id")) for case in excluded_cases if isinstance(case, dict)]
     duplicate_ids = sorted({case_id for case_id in case_ids if case_ids.count(case_id) > 1})
     coverage = sorted(set().union(*(_coverage_groups(case) for case in cases)) if cases else set())
 
@@ -140,6 +142,68 @@ def build_audit(
             failures.append("dataset must include baseline_replay positive control")
         if negative_control_id in case_ids:
             failures.append(f"dataset must exclude negative-control case {negative_control_id}")
+        if negative_control_id not in excluded_case_ids:
+            failures.append(f"dataset excluded_cases must record negative-control case {negative_control_id}")
+        else:
+            excluded_negative = next(
+                (
+                    case
+                    for case in excluded_cases
+                    if isinstance(case, dict) and str(case.get("case_id")) == negative_control_id
+                ),
+                {},
+            )
+            if excluded_negative.get("expected") != "fail_closed":
+                failures.append(
+                    f"excluded negative-control expected must be fail_closed, got {excluded_negative.get('expected')}"
+                )
+            if excluded_negative.get("classification") != "fail_closed":
+                failures.append(
+                    "excluded negative-control classification must be fail_closed, "
+                    f"got {excluded_negative.get('classification')}"
+                )
+            if excluded_negative.get("reason") != "fail_closed_negative_control":
+                failures.append(
+                    "excluded negative-control reason must be fail_closed_negative_control, "
+                    f"got {excluded_negative.get('reason')}"
+                )
+        negative_evidence = (
+            dataset.get("negative_control_evidence")
+            if isinstance(dataset.get("negative_control_evidence"), dict)
+            else {}
+        )
+        if not negative_evidence:
+            failures.append("dataset must record negative_control_evidence")
+        else:
+            if negative_evidence.get("case_id") != negative_control_id:
+                failures.append(
+                    "negative_control_evidence.case_id must match negative_control_id "
+                    f"{negative_control_id}, got {negative_evidence.get('case_id')}"
+                )
+            if negative_evidence.get("expected") != "fail_closed":
+                failures.append(
+                    f"negative_control_evidence.expected must be fail_closed, got {negative_evidence.get('expected')}"
+                )
+            if negative_evidence.get("classification") != "fail_closed":
+                failures.append(
+                    "negative_control_evidence.classification must be fail_closed, "
+                    f"got {negative_evidence.get('classification')}"
+                )
+            if negative_evidence.get("excluded_from_training_cases") is not True:
+                failures.append("negative_control_evidence must mark excluded_from_training_cases=true")
+            if negative_evidence.get("exclusion_reason") != "fail_closed_negative_control":
+                failures.append("negative_control_evidence must preserve fail_closed_negative_control reason")
+            trace_value = negative_evidence.get("trace_json")
+            if not isinstance(trace_value, str) or not trace_value:
+                failures.append("negative_control_evidence.trace_json must be present")
+            else:
+                trace_path = _resolve(Path(trace_value))
+                if not trace_path.is_file():
+                    failures.append(f"negative_control_evidence trace is missing: {_rel(trace_path)}")
+                elif isinstance(negative_evidence.get("trace_sha256"), str):
+                    actual = _sha256(trace_path)
+                    if actual != negative_evidence.get("trace_sha256"):
+                        failures.append("negative_control_evidence.trace_sha256 does not match trace_json")
         missing_coverage = sorted(REQUIRED_COVERAGE_GROUPS.difference(coverage))
         if missing_coverage:
             failures.append("dataset missing required coverage groups: " + ", ".join(missing_coverage))

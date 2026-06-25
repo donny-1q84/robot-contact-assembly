@@ -2749,6 +2749,25 @@ def run_success_variation_manifest_tests() -> None:
         dataset_case_ids = {case["case_id"] for case in dataset["cases"]}
         if "socket_x_pos_25mm_negative_control" in dataset_case_ids:
             raise AssertionError("dataset prep must exclude the negative-control case")
+        if dataset["selection_policy"].get("requires_negative_control_fail_closed_evidence") is not True:
+            raise AssertionError(f"dataset prep must require negative-control evidence: {dataset['selection_policy']}")
+        excluded_by_id = {case["case_id"]: case for case in dataset["excluded_cases"]}
+        excluded_negative = excluded_by_id.get("socket_x_pos_25mm_negative_control")
+        if not excluded_negative:
+            raise AssertionError(f"dataset prep must record excluded negative-control case: {dataset['excluded_cases']}")
+        if excluded_negative["classification"] != "fail_closed" or excluded_negative["reason"] != "fail_closed_negative_control":
+            raise AssertionError(f"dataset prep must preserve fail-closed negative exclusion: {excluded_negative}")
+        negative_evidence = dataset.get("negative_control_evidence")
+        if not isinstance(negative_evidence, dict):
+            raise AssertionError(f"dataset prep must expose negative_control_evidence: {dataset}")
+        if negative_evidence.get("case_id") != "socket_x_pos_25mm_negative_control":
+            raise AssertionError(f"negative_control_evidence should name the negative case: {negative_evidence}")
+        if negative_evidence.get("classification") != "fail_closed" or negative_evidence.get("expected") != "fail_closed":
+            raise AssertionError(f"negative_control_evidence must prove fail_closed behavior: {negative_evidence}")
+        if negative_evidence.get("excluded_from_training_cases") is not True:
+            raise AssertionError(f"negative_control_evidence must stay outside training cases: {negative_evidence}")
+        if negative_evidence.get("trace_sha256") != sha256_path(bad_trace):
+            raise AssertionError(f"negative_control_evidence should checksum the negative trace: {negative_evidence}")
         if "not learned policy" not in dataset["not_claims"] or "not sim-to-real" not in dataset["not_claims"]:
             raise AssertionError(f"dataset prep must carry explicit non-claims: {dataset['not_claims']}")
         if "V0 Scripted Skill Success Variations Dataset" not in dataset_md.read_text(encoding="utf-8"):
@@ -3112,6 +3131,24 @@ def run_success_variation_manifest_tests() -> None:
                 raise AssertionError(f"dataset audit missing coverage group {group}: {dataset_audit}")
         if "socket_x_pos_25mm_negative_control" in dataset_audit["dataset_case_ids"]:
             raise AssertionError("dataset audit must confirm negative-control exclusion")
+        broken_dataset = json.loads(dataset_json.read_text(encoding="utf-8"))
+        broken_dataset.pop("negative_control_evidence", None)
+        broken_dataset_json = tmp_dir / "policy_dataset_audit" / "broken_missing_negative_evidence.json"
+        broken_dataset_json.write_text(json.dumps(broken_dataset), encoding="utf-8")
+        result = run(
+            [
+                "python3",
+                "scripts/audit_v0_policy_dataset.py",
+                "--review-packet",
+                str(policy_review_json),
+                "--dataset",
+                str(broken_dataset_json),
+                "--no-output",
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 1, "V0 policy dataset audit rejects missing negative-control evidence")
+        assert_contains(result, "dataset must record negative_control_evidence", "missing negative evidence failure detail")
         if "V0 Policy Dataset Audit" not in dataset_audit_md.read_text(encoding="utf-8"):
             raise AssertionError("dataset audit README should include a clear title")
         policy_experiment_json = tmp_dir / "policy_experiment" / "plan.json"

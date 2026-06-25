@@ -107,6 +107,35 @@ def _dataset_case(result: dict[str, Any], manifest_case: dict[str, Any]) -> dict
     }
 
 
+def _negative_control_evidence(
+    result: dict[str, Any] | None,
+    manifest_case: dict[str, Any],
+    *,
+    negative_control_id: str,
+) -> dict[str, Any]:
+    trace_value = result.get("trace_json") if isinstance(result, dict) else None
+    trace_path = _resolve_repo_path(trace_value if isinstance(trace_value, str) else None)
+    evidence = {
+        "case_id": negative_control_id,
+        "expected": result.get("expected") if isinstance(result, dict) else None,
+        "classification": result.get("classification") if isinstance(result, dict) else None,
+        "trace_json": _rel(trace_path) if trace_path is not None and trace_path.is_file() else trace_value,
+        "trace_sha256": _sha256(trace_path) if trace_path is not None and trace_path.is_file() else None,
+        "socket_delta_m": manifest_case.get("socket_delta_m"),
+        "reset_joint_noise_rad": manifest_case.get("reset_joint_noise_rad"),
+        "rationale": manifest_case.get("rationale"),
+        "excluded_from_training_cases": True,
+        "exclusion_reason": "fail_closed_negative_control",
+        "gate_requirement": "must classify fail_closed before the dataset can be generated",
+        "gates": result.get("gates") if isinstance(result, dict) else None,
+        "metrics": result.get("metrics") if isinstance(result, dict) else None,
+        "boundary": result.get("boundary") if isinstance(result, dict) else None,
+        "frame_audit": result.get("frame_audit") if isinstance(result, dict) else None,
+        "failure_reasons": result.get("failure_reasons") if isinstance(result, dict) else None,
+    }
+    return evidence
+
+
 def _build_dataset(
     manifest: dict[str, Any],
     classification: dict[str, Any],
@@ -118,6 +147,7 @@ def _build_dataset(
     manifest_cases = _manifest_cases_by_id(manifest)
     dataset_cases: list[dict[str, Any]] = []
     excluded_cases: list[dict[str, Any]] = []
+    negative_control_result: dict[str, Any] | None = None
 
     for result in classification.get("results", []):
         if not isinstance(result, dict):
@@ -126,6 +156,8 @@ def _build_dataset(
         manifest_case = manifest_cases.get(case_id, {})
         classification_label = result.get("classification")
         expected = result.get("expected")
+        if case_id == negative_control_id:
+            negative_control_result = result
         if classification_label == "strict_success" and expected != "fail_closed":
             dataset_cases.append(_dataset_case(result, manifest_case))
         else:
@@ -135,7 +167,11 @@ def _build_dataset(
                     "expected": expected,
                     "classification": classification_label,
                     "trace_json": result.get("trace_json"),
-                    "reason": "negative control or not strict_success",
+                    "reason": (
+                        "fail_closed_negative_control"
+                        if case_id == negative_control_id
+                        else "not strict_success training case"
+                    ),
                 }
             )
 
@@ -153,8 +189,14 @@ def _build_dataset(
             "includes_baseline_positive_control": True,
             "includes_only_strict_success_non_negative_cases": True,
             "excludes_negative_control_id": negative_control_id,
+            "requires_negative_control_fail_closed_evidence": True,
             "near_success_cases_excluded_by_default": True,
         },
+        "negative_control_evidence": _negative_control_evidence(
+            negative_control_result,
+            manifest_cases.get(negative_control_id, {}),
+            negative_control_id=negative_control_id,
+        ),
         "gate_summary": gate.get("summary"),
         "classification_summary": classification.get("summary"),
         "cases": dataset_cases,
