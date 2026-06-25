@@ -3693,6 +3693,15 @@ def run_success_variation_manifest_tests() -> None:
             "aggregate_preflight",
         ]:
             raise AssertionError(f"paid prepare dry-run step order changed: {paid_prepare_facts}")
+        cleanup_guards = "\n".join(paid_prepare_facts["cleanup_guards"])
+        for expected_snippet in (
+            "check-only failure after arming disarms the local env",
+            "aggregate preflight failure after arming disarms the local env",
+            "KeyboardInterrupt after arming disarms the local env",
+            "unexpected exception after arming disarms the local env",
+        ):
+            if expected_snippet not in cleanup_guards:
+                raise AssertionError(f"paid prepare dry-run missing cleanup guard {expected_snippet}: {paid_prepare_facts}")
         result = run(
             [
                 "python3",
@@ -3719,6 +3728,9 @@ def run_success_variation_manifest_tests() -> None:
             "except KeyboardInterrupt",
             "[success-variation-paid-prepare] INTERRUPTED",
             "return 130",
+            "except Exception as exc",
+            "[success-variation-paid-prepare] FAILED_AFTER_ARM",
+            "return 1",
             "does not create, start, stop, delete, copy to, or execute on Brev instances",
         ):
             if expected_snippet not in prepare_paid_script:

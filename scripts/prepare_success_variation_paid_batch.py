@@ -119,6 +119,12 @@ def _dry_run_report(
             {"step": "check_only", "command": check_cmd},
             {"step": "aggregate_preflight", "command": preflight_cmd},
         ],
+        "cleanup_guards": [
+            "check-only failure after arming disarms the local env",
+            "aggregate preflight failure after arming disarms the local env",
+            "KeyboardInterrupt after arming disarms the local env and exits 130",
+            "unexpected exception after arming disarms the local env and exits 1",
+        ],
         "next_command_after_review": [
             "python3",
             "scripts/prepare_success_variation_paid_batch.py",
@@ -269,6 +275,10 @@ def main() -> int:
         print("[success-variation-paid-prepare] INTERRUPTED")
         _disarm(config)
         return 130
+    except Exception as exc:
+        print(f"[success-variation-paid-prepare] FAILED_AFTER_ARM: {exc}")
+        _disarm(config)
+        return 1
 
     print("[success-variation-paid-prepare] READY_FOR_SINGLE_PAID_RUN")
     print("[success-variation-paid-prepare] next: scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --run")
