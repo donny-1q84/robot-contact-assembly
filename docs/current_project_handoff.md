@@ -116,6 +116,10 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    by `configs/v0_skill_request.example.json` and
    `scripts/validate_v0_skill_request.py`; `scripts/plan_v0_skill_request.py`
    provides the narrow deterministic language-to-skill shim, and
+   `configs/v0_language_instruction_suite.json` plus
+   `scripts/check_v0_language_instruction_suite.py` keep supported
+   left/right/center insert instructions and rejected low-level/ambiguous
+   instructions under regression.
    `scripts/check_v0_skill_readiness.py` connects a validated request to the
    current Phase 2, variation-result, and dataset evidence.
    `scripts/run_v0_language_skill_dry_run.py` is the one-command local
@@ -159,6 +163,7 @@ skill_api_promotion_coverage: requires strict-success seed/reset plus socket X/Y
 success_variation_recovery: scripts/plan_success_variation_recovery_batch.py skips already satisfied traces and plans only unresolved reruns after a partial batch
 skill_request_contract: configs/v0_skill_request.example.json passes local request check
 skill_request_planner: scripts/plan_v0_skill_request.py maps supported insert instructions only
+language_instruction_suite: configs/v0_language_instruction_suite.json and scripts/check_v0_language_instruction_suite.py cover supported left/right/center insert instructions plus rejected low-level/ambiguous instructions
 language_skill_dry_run: scripts/run_v0_language_skill_dry_run.py chains instruction parsing, request validation, and gated execution planning while forbidding raw joint/force commands
 skill_execution_plan: scripts/plan_v0_skill_execution.py stays blocked until V0 readiness is READY and never emits raw joint/force commands
 skill_readiness: scripts/check_v0_skill_readiness.py is blocked until variation traces and dataset exist

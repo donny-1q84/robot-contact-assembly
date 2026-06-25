@@ -1339,6 +1339,8 @@ def run_v0_skill_api_contract_tests() -> None:
     request_path = REPO_ROOT / "configs" / "v0_skill_request.example.json"
     request_checker_path = REPO_ROOT / "scripts" / "validate_v0_skill_request.py"
     planner_path = REPO_ROOT / "scripts" / "plan_v0_skill_request.py"
+    language_suite_path = REPO_ROOT / "configs" / "v0_language_instruction_suite.json"
+    language_suite_checker_path = REPO_ROOT / "scripts" / "check_v0_language_instruction_suite.py"
     readiness_checker_path = REPO_ROOT / "scripts" / "check_v0_skill_readiness.py"
     execution_planner_path = REPO_ROOT / "scripts" / "plan_v0_skill_execution.py"
     language_dry_run_path = REPO_ROOT / "scripts" / "run_v0_language_skill_dry_run.py"
@@ -1365,6 +1367,11 @@ def run_v0_skill_api_contract_tests() -> None:
     result = run(["python3", str(request_checker_path), str(request_path)])
     assert_status(result, 0, "V0 skill request validator accepts committed example request")
     assert_contains(result, "[v0-skill-request] PASS", "V0 skill request PASS detail")
+    result = run(["python3", str(language_suite_checker_path), str(language_suite_path), "--no-output"])
+    assert_status(result, 0, "V0 language instruction suite accepts committed cases")
+    assert_contains(result, "[v0-language-suite] status=PASS", "V0 language suite PASS detail")
+    assert_contains(result, "insert_center_socket", "V0 language suite includes center socket case")
+    assert_contains(result, "reject_low_level_joint_command", "V0 language suite includes low-level rejection")
     result = run(["python3", str(robot_adapter_checker_path), str(robot_adapter_path)])
     assert_status(result, 0, "V0 external robot adapter template is a safe blocked contract")
     assert_contains(result, "[v0-robot-adapter] BLOCKED", "V0 robot adapter template BLOCKED detail")
@@ -1498,6 +1505,8 @@ def run_v0_skill_api_contract_tests() -> None:
     checker = checker_path.read_text(encoding="utf-8")
     request_checker = request_checker_path.read_text(encoding="utf-8")
     planner = planner_path.read_text(encoding="utf-8")
+    language_suite = language_suite_path.read_text(encoding="utf-8")
+    language_suite_checker = language_suite_checker_path.read_text(encoding="utf-8")
     readiness_checker = readiness_checker_path.read_text(encoding="utf-8")
     execution_planner = execution_planner_path.read_text(encoding="utf-8")
     language_dry_run = language_dry_run_path.read_text(encoding="utf-8")
@@ -1553,6 +1562,34 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"V0 skill request planner missing snippet: {expected_snippet}")
     if "brev create" in planner or '"${BREV_BIN}" create' in planner:
         raise AssertionError("V0 skill request planner must be offline and must not create Brev instances")
+    for expected_snippet in (
+        "insert_left_socket",
+        "insert_right_socket",
+        "insert_center_socket",
+        "reject_low_level_joint_command",
+        "reject_substring_socket_alias",
+        "reject_force_command_without_socket",
+        "raw_joint_targets",
+        "direct_cartesian_servo_commands",
+        "direct_force_commands",
+        "not an LLM or VLM evaluation",
+    ):
+        if expected_snippet not in language_suite:
+            raise AssertionError(f"V0 language instruction suite missing snippet: {expected_snippet}")
+    for expected_snippet in (
+        "Check the offline V0 language instruction suite",
+        "deterministic V0 language-to-skill planner",
+        "low-level joint commands fail closed",
+        "plan_v0_skill_request",
+        "not call Brev, Isaac, ROS, hardware, an LLM, or a VLM",
+        "raw joint",
+        "Cartesian servo",
+        "direct force commands",
+    ):
+        if expected_snippet not in language_suite_checker:
+            raise AssertionError(f"V0 language suite checker missing snippet: {expected_snippet}")
+    if "brev create" in language_suite_checker or '"${BREV_BIN}" create' in language_suite_checker:
+        raise AssertionError("V0 language suite checker must be offline and must not create Brev instances")
     for expected_snippet in (
         "v0_skill_request_readiness",
         "run_fixed_budget_success_variation_batch_after_paid_ack",
@@ -1955,6 +1992,14 @@ def run_v0_skill_api_contract_tests() -> None:
         )
         if substring_request_path.exists():
             raise AssertionError("V0 planner must not write a request artifact for substring socket aliases")
+
+        bad_language_suite = json.loads(language_suite_path.read_text(encoding="utf-8"))
+        bad_language_suite["cases"][0]["expected_socket_id"] = "right_socket"
+        bad_language_suite_path = tmp_dir / "bad_v0_language_instruction_suite.json"
+        bad_language_suite_path.write_text(json.dumps(bad_language_suite), encoding="utf-8")
+        result = run(["python3", str(language_suite_checker_path), str(bad_language_suite_path), "--no-output"])
+        assert_status(result, 1, "V0 language instruction suite rejects wrong expected socket")
+        assert_contains(result, "expected socket_id right_socket", "V0 language suite wrong-socket detail")
 
         current_readiness_json = tmp_dir / "current_v0_skill_readiness.json"
         result = run(
@@ -4392,6 +4437,7 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="rca-gate-tests-") as tmp_dir_raw:
         tmp_dir = Path(tmp_dir_raw)
+        launchable_bundle_dir = tmp_dir / "launchable"
         fake_brev = tmp_dir / "fake-brev"
         fake_rsync = tmp_dir / "fake-rsync"
         fake_isaac = tmp_dir / "fake-isaac-python"
@@ -4892,8 +4938,11 @@ def main() -> int:
 
         lifecycle_support_draft = tmp_dir / "brev-support-draft.md"
         lifecycle_support_draft.write_text("synthetic support draft\n", encoding="utf-8")
-        lifecycle_bundle_path = REPO_ROOT / "artifacts" / "launchable" / "robot-contact-assembly-contact-smoke-gate-test.tar.gz"
-        result = run(["scripts/create_launchable_bundle.sh", str(lifecycle_bundle_path)])
+        lifecycle_bundle_path = launchable_bundle_dir / "robot-contact-assembly-contact-smoke-gate-test.tar.gz"
+        result = run(
+            ["scripts/create_launchable_bundle.sh", str(lifecycle_bundle_path)],
+            env={"RCA_LAUNCHABLE_BUNDLE_DIR": str(launchable_bundle_dir)},
+        )
         assert_status(result, 0, "launchable bundle creation succeeds before lifecycle clearance")
         assert_contains(result, "[launchable-bundle] wrote", "lifecycle clearance bundle output detail")
         result = run(
@@ -4902,6 +4951,7 @@ def main() -> int:
                 fake_brev,
                 RCA_BREV_LIFECYCLE_HOLD_FILE=str(lifecycle_hold),
                 RCA_BREV_SUPPORT_DRAFT=str(lifecycle_support_draft),
+                RCA_LAUNCHABLE_BUNDLE_DIR=str(launchable_bundle_dir),
             ),
         )
         assert_status(result, 0, "Brev lifecycle clearance check passes with empty fake org and active hold")
@@ -5427,7 +5477,7 @@ def main() -> int:
             "status report V0 policy promotion command detail",
         )
 
-        stale_scope_bundle = REPO_ROOT / "artifacts" / "launchable" / "robot-contact-assembly-contact-smoke-manual-preauth-9998-stale-scope-test.tar.gz"
+        stale_scope_bundle = launchable_bundle_dir / "robot-contact-assembly-contact-smoke-manual-preauth-9998-stale-scope-test.tar.gz"
         stale_scope_bundle.parent.mkdir(parents=True, exist_ok=True)
         try:
             with tarfile.open(stale_scope_bundle, "w:gz") as archive:
@@ -5448,14 +5498,17 @@ def main() -> int:
                     encoding="utf-8",
                 )
                 archive.add(manifest, arcname="robot-contact-assembly/.rca_launchable_source_manifest.txt")
-            result = run(["python3", "scripts/project_status_report.py", "--fail-on-blocked"])
+            result = run(
+                ["python3", "scripts/project_status_report.py", "--fail-on-blocked"],
+                env={"RCA_LAUNCHABLE_BUNDLE_DIR": str(launchable_bundle_dir)},
+            )
             assert_status(result, 2, "status report fails when latest bundle has stale scope")
             assert_contains(result, "Contact-smoke bundle | STALE", "status report stale scope bundle detail")
             assert_contains(result, "Latest bundle scope runtime-v0", "status report stale scope detail")
         finally:
             stale_scope_bundle.unlink(missing_ok=True)
 
-        stale_bundle = REPO_ROOT / "artifacts" / "launchable" / "robot-contact-assembly-contact-smoke-manual-preauth-9999-stale-test.tar.gz"
+        stale_bundle = launchable_bundle_dir / "robot-contact-assembly-contact-smoke-manual-preauth-9999-stale-test.tar.gz"
         stale_bundle.parent.mkdir(parents=True, exist_ok=True)
         try:
             with tarfile.open(stale_bundle, "w:gz") as archive:
@@ -5476,7 +5529,10 @@ def main() -> int:
                     encoding="utf-8",
                 )
                 archive.add(manifest, arcname="robot-contact-assembly/.rca_launchable_source_manifest.txt")
-            result = run(["python3", "scripts/project_status_report.py", "--fail-on-blocked"])
+            result = run(
+                ["python3", "scripts/project_status_report.py", "--fail-on-blocked"],
+                env={"RCA_LAUNCHABLE_BUNDLE_DIR": str(launchable_bundle_dir)},
+            )
             assert_status(result, 2, "status report fails when latest bundle is stale")
             assert_contains(result, "Contact-smoke bundle | STALE", "status report stale bundle detail")
         finally:

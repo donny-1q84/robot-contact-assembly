@@ -174,6 +174,8 @@ scripts/check_v0_skill_api_contract.py
 configs/v0_skill_request.example.json
 scripts/plan_v0_skill_request.py
 scripts/validate_v0_skill_request.py
+configs/v0_language_instruction_suite.json
+scripts/check_v0_language_instruction_suite.py
 scripts/run_v0_language_skill_dry_run.py
 scripts/check_v0_skill_readiness.py
 scripts/prepare_v0_policy_api_review.py
@@ -195,6 +197,12 @@ joint targets, direct force commands, or VLM-to-raw-control modes fail closed.
 The planner is deliberately narrow and deterministic: supported insert
 instructions become a normalized request; ambiguous or low-level instructions
 do not write a request artifact.
+The instruction suite in `configs/v0_language_instruction_suite.json` is the
+regression layer around that shim: left/right/center insert instructions must
+normalize to high-level requests, while low-level joint commands, substring
+socket aliases, and force-like commands without a valid socket must fail
+closed. `scripts/check_v0_language_instruction_suite.py` checks that suite
+without calling any model, simulator, paid service, ROS stack, or hardware.
 `scripts/run_v0_language_skill_dry_run.py` is the local language-to-skill
 handoff report. It takes a natural-language instruction, runs the deterministic
 request planner, validates the request against the V0 contract, and connects it
@@ -254,6 +262,7 @@ No paid compute:
 python3 scripts/check_v0_skill_api_contract.py
 python3 scripts/plan_v0_skill_request.py "insert the peg into the left socket"
 python3 scripts/validate_v0_skill_request.py
+python3 scripts/check_v0_language_instruction_suite.py --no-output
 python3 scripts/check_v0_skill_readiness.py --skip-phase2-contact-gate
 python3 scripts/run_v0_language_skill_dry_run.py "insert the peg into the left socket" --skip-phase2-contact-gate --no-output
 python3 scripts/plan_v0_skill_execution.py --skip-phase2-contact-gate --no-output

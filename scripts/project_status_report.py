@@ -532,7 +532,7 @@ def brev_lifecycle_hold_status() -> Check:
 
 
 def latest_contact_smoke_bundle_status() -> Check:
-    bundle_dir = REPO_ROOT / "artifacts" / "launchable"
+    bundle_dir = Path(os.environ.get("RCA_LAUNCHABLE_BUNDLE_DIR", REPO_ROOT / "artifacts" / "launchable"))
     bundles = sorted(bundle_dir.glob("robot-contact-assembly-contact-smoke-*.tar.gz"))
     if not bundles:
         return Check("Contact-smoke bundle", "MISSING", "No local contact-smoke bundle exists yet.")
@@ -821,6 +821,7 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "python3 scripts/check_success_variation_batch_results.py artifacts/manifests/success_trace_variations_2026-06-25.json",
             "python3 scripts/plan_success_variation_recovery_batch.py artifacts/manifests/success_trace_variations_2026-06-25.json",
             "python3 scripts/prepare_brev_credit_review.py --no-output",
+            "python3 scripts/check_v0_language_instruction_suite.py --no-output",
             "python3 scripts/check_v0_skill_readiness.py --skip-phase2-contact-gate",
             "python3 scripts/run_v0_language_skill_dry_run.py \"insert the peg into the left socket\" --skip-phase2-contact-gate --no-output",
             "python3 scripts/plan_v0_skill_execution.py --skip-phase2-contact-gate --no-output",
