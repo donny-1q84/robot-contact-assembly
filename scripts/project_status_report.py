@@ -415,6 +415,40 @@ def cross_robot_portability_status() -> Check:
     return Check("Cross-robot portability", status, detail)
 
 
+def v0_portability_review_packet_status() -> Check:
+    result = run_script(
+        "python3",
+        "scripts/prepare_v0_portability_review.py",
+        "--skip-phase2-contact-gate",
+        "--no-output",
+    )
+    marker = "[v0-portability-review] facts="
+    if marker not in result.stdout:
+        return Check(
+            "V0 portability review packet",
+            "FAIL",
+            "Could not parse scripts/prepare_v0_portability_review.py output.",
+        )
+    try:
+        facts = _json_prefix(result.stdout.split(marker, 1)[1])
+    except (json.JSONDecodeError, ValueError) as exc:
+        return Check("V0 portability review packet", "FAIL", f"Portability review JSON parse failed: {exc}")
+
+    status = str(facts.get("status") or "BLOCKED")
+    summary = facts.get("gate_summary") if isinstance(facts.get("gate_summary"), dict) else {}
+    blockers = facts.get("current_blockers") if isinstance(facts.get("current_blockers"), list) else []
+    detail = (
+        f"readiness_label={facts.get('readiness_label')}; "
+        f"direct_drop_in_answer={facts.get('direct_drop_in_answer')}; "
+        f"named_robot_ready={facts.get('named_robot_ready')}; "
+        f"universal_drop_in_ready={facts.get('universal_drop_in_ready')}; "
+        f"skill_readiness={summary.get('skill_readiness_status')}; "
+        f"adapter={summary.get('adapter_status')}; "
+        f"blockers={len(blockers)}; next_action={summary.get('next_action')}."
+    )
+    return Check("V0 portability review packet", status, detail)
+
+
 def _json_prefix(text: str) -> dict:
     decoder = json.JSONDecoder()
     value, _ = decoder.raw_decode(text.lstrip())
@@ -605,6 +639,7 @@ def checks() -> list[Check]:
         v0_policy_promotion_gate_status(),
         external_robot_adapter_status(),
         cross_robot_portability_status(),
+        v0_portability_review_packet_status(),
         action_semantics_probe_status(),
         historical_doc_status(),
         tracked_generated_metadata_status(),
@@ -840,6 +875,7 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "python3 scripts/check_v0_robot_adapter_contract.py",
             "python3 scripts/plan_v0_robot_adapter_manifest.py --robot-id demo_arm_v0 --robot-family demo_6dof_arm --end-effector parallel_gripper --no-output",
             "python3 scripts/check_v0_portability_boundary.py --skip-phase2-contact-gate",
+            "python3 scripts/prepare_v0_portability_review.py --skip-phase2-contact-gate --no-output",
             "scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --check-only",
             "python3 scripts/write_brev_credit_evidence.py --balance-eur <current-brev-ui-balance> --budget-eur 6.00 --force",
             "python3 scripts/arm_success_variation_paid_env.py --i-understand-this-arms-paid-run",

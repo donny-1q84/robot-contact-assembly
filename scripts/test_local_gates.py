@@ -1362,6 +1362,7 @@ def run_v0_skill_api_contract_tests() -> None:
     robot_adapter_checker_path = REPO_ROOT / "scripts" / "check_v0_robot_adapter_contract.py"
     robot_adapter_planner_path = REPO_ROOT / "scripts" / "plan_v0_robot_adapter_manifest.py"
     portability_checker_path = REPO_ROOT / "scripts" / "check_v0_portability_boundary.py"
+    portability_review_path = REPO_ROOT / "scripts" / "prepare_v0_portability_review.py"
 
     result = run(["python3", str(checker_path), str(contract_path)])
     assert_status(result, 0, "V0 skill API contract validator accepts committed contract")
@@ -1388,6 +1389,13 @@ def run_v0_skill_api_contract_tests() -> None:
     assert_contains(result, "universal_drop_in_ready=false", "V0 portability boundary universal non-claim")
     result = run(["python3", str(portability_checker_path), "--skip-phase2-contact-gate", "--fail-on-blocked"])
     assert_status(result, 1, "V0 portability boundary can fail closed while blocked")
+    result = run(["python3", str(portability_review_path), "--skip-phase2-contact-gate", "--no-output"])
+    assert_status(result, 0, "V0 portability review reports current safe blocked state")
+    assert_contains(result, "[v0-portability-review] status=BLOCKED", "V0 portability review blocked detail")
+    assert_contains(result, "NO_DIRECT_DROP_IN", "V0 portability review direct drop-in answer")
+    assert_contains(result, "universal_drop_in_ready=false", "V0 portability review universal non-claim")
+    result = run(["python3", str(portability_review_path), "--skip-phase2-contact-gate", "--no-output", "--fail-on-blocked"])
+    assert_status(result, 1, "V0 portability review can fail closed while blocked")
     result = run(["python3", str(execution_planner_path), "--skip-phase2-contact-gate", "--no-output"])
     assert_status(result, 0, "V0 skill execution planner writes blocked plan without failing by default")
     assert_contains(result, "[v0-skill-execution-plan] status=BLOCKED", "V0 execution planner blocked detail")
@@ -1527,6 +1535,7 @@ def run_v0_skill_api_contract_tests() -> None:
     robot_adapter_checker = robot_adapter_checker_path.read_text(encoding="utf-8")
     robot_adapter_planner = robot_adapter_planner_path.read_text(encoding="utf-8")
     portability_checker = portability_checker_path.read_text(encoding="utf-8")
+    portability_review = portability_review_path.read_text(encoding="utf-8")
     for expected_snippet in (
         "raw_joint_targets",
         "not direct drop-in precision on another robot arm",
@@ -1832,6 +1841,19 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"V0 portability boundary checker missing snippet: {expected_snippet}")
     if "brev create" in portability_checker or '"${BREV_BIN}" create' in portability_checker:
         raise AssertionError("V0 portability boundary checker must be offline and must not create Brev instances")
+    for expected_snippet in (
+        "v0_cross_robot_portability_review",
+        "NO_DIRECT_DROP_IN",
+        "universal_drop_in_ready",
+        "named external-robot adapter contract",
+        "language/request and skill-target layers are reusable",
+        "not evidence that arbitrary robot arms can be used without adaptation",
+        "It does not call Brev, start Isaac, call ROS",
+    ):
+        if expected_snippet not in portability_review:
+            raise AssertionError(f"V0 portability review missing snippet: {expected_snippet}")
+    if "brev create" in portability_review or '"${BREV_BIN}" create' in portability_review:
+        raise AssertionError("V0 portability review must be offline and must not create Brev instances")
 
     contract = json.loads(contract_path.read_text(encoding="utf-8"))
     if "raw_joint_targets" not in contract["language_layer"]["forbidden_outputs"]:
@@ -2521,6 +2543,42 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"portability gate must never claim arbitrary-arm drop-in readiness: {portability}")
         if portability["target_robot_id"] != "demo_arm_ready_fixture":
             raise AssertionError(f"portability gate should name the ready adapter robot: {portability}")
+        portability_review_json = tmp_dir / "portability_review" / "review_packet.json"
+        portability_review_md = tmp_dir / "portability_review" / "README.md"
+        result = run(
+            [
+                "python3",
+                "scripts/prepare_v0_portability_review.py",
+                "--manifest",
+                str(pass_manifest_path),
+                "--dataset",
+                str(dataset_json),
+                "--adapter",
+                str(ready_adapter_path),
+                "--skip-phase2-contact-gate",
+                "--output-json",
+                str(portability_review_json),
+                "--output-md",
+                str(portability_review_md),
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 0, "V0 portability review accepts ready V0 skill plus named adapter")
+        assert_contains(
+            result,
+            "READY_FOR_NAMED_ROBOT_LOW_SPEED_REVIEW",
+            "ready V0 portability review detail",
+        )
+        assert_contains(result, "universal_drop_in_ready=false", "ready portability review keeps universal non-claim")
+        portability_review_packet = json.loads(portability_review_json.read_text(encoding="utf-8"))
+        if portability_review_packet["direct_drop_in_answer"] != "NO_DIRECT_DROP_IN":
+            raise AssertionError(f"portability review must reject drop-in claims: {portability_review_packet}")
+        if portability_review_packet["universal_drop_in_ready"] is not False:
+            raise AssertionError(f"portability review must never claim arbitrary-arm readiness: {portability_review_packet}")
+        if portability_review_packet["named_robot_ready"] is not True:
+            raise AssertionError(f"portability review should allow named ready adapter review: {portability_review_packet}")
+        if "V0 Cross-Robot Portability Review" not in portability_review_md.read_text(encoding="utf-8"):
+            raise AssertionError("portability review README should include a clear title")
         execution_plan_json = tmp_dir / "v0_skill_execution" / "plan.json"
         result = run(
             [
@@ -5579,6 +5637,8 @@ def main() -> int:
         assert_contains(result, "V0 policy promotion gate | BLOCKED", "status report V0 policy promotion detail")
         assert_contains(result, "External robot adapter | BLOCKED", "status report external adapter detail")
         assert_contains(result, "Cross-robot portability | BLOCKED", "status report portability boundary detail")
+        assert_contains(result, "V0 portability review packet | BLOCKED", "status report portability review detail")
+        assert_contains(result, "direct_drop_in_answer=NO_DIRECT_DROP_IN", "status report portability review non-drop-in detail")
         assert_contains(result, "universal_drop_in_ready=False", "status report portability non-claim detail")
         assert_contains(
             result,
@@ -5599,6 +5659,11 @@ def main() -> int:
             result,
             "python3 scripts/check_v0_portability_boundary.py --skip-phase2-contact-gate",
             "status report portability command detail",
+        )
+        assert_contains(
+            result,
+            "python3 scripts/prepare_v0_portability_review.py --skip-phase2-contact-gate --no-output",
+            "status report portability review command detail",
         )
         assert_contains(
             result,

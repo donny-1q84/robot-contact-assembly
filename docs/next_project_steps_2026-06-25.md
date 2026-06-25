@@ -184,6 +184,7 @@ configs/v0_external_robot_adapter.template.json
 scripts/plan_v0_robot_adapter_manifest.py
 scripts/check_v0_robot_adapter_contract.py
 scripts/check_v0_portability_boundary.py
+scripts/prepare_v0_portability_review.py
 ```
 
 It keeps language/VLM behavior at the task-parameter and skill-selection layer,
@@ -243,6 +244,10 @@ calibration, safety, interface-validation, and revalidation evidence.
 combines V0 skill readiness with the named robot adapter status and keeps
 `universal_drop_in_ready=false` even when one named adapter is ready for
 low-speed review.
+`scripts/prepare_v0_portability_review.py` is the human-facing review packet for
+that boundary. It writes JSON/Markdown with the exact `NO_DIRECT_DROP_IN`
+answer, reusable layers, robot-specific layers, current blockers, and next
+commands without calling Brev, Isaac, ROS, a vendor SDK, or hardware.
 
 ## Do Not Do Next
 
@@ -286,6 +291,7 @@ python3 scripts/plan_v0_robot_adapter_manifest.py \
   --skill-status /rca/skill_status
 python3 scripts/check_v0_robot_adapter_contract.py
 python3 scripts/check_v0_portability_boundary.py --skip-phase2-contact-gate
+python3 scripts/prepare_v0_portability_review.py --skip-phase2-contact-gate --no-output
 python3 scripts/check_success_variation_batch_plan.py artifacts/manifests/success_trace_variations_2026-06-25.json
 python3 scripts/check_peg_in_hole_video_candidate.py artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json
 python3 scripts/check_final_contact_boundary_diagnostic.py artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json
