@@ -28,6 +28,9 @@ BREV_LIFECYCLE_HOLD_FILE = Path(
         str(REPO_ROOT / "docs" / "brev_launchable_lifecycle_hold.md"),
     )
 )
+SUCCESS_VARIATION_MANIFEST = (
+    REPO_ROOT / "artifacts" / "manifests" / "success_trace_variations_2026-06-25.json"
+)
 
 
 @dataclass(frozen=True)
@@ -132,6 +135,50 @@ def post_smoke_trace_status() -> Check:
         "BLOCKED",
         "Latest trace exists but failed insertion; use it as controller/route evidence, not as a video success: "
         f"{latest} best_lateral={best_lateral} best_axial={best_axial} best_rot={best_rot} max_contact={max_contact}.",
+    )
+
+
+def success_variation_status() -> Check:
+    if not SUCCESS_VARIATION_MANIFEST.is_file():
+        return Check(
+            "Success variation gate",
+            "MISSING",
+            f"Variation manifest is missing: {SUCCESS_VARIATION_MANIFEST}",
+        )
+
+    result = run_script(
+        "python3",
+        "scripts/check_success_variation_batch_results.py",
+        str(SUCCESS_VARIATION_MANIFEST),
+    )
+    marker = "[success-variation-result-gate] facts="
+    facts: dict[str, object] = {}
+    if marker in result.stdout:
+        facts_text = result.stdout.split(marker, 1)[1]
+        try:
+            facts = _json_prefix(facts_text)
+        except (json.JSONDecodeError, ValueError):
+            facts = {}
+
+    baseline = facts.get("baseline_classification", "<unknown>")
+    strict_non_negative = facts.get("strict_non_negative_variation_count", "<unknown>")
+    min_strict = facts.get("min_strict_successes", "<unknown>")
+    negative_id = facts.get("negative_control_id", "<unknown>")
+    negative = facts.get("negative_control_classification", "<unknown>")
+    missing = facts.get("missing_count", "<unknown>")
+
+    detail = (
+        f"manifest={SUCCESS_VARIATION_MANIFEST}; baseline={baseline}; "
+        f"strict_non_negative_variations={strict_non_negative}/{min_strict}; "
+        f"negative_control={negative_id}:{negative}; missing={missing}."
+    )
+    if result.returncode == 0:
+        return Check("Success variation gate", "PASS", detail)
+    return Check(
+        "Success variation gate",
+        "BLOCKED",
+        detail
+        + " Fill the planned trace-only batch before dataset, learned-policy, VLM, ROS, or external-arm claims.",
     )
 
 
@@ -316,6 +363,7 @@ def checks() -> list[Check]:
         latest_contact_smoke_bundle_status(),
         contact_gate_status(),
         post_smoke_trace_status(),
+        success_variation_status(),
         action_semantics_probe_status(),
         historical_doc_status(),
         tracked_generated_metadata_status(),
@@ -326,16 +374,29 @@ def next_allowed_action(
     contact_status: str,
     lifecycle_hold_status: str,
     post_trace_status: str,
+    variation_status: str,
     action_probe_status: str,
 ) -> str:
     if contact_status == "PASS":
         if post_trace_status == "PASS":
+            if variation_status != "PASS":
+                return (
+                    "The old contact-smoke and single successful insertion-trace loop is closed, "
+                    "but V0 reproducibility is not proven. The next allowed physical step is the "
+                    "fixed-budget success-variation trace-only batch from "
+                    "artifacts/manifests/success_trace_variations_2026-06-25.json. Keep it blocked "
+                    "until fresh Brev UI credit evidence is written, the ignored local env is armed "
+                    "for one run, the pre-batch audit is READY, and the wrapper can enforce watchdog, "
+                    "artifact pullback, deletion, and final empty-org confirmation. Do not start "
+                    "dataset freezing, learned policy, VLM, ROS integration, external-arm adapter "
+                    "work, or sim-to-real claims until at least 5 non-baseline strict successes and "
+                    "the fail-closed negative control pass the result gate."
+                )
             return (
-                "The Phase 2 contact-smoke gate, action/trace validators, and post-smoke insertion "
-                "trace are satisfied. The current required evidence is packaged in "
-                "artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/. Do not open another "
-                "paid GPU run for this milestone unless the explicit next goal is a full Isaac "
-                "viewport/camera recording, with a full runtime profile and a fresh budget/cleanup plan."
+                "The Phase 2 contact-smoke gate, post-smoke insertion trace, and success-variation "
+                "result gate are satisfied. The next allowed step is to run "
+                "scripts/finalize_success_variation_batch.sh, freeze the V0 scripted-skill dataset, "
+                "and only then review learned-policy, VLM, ROS, or external-arm adapter work."
             )
         if action_probe_status == "BLOCKED":
             return (
@@ -395,14 +456,23 @@ def current_decision(
     contact_status: str,
     lifecycle_hold_status: str,
     post_trace_status: str,
+    variation_status: str,
     action_probe_status: str,
 ) -> str:
     if contact_status == "PASS":
         if post_trace_status == "PASS":
+            if variation_status != "PASS":
+                return (
+                    "The Phase 2 contact-smoke gate and one strict post-smoke insertion trace are "
+                    "satisfied, so the project is no longer blocked on the old contact/controller "
+                    "proof loop. The active blocker is reproducibility: the success-variation result "
+                    "gate still lacks the planned small socket/reset traces and the fail-closed "
+                    "negative control. A prettier video is not the main next milestone."
+                )
             return (
-                "The Phase 2 contact-smoke gate and post-smoke insertion trace are satisfied. "
-                "The current milestone is no longer blocked on controller insertion evidence; the "
-                "remaining optional gap is only real Isaac viewport/camera footage of the same semantic setup."
+                "The Phase 2 contact-smoke gate, post-smoke insertion trace, and success-variation "
+                "result gate are satisfied. The project may move to dataset finalization and then "
+                "policy/API review."
             )
         if action_probe_status == "BLOCKED":
             return (
@@ -450,6 +520,8 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
     lifecycle_hold_status = lifecycle_hold.status if lifecycle_hold else "BLOCKED"
     post_trace = next((item for item in check_list if item.name == "Post-smoke insertion trace"), None)
     post_trace_status = post_trace.status if post_trace else "MISSING"
+    variation = next((item for item in check_list if item.name == "Success variation gate"), None)
+    variation_status = variation.status if variation else "MISSING"
     action_probe = next((item for item in check_list if item.name == "Action semantics probe"), None)
     action_probe_status = action_probe.status if action_probe else "MISSING"
 
@@ -477,11 +549,23 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "",
             "## Current Decision",
             "",
-            current_decision(contact_status, lifecycle_hold_status, post_trace_status, action_probe_status),
+            current_decision(
+                contact_status,
+                lifecycle_hold_status,
+                post_trace_status,
+                variation_status,
+                action_probe_status,
+            ),
             "",
             "## Next Allowed Action",
             "",
-            next_allowed_action(contact_status, lifecycle_hold_status, post_trace_status, action_probe_status),
+            next_allowed_action(
+                contact_status,
+                lifecycle_hold_status,
+                post_trace_status,
+                variation_status,
+                action_probe_status,
+            ),
             "",
             "## Commands",
             "",
@@ -489,24 +573,28 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "./scripts/brev_paid_safety_status.sh",
             "./scripts/run_local_quality_checks.sh",
             "python3 scripts/check_phase2_contact_gate.py",
+            "python3 scripts/check_success_variation_batch_results.py artifacts/manifests/success_trace_variations_2026-06-25.json",
+            "scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --check-only",
+            "python3 scripts/write_brev_credit_evidence.py --balance-eur <current-brev-ui-balance> --budget-eur 6.00 --force",
+            "python3 scripts/arm_success_variation_paid_env.py --i-understand-this-arms-paid-run",
+            "scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --run",
+            "scripts/finalize_success_variation_batch.sh artifacts/manifests/success_trace_variations_2026-06-25.json",
+            "python3 scripts/arm_success_variation_paid_env.py --disarm",
             "python3 scripts/check_peg_in_hole_video_candidate.py artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json",
             "python3 scripts/check_final_contact_boundary_diagnostic.py artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json",
             "python3 scripts/audit_trace_frame_alignment.py artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json",
             "python3 scripts/check_scripted_action_response_trace.py artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json --min-command-norm 0.0002 --stop-after-first-success",
-            "python3 scripts/render_trace_video.py artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json artifacts/videos/trace_rendered/2026-06-21T20-05-25Z/peg_in_hole_trace_render.mp4",
-            "python3 scripts/check_action_calibration_summary.py artifacts/calibration/relative_ik_action/latest_seed_42.json",
-            "python3 scripts/joint_response_control.py artifacts/calibration/joint_position_action/latest_seed_42.json --desired-delta 0,0,-0.0015",
-            "./scripts/run_remote_joint_response_calibration.sh <env-name> /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose",
-            "./scripts/run_remote_joint_response_semantics_probe_suite.sh <env-name> /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose",
-            "./scripts/recreate_brev_and_run_joint_response_semantics_probe_suite.sh",
-            "# no unchanged socket-insertion/final-contact/action-semantics paid trace is currently approved",
-            "# do not rerun ./scripts/recreate_brev_and_run_action_semantics_probe_suite.sh unchanged",
-            "RCA_BREV_LOGIN_EMAIL=<email> ./scripts/refresh_brev_login.sh",
-            "RCA_BREV_CREDITS_VERIFIED=1 RCA_PAID_BUDGET_EUR=<budget> RCA_PAID_ESTIMATED_EUR_PER_HOUR=<hourly-estimate> ./scripts/check_launchable_retry_readiness.sh",
-            "RCA_BREV_CREDITS_VERIFIED=1 RCA_PAID_BUDGET_EUR=<budget> RCA_PAID_ESTIMATED_EUR_PER_HOUR=<hourly-estimate> ./scripts/prepare_contact_smoke_run.sh",
-            "./scripts/pull_contact_smoke_log.sh <launchable-env-name> /workspace/robot-contact-assembly",
-            "./scripts/archive_contact_smoke_log.sh <pulled-contact_physics_smoke.log>",
             "```",
+            "",
+            "## Historical Contact-Smoke Reference",
+            "",
+            "The old contact-smoke evidence path remains available through "
+            "`scripts/pull_contact_smoke_log.sh` and `scripts/archive_contact_smoke_log.sh`, "
+            "but it is not the active next step after Phase 2 PASS. Do not hand-set "
+            "`RCA_BREV_CREDITS_VERIFIED` or `RCA_PAID_ESTIMATED_EUR_PER_HOUR` for the "
+            "success-variation run; use `scripts/write_brev_credit_evidence.py` and "
+            "`scripts/arm_success_variation_paid_env.py` so the ignored local env stays "
+            "one-run and fail-closed.",
         ]
     )
     return "\n".join(lines) + "\n"
