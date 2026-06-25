@@ -331,6 +331,51 @@ def success_variation_pre_batch_assumption_audit_status() -> Check:
     return Check("Success variation pre-batch assumption audit", status, detail)
 
 
+def success_variation_post_batch_assumption_audit_status() -> Check:
+    result = run_script(
+        "python3",
+        "scripts/audit_success_variation_assumptions.py",
+        str(SUCCESS_VARIATION_MANIFEST),
+        "--phase",
+        "post-batch",
+        "--no-output",
+    )
+    marker = "[success-variation-assumption-audit] facts="
+    if marker not in result.stdout:
+        return Check(
+            "Success variation post-batch assumption audit",
+            "FAIL",
+            "Could not parse scripts/audit_success_variation_assumptions.py output.",
+        )
+    try:
+        facts = _json_prefix(result.stdout.split(marker, 1)[1])
+    except (json.JSONDecodeError, ValueError) as exc:
+        return Check(
+            "Success variation post-batch assumption audit",
+            "FAIL",
+            f"Assumption audit JSON parse failed: {exc}",
+        )
+
+    audit_status = str(facts.get("audit_status") or "BLOCKED")
+    blockers = facts.get("blockers") if isinstance(facts.get("blockers"), list) else []
+    warnings = facts.get("warnings") if isinstance(facts.get("warnings"), list) else []
+    source_trace = facts.get("source_trace") if isinstance(facts.get("source_trace"), dict) else {}
+    classification = facts.get("classification_summary") if isinstance(facts.get("classification_summary"), dict) else {}
+    result_gate = facts.get("result_gate") if isinstance(facts.get("result_gate"), dict) else {}
+    result_summary = result_gate.get("summary") if isinstance(result_gate.get("summary"), dict) else {}
+    detail = (
+        f"audit_status={audit_status}; phase={facts.get('phase')}; "
+        f"source_trace_status={source_trace.get('status')}; "
+        f"result_gate_pass={result_gate.get('pass')}; "
+        f"strict_non_negative_variations={result_summary.get('strict_non_negative_variation_count')}; "
+        f"negative_control={result_summary.get('negative_control_classification')}; "
+        f"missing={classification.get('missing_count')}; blockers={len(blockers)}; "
+        f"warnings={len(warnings)}."
+    )
+    status = "PASS" if audit_status == "PASS" else "BLOCKED"
+    return Check("Success variation post-batch assumption audit", status, detail)
+
+
 def brev_credit_review_status() -> Check:
     result = run_script("python3", "scripts/prepare_brev_credit_review.py", "--no-output")
     marker = "[brev-credit-review] facts="
@@ -905,6 +950,7 @@ def checks() -> list[Check]:
         success_variation_recovery_plan_status(),
         success_variation_dataset_prep_status(),
         success_variation_pre_batch_assumption_audit_status(),
+        success_variation_post_batch_assumption_audit_status(),
         success_variation_paid_lifecycle_preflight_status(),
         brev_credit_review_status(),
         v0_language_instruction_suite_status(),
@@ -1134,6 +1180,7 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "python3 scripts/check_success_variation_batch_results.py artifacts/manifests/success_trace_variations_2026-06-25.json",
             "python3 scripts/prepare_success_variation_dataset.py artifacts/manifests/success_trace_variations_2026-06-25.json --dry-run",
             "python3 scripts/audit_success_variation_assumptions.py artifacts/manifests/success_trace_variations_2026-06-25.json --phase pre-batch --run-packet artifacts/analysis/success_variation_run_packet_2026-06-25.json --no-output",
+            "python3 scripts/audit_success_variation_assumptions.py artifacts/manifests/success_trace_variations_2026-06-25.json --phase post-batch --no-output",
             "python3 scripts/plan_success_variation_recovery_batch.py artifacts/manifests/success_trace_variations_2026-06-25.json --no-output",
             "python3 scripts/prepare_brev_credit_review.py --no-output",
             "python3 scripts/prepare_brev_credit_review.py --balance-eur <current-brev-ui-balance> --no-output",

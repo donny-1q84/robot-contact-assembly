@@ -5961,6 +5961,21 @@ def main() -> int:
         )
         assert_contains(
             result,
+            "Success variation post-batch assumption audit | BLOCKED",
+            "status report post-batch assumption audit detail",
+        )
+        assert_contains(
+            result,
+            "result_gate_pass=False",
+            "status report post-batch result-gate detail",
+        )
+        assert_contains(
+            result,
+            "negative_control=missing",
+            "status report post-batch negative-control detail",
+        )
+        assert_contains(
+            result,
             "V0 scripted-skill dataset prep | BLOCKED",
             "status report dataset prep detail",
         )
@@ -6144,6 +6159,11 @@ def main() -> int:
             result,
             "python3 scripts/audit_success_variation_assumptions.py artifacts/manifests/success_trace_variations_2026-06-25.json --phase pre-batch --run-packet artifacts/analysis/success_variation_run_packet_2026-06-25.json --no-output",
             "status report pre-batch assumption audit command detail",
+        )
+        assert_contains(
+            result,
+            "python3 scripts/audit_success_variation_assumptions.py artifacts/manifests/success_trace_variations_2026-06-25.json --phase post-batch --no-output",
+            "status report post-batch assumption audit command detail",
         )
         assert_contains(
             result,
