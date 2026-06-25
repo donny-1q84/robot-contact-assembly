@@ -2413,6 +2413,34 @@ def run_success_variation_manifest_tests() -> None:
         if "missing planned trace artifacts" not in review_md.read_text(encoding="utf-8"):
             raise AssertionError("review markdown should include missing-artifact failure detail")
 
+        finalize_dry_run_dir = tmp_dir / "finalize_dry_run"
+        result = run(
+            [
+                "scripts/finalize_success_variation_batch.sh",
+                str(manifest_path),
+                "--dry-run",
+            ],
+            env={
+                "RCA_SUCCESS_VARIATION_FINALIZE_SKIP_BREV_SAFETY": "1",
+                "RCA_SUCCESS_VARIATION_RESULTS_ROOT": str(finalize_dry_run_dir / "pulled_results"),
+                "RCA_SUCCESS_VARIATION_REVIEW_JSON": str(finalize_dry_run_dir / "review.json"),
+                "RCA_SUCCESS_VARIATION_REVIEW_MD": str(finalize_dry_run_dir / "review.md"),
+                "RCA_SUCCESS_VARIATION_RESULT_GATE_JSON": str(finalize_dry_run_dir / "result_gate.json"),
+                "RCA_SUCCESS_VARIATION_DATASET_JSON": str(finalize_dry_run_dir / "dataset" / "manifest.json"),
+                "RCA_SUCCESS_VARIATION_DATASET_MD": str(finalize_dry_run_dir / "dataset" / "README.md"),
+            },
+        )
+        assert_status(result, 0, "success variation finalizer dry-run previews handoff")
+        assert_contains(result, "[success-variation-finalize] DRY_RUN", "finalizer dry-run marker")
+        assert_contains(result, '"writes_review_record": false', "finalizer dry-run no review write detail")
+        assert_contains(result, '"writes_dataset_artifacts": false', "finalizer dry-run no dataset write detail")
+        assert_contains(result, '"results_root":', "finalizer dry-run results-root detail")
+        assert_contains(result, "--results-root", "finalizer dry-run results-root command detail")
+        assert_contains(result, "review_success_variation_batch.py", "finalizer dry-run review command detail")
+        assert_contains(result, "prepare_success_variation_dataset.py", "finalizer dry-run dataset command detail")
+        if finalize_dry_run_dir.exists():
+            raise AssertionError("finalizer dry-run must not write review/result/dataset artifacts")
+
         finalize_blocked_dir = tmp_dir / "finalize_blocked"
         result = run(
             [
@@ -4362,6 +4390,12 @@ def run_success_variation_manifest_tests() -> None:
             "prepare_success_variation_dataset.py",
             "--fail-on-blocked",
             "RCA_SUCCESS_VARIATION_FINALIZE_SKIP_BREV_SAFETY",
+            "--dry-run",
+            "[success-variation-finalize] DRY_RUN",
+            "[success-variation-finalize] facts=",
+            "writes_review_record",
+            "writes_result_gate",
+            "writes_dataset_artifacts",
             "[success-variation-finalize] BLOCKED",
             "[success-variation-finalize] PASS",
             "does not create or delete Brev instances",

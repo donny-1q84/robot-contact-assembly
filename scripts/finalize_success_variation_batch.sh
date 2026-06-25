@@ -4,9 +4,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
+MODE="--run"
+if [[ "${1:-}" == "--dry-run" || "${1:-}" == "--no-output" ]]; then
+  MODE="--dry-run"
+  shift
+fi
+
 MANIFEST="${1:-${REPO_ROOT}/artifacts/manifests/success_trace_variations_2026-06-25.json}"
 if [[ ! "${MANIFEST}" = /* ]]; then
   MANIFEST="${REPO_ROOT}/${MANIFEST}"
+fi
+if [[ "${2:-}" == "--dry-run" || "${2:-}" == "--no-output" ]]; then
+  MODE="--dry-run"
 fi
 
 RESULTS_ROOT="${RCA_SUCCESS_VARIATION_RESULTS_ROOT:-}"
@@ -26,6 +35,7 @@ echo "[success-variation-finalize] review_json=${REVIEW_JSON}"
 echo "[success-variation-finalize] result_gate_json=${RESULT_GATE_JSON}"
 echo "[success-variation-finalize] dataset_json=${DATASET_JSON}"
 echo "[success-variation-finalize] note: finalize is offline except optional read-only Brev safety review; it does not create or delete Brev instances"
+echo "[success-variation-finalize] mode=${MODE}"
 
 COMMON_ARGS=(
   "${MANIFEST}"
@@ -34,6 +44,114 @@ COMMON_ARGS=(
 )
 if [[ -n "${RESULTS_ROOT}" ]]; then
   COMMON_ARGS+=(--results-root "${RESULTS_ROOT}")
+fi
+
+if [[ "${MODE}" == "--dry-run" ]]; then
+  FINALIZE_MANIFEST="${MANIFEST}" \
+  FINALIZE_RESULTS_ROOT="${RESULTS_ROOT}" \
+  FINALIZE_MIN_STRICT_SUCCESSES="${MIN_STRICT_SUCCESSES}" \
+  FINALIZE_NEGATIVE_CONTROL_ID="${NEGATIVE_CONTROL_ID}" \
+  FINALIZE_REVIEW_JSON="${REVIEW_JSON}" \
+  FINALIZE_REVIEW_MD="${REVIEW_MD}" \
+  FINALIZE_RESULT_GATE_JSON="${RESULT_GATE_JSON}" \
+  FINALIZE_DATASET_JSON="${DATASET_JSON}" \
+  FINALIZE_DATASET_MD="${DATASET_MD}" \
+  FINALIZE_SKIP_BREV_SAFETY="${SKIP_BREV_SAFETY}" \
+  python3 - <<'PY'
+import json
+import os
+
+manifest = os.environ["FINALIZE_MANIFEST"]
+results_root = os.environ["FINALIZE_RESULTS_ROOT"]
+min_strict_successes = os.environ["FINALIZE_MIN_STRICT_SUCCESSES"]
+negative_control_id = os.environ["FINALIZE_NEGATIVE_CONTROL_ID"]
+review_json = os.environ["FINALIZE_REVIEW_JSON"]
+review_md = os.environ["FINALIZE_REVIEW_MD"]
+result_gate_json = os.environ["FINALIZE_RESULT_GATE_JSON"]
+dataset_json = os.environ["FINALIZE_DATASET_JSON"]
+dataset_md = os.environ["FINALIZE_DATASET_MD"]
+review_command = [
+    "python3",
+    "scripts/review_success_variation_batch.py",
+    manifest,
+    "--min-strict-successes",
+    min_strict_successes,
+    "--negative-control-id",
+    negative_control_id,
+    "--output-json",
+    review_json,
+    "--output-md",
+    review_md,
+    "--fail-on-blocked",
+]
+if os.environ["FINALIZE_SKIP_BREV_SAFETY"] == "1":
+    review_command.append("--skip-brev-safety")
+common_tail = []
+if results_root:
+    common_tail.extend(["--results-root", results_root])
+review_command.extend(common_tail)
+payload = {
+    "status": "DRY_RUN",
+    "manifest": manifest,
+    "min_strict_successes": int(min_strict_successes),
+    "negative_control_id": negative_control_id,
+    "outputs": {
+        "review_json": review_json,
+        "review_md": review_md,
+        "result_gate_json": result_gate_json,
+        "dataset_json": dataset_json,
+        "dataset_md": dataset_md,
+        "results_root": results_root or None,
+    },
+    "commands": {
+        "review": review_command,
+        "result_gate": [
+            "python3",
+            "scripts/check_success_variation_batch_results.py",
+            manifest,
+            "--min-strict-successes",
+            min_strict_successes,
+            "--negative-control-id",
+            negative_control_id,
+            *common_tail,
+            "--output-json",
+            result_gate_json,
+        ],
+        "dataset": [
+            "python3",
+            "scripts/prepare_success_variation_dataset.py",
+            manifest,
+            "--min-strict-successes",
+            min_strict_successes,
+            "--negative-control-id",
+            negative_control_id,
+            *common_tail,
+            "--output-json",
+            dataset_json,
+            "--output-md",
+            dataset_md,
+        ],
+    },
+    "side_effects": {
+        "writes_review_record": False,
+        "writes_result_gate": False,
+        "writes_dataset_artifacts": False,
+        "creates_paid_instance": False,
+        "deletes_instances": False,
+        "runs_remote_code": False,
+        "starts_isaac": False,
+    },
+    "not_claims": [
+        "not post-batch result evidence",
+        "not a dataset",
+        "not a paid run",
+        "not learned policy",
+    ],
+}
+print("[success-variation-finalize] DRY_RUN")
+print("[success-variation-finalize] facts=" + json.dumps(payload, indent=2, sort_keys=True))
+PY
+  exit 0
 fi
 
 REVIEW_ARGS=(

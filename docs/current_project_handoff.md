@@ -107,8 +107,11 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    `baseline_replay` still `strict_success`, the 25 mm socket-shift negative
    control labeled `expected=fail_closed` and classified `fail_closed`, and no
    missing planned trace artifacts before learned policy, VLM, ROS, or
-   sim-to-real claims. The finalizer does not create or delete Brev instances
-   and must fail closed in the current baseline-only state. The high-level paid
+   sim-to-real claims. The finalizer does not create or delete Brev instances;
+   use `scripts/finalize_success_variation_batch.sh --dry-run` or append
+   `--dry-run` after the manifest to preview review/result-gate/dataset output
+   paths and side effects without writing artifacts. It must fail closed in the
+   current baseline-only state. The high-level paid
    lifecycle wrapper now runs `scripts/run_v0_offline_policy_readiness_pipeline.py`
    after finalize succeeds, so a passing batch advances into the local
    post-batch handoff before reporting lifecycle PASS. The pipeline chains the
@@ -203,6 +206,7 @@ external_robot_adapter: configs/v0_external_robot_adapter.template.json is safel
 portability_boundary: scripts/check_v0_portability_boundary.py combines V0 skill readiness with the named adapter contract and keeps universal_drop_in_ready=false
 portability_review_packet: scripts/prepare_v0_portability_review.py packages the portability boundary, reusable layers, robot-specific layers, current blockers, exact non-drop-in answer, adapter_workplan, and optional target_adapter_preview into JSON/Markdown without touching Brev, Isaac, ROS, or hardware
 dataset_preparation: scripts/prepare_success_variation_dataset.py is blocked until the result gate passes; --dry-run/--no-output emits parseable facts with writes_dataset_artifacts=false for status-report use
+success_variation_finalizer_preview: scripts/finalize_success_variation_batch.sh --dry-run emits parseable review/result-gate/dataset commands, output paths, and side_effects without writing review records, result-gate JSON, or dataset artifacts
 ```
 
 Do not open another paid GPU run for a prettier video, old Abs IK/JointPos
