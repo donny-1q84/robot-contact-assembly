@@ -590,11 +590,22 @@ def v0_portability_review_packet_status() -> Check:
     summary = facts.get("gate_summary") if isinstance(facts.get("gate_summary"), dict) else {}
     blockers = facts.get("current_blockers") if isinstance(facts.get("current_blockers"), list) else []
     target_preview = facts.get("target_adapter_preview") if isinstance(facts.get("target_adapter_preview"), dict) else {}
+    workplan = facts.get("adapter_workplan") if isinstance(facts.get("adapter_workplan"), dict) else {}
+    evidence_groups = (
+        workplan.get("required_evidence_groups")
+        if isinstance(workplan.get("required_evidence_groups"), dict)
+        else {}
+    )
     detail = (
         f"readiness_label={facts.get('readiness_label')}; "
         f"direct_drop_in_answer={facts.get('direct_drop_in_answer')}; "
         f"named_robot_ready={facts.get('named_robot_ready')}; "
         f"universal_drop_in_ready={facts.get('universal_drop_in_ready')}; "
+        f"workplan_status={workplan.get('status')}; "
+        f"workplan_direct_drop_in={workplan.get('direct_drop_in_answer')}; "
+        f"workplan_skill_blockers={workplan.get('current_skill_blocker_count')}; "
+        f"workplan_adapter_blockers={workplan.get('current_adapter_blocker_count')}; "
+        f"workplan_evidence_groups={len(evidence_groups)}; "
         f"target_adapter_preview={target_preview.get('status')}; "
         f"target_adapter_blockers={target_preview.get('blocker_count')}; "
         f"skill_readiness={summary.get('skill_readiness_status')}; "

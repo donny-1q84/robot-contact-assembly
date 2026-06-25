@@ -50,13 +50,6 @@ else
   log "local quality log=${LOCAL_QUALITY_LOG}"
 fi
 
-log "checking Brev safety snapshot"
-safety_output="$(RCA_BREV_CLI="${BREV_BIN}" "${SCRIPT_DIR}/brev_paid_safety_status.sh" 2>&1)"
-printf '%s\n' "${safety_output}"
-if [[ "${safety_output}" != *"status=SAFE_NO_VISIBLE_PAID_INSTANCE"* ]]; then
-  fail "Brev safety status is not SAFE_NO_VISIBLE_PAID_INSTANCE"
-fi
-
 log "checking current project status"
 status_output="$(python3 "${SCRIPT_DIR}/project_status_report.py" 2>&1)"
 printf '%s\n' "${status_output}"
@@ -68,6 +61,13 @@ if [[ "${status_output}" == *"Phase 2 contact gate | PASS"* ]]; then
 fi
 if [[ "${status_output}" != *"Phase 2 contact gate | BLOCKED"* ]]; then
   fail "Phase 2 contact gate is not in the expected BLOCKED pre-smoke state"
+fi
+
+log "checking Brev safety snapshot"
+safety_output="$(RCA_BREV_CLI="${BREV_BIN}" "${SCRIPT_DIR}/brev_paid_safety_status.sh" 2>&1)"
+printf '%s\n' "${safety_output}"
+if [[ "${safety_output}" != *"status=SAFE_NO_VISIBLE_PAID_INSTANCE"* ]]; then
+  fail "Brev safety status is not SAFE_NO_VISIBLE_PAID_INSTANCE"
 fi
 
 if [[ "${ACK_LIFECYCLE_RISK}" != "1" ]]; then

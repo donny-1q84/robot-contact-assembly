@@ -5954,6 +5954,31 @@ def main() -> int:
         )
         assert_contains(
             result,
+            "workplan_status=BLOCKED_NOT_DROP_IN",
+            "status report portability workplan status detail",
+        )
+        assert_contains(
+            result,
+            "workplan_direct_drop_in=NO_DIRECT_DROP_IN",
+            "status report portability workplan non-drop-in detail",
+        )
+        assert_contains(
+            result,
+            "workplan_skill_blockers=5",
+            "status report portability workplan skill blocker detail",
+        )
+        assert_contains(
+            result,
+            "workplan_adapter_blockers=41",
+            "status report portability workplan adapter blocker detail",
+        )
+        assert_contains(
+            result,
+            "workplan_evidence_groups=8",
+            "status report portability workplan evidence-group detail",
+        )
+        assert_contains(
+            result,
             "python3 scripts/prepare_v0_policy_api_review.py --skip-phase2-contact-gate",
             "status report V0 policy/API review command detail",
         )
