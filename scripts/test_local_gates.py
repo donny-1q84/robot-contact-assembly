@@ -1352,6 +1352,7 @@ def run_v0_skill_api_contract_tests() -> None:
     policy_training_script_path = REPO_ROOT / "scripts" / "train_v0_residual_policy.py"
     policy_eval_script_path = REPO_ROOT / "scripts" / "evaluate_v0_residual_policy.py"
     policy_promotion_gate_path = REPO_ROOT / "scripts" / "check_v0_policy_promotion_gate.py"
+    policy_readiness_pipeline_path = REPO_ROOT / "scripts" / "run_v0_offline_policy_readiness_pipeline.py"
     robot_adapter_path = REPO_ROOT / "configs" / "v0_external_robot_adapter.template.json"
     robot_adapter_checker_path = REPO_ROOT / "scripts" / "check_v0_robot_adapter_contract.py"
     robot_adapter_planner_path = REPO_ROOT / "scripts" / "plan_v0_robot_adapter_manifest.py"
@@ -1429,6 +1430,24 @@ def run_v0_skill_api_contract_tests() -> None:
     result = run(["python3", str(policy_training_script_path), "--dry-run", "--no-output"])
     assert_status(result, 1, "V0 residual policy trainer dry-run blocks before label dataset exists")
     assert_contains(result, "[v0-residual-policy-train] BLOCKED", "V0 residual trainer blocked detail")
+    result = run(["python3", str(policy_readiness_pipeline_path), "--dry-run", "--no-summary"])
+    assert_status(result, 0, "V0 offline policy-readiness pipeline dry-run prints its local sequence")
+    assert_contains(result, "[v0-offline-policy-readiness] status=DRY_RUN", "V0 offline pipeline dry-run marker")
+    assert_contains(result, "policy_training_dry_run", "V0 offline pipeline includes training dry-run step")
+    result = run(["python3", str(policy_readiness_pipeline_path), "--skip-phase2-contact-gate", "--no-summary"])
+    assert_status(result, 0, "V0 offline policy-readiness pipeline reports blocked current state by default")
+    assert_contains(result, "[v0-offline-policy-readiness] status=BLOCKED", "V0 offline pipeline blocked marker")
+    assert_contains(result, "blocked_step=policy_api_review", "V0 offline pipeline blocked step detail")
+    result = run(
+        [
+            "python3",
+            str(policy_readiness_pipeline_path),
+            "--skip-phase2-contact-gate",
+            "--no-summary",
+            "--fail-on-blocked",
+        ]
+    )
+    assert_status(result, 1, "V0 offline policy-readiness pipeline can fail closed while blocked")
     result = run(["python3", str(policy_eval_script_path), "--dry-run", "--no-output"])
     assert_status(result, 0, "V0 residual policy eval reports blocked current state without failing by default")
     assert_contains(result, "[v0-residual-policy-eval] BLOCKED", "V0 residual eval blocked detail")
@@ -1464,6 +1483,7 @@ def run_v0_skill_api_contract_tests() -> None:
     policy_training_script = policy_training_script_path.read_text(encoding="utf-8")
     policy_eval_script = policy_eval_script_path.read_text(encoding="utf-8")
     policy_promotion_gate = policy_promotion_gate_path.read_text(encoding="utf-8")
+    policy_readiness_pipeline = policy_readiness_pipeline_path.read_text(encoding="utf-8")
     robot_adapter_checker = robot_adapter_checker_path.read_text(encoding="utf-8")
     robot_adapter_planner = robot_adapter_planner_path.read_text(encoding="utf-8")
     portability_checker = portability_checker_path.read_text(encoding="utf-8")
@@ -1671,6 +1691,25 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"V0 policy promotion gate missing snippet: {expected_snippet}")
     if "brev create" in policy_promotion_gate or '"${BREV_BIN}" create' in policy_promotion_gate:
         raise AssertionError("V0 policy promotion gate must be offline and must not create Brev instances")
+    for expected_snippet in (
+        "Run the offline V0 policy-readiness pipeline",
+        "v0_offline_policy_readiness_pipeline",
+        "prepare_v0_policy_api_review.py",
+        "audit_v0_policy_dataset.py",
+        "plan_v0_policy_feature_dry_run.py",
+        "audit_v0_policy_label_sources.py",
+        "extract_v0_policy_label_dataset.py",
+        "check_v0_policy_training_preflight.py",
+        "train_v0_residual_policy.py",
+        "not a paid run",
+        "not a Brev or Isaac launcher",
+        "not direct drop-in precision on another robot arm",
+        "does not create, start, stop, delete, copy to, or execute on Brev",
+    ):
+        if expected_snippet not in policy_readiness_pipeline:
+            raise AssertionError(f"V0 offline policy-readiness pipeline missing snippet: {expected_snippet}")
+    if "brev create" in policy_readiness_pipeline or '"${BREV_BIN}" create' in policy_readiness_pipeline:
+        raise AssertionError("V0 offline policy-readiness pipeline must not create Brev instances")
     for expected_snippet in (
         "external-arm portability",
         "ready_for_external_robot cannot be true while adapter evidence blockers remain",
@@ -1915,6 +1954,7 @@ def run_v0_skill_api_contract_tests() -> None:
 
 
 def run_success_variation_manifest_tests() -> None:
+    policy_readiness_pipeline_path = REPO_ROOT / "scripts" / "run_v0_offline_policy_readiness_pipeline.py"
     source_trace = (
         REPO_ROOT
         / "artifacts"
@@ -2759,6 +2799,83 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"training dry-run should preserve residual labels: {training_plan}")
         if "not trained policy" not in training_plan["not_claims"]:
             raise AssertionError(f"training dry-run must preserve not-trained non-claim: {training_plan}")
+        pipeline_dir = tmp_dir / "offline_policy_readiness_pipeline"
+        pipeline_checkpoint = pipeline_dir / "policy_training" / "model.pt"
+        pipeline_summary_json = pipeline_dir / "summary.json"
+        result = run(
+            [
+                "python3",
+                str(policy_readiness_pipeline_path),
+                "--manifest",
+                str(pass_manifest_path),
+                "--dataset",
+                str(dataset_json),
+                "--skip-phase2-contact-gate",
+                "--review-json",
+                str(pipeline_dir / "policy_api_review" / "review_packet.json"),
+                "--review-md",
+                str(pipeline_dir / "policy_api_review" / "README.md"),
+                "--dataset-audit-json",
+                str(pipeline_dir / "policy_dataset_audit" / "audit.json"),
+                "--dataset-audit-md",
+                str(pipeline_dir / "policy_dataset_audit" / "README.md"),
+                "--experiment-json",
+                str(pipeline_dir / "policy_experiment" / "plan.json"),
+                "--experiment-md",
+                str(pipeline_dir / "policy_experiment" / "README.md"),
+                "--feature-json",
+                str(pipeline_dir / "policy_feature_dry_run" / "features.json"),
+                "--feature-md",
+                str(pipeline_dir / "policy_feature_dry_run" / "README.md"),
+                "--label-source-json",
+                str(pipeline_dir / "policy_label_source_audit" / "audit.json"),
+                "--label-source-md",
+                str(pipeline_dir / "policy_label_source_audit" / "README.md"),
+                "--label-dry-run-json",
+                str(pipeline_dir / "policy_label_dry_run" / "labels.json"),
+                "--label-dry-run-md",
+                str(pipeline_dir / "policy_label_dry_run" / "README.md"),
+                "--label-jsonl",
+                str(pipeline_dir / "policy_label_dataset" / "labels.jsonl"),
+                "--label-manifest",
+                str(pipeline_dir / "policy_label_dataset" / "manifest.json"),
+                "--label-md",
+                str(pipeline_dir / "policy_label_dataset" / "README.md"),
+                "--training-preflight-json",
+                str(pipeline_dir / "policy_training_preflight" / "preflight.json"),
+                "--training-preflight-md",
+                str(pipeline_dir / "policy_training_preflight" / "README.md"),
+                "--training-plan-json",
+                str(pipeline_dir / "policy_training" / "dry_run_plan.json"),
+                "--output-checkpoint",
+                str(pipeline_checkpoint),
+                "--summary-json",
+                str(pipeline_summary_json),
+                "--summary-md",
+                str(pipeline_dir / "summary.md"),
+                "--max-samples-per-case",
+                "3",
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 0, "V0 offline policy-readiness pipeline reaches dry-run training on ready fixture")
+        assert_contains(
+            result,
+            "[v0-offline-policy-readiness] status=READY_FOR_LOCAL_TRAINING_DRY_RUN",
+            "V0 offline policy-readiness ready detail",
+        )
+        if pipeline_checkpoint.exists():
+            raise AssertionError("V0 offline policy-readiness pipeline must not write a checkpoint in dry-run mode")
+        pipeline_summary = json.loads(pipeline_summary_json.read_text(encoding="utf-8"))
+        if pipeline_summary["status"] != "READY_FOR_LOCAL_TRAINING_DRY_RUN":
+            raise AssertionError(f"offline policy-readiness summary should be ready: {pipeline_summary}")
+        if pipeline_summary["ready_for_local_training_dry_run"] is not True:
+            raise AssertionError(f"offline policy-readiness should mark dry-run training ready: {pipeline_summary}")
+        if "not a paid run" not in pipeline_summary["not_claims"]:
+            raise AssertionError(f"offline policy-readiness must preserve paid-run non-claim: {pipeline_summary}")
+        step_statuses = {step["step_id"]: step["status"] for step in pipeline_summary["steps"]}
+        if step_statuses.get("policy_training_dry_run") != "PASS":
+            raise AssertionError(f"offline policy-readiness should run training dry-run: {step_statuses}")
         fake_checkpoint = tmp_dir / "policy_training" / "fake_model.pt"
         fake_checkpoint.write_bytes(b"fake checkpoint bytes for dry-run integrity gate\n")
         fake_metadata = tmp_dir / "policy_training" / "metadata.json"

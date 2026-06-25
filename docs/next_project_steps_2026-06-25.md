@@ -176,6 +176,7 @@ scripts/plan_v0_skill_request.py
 scripts/validate_v0_skill_request.py
 scripts/check_v0_skill_readiness.py
 scripts/prepare_v0_policy_api_review.py
+scripts/run_v0_offline_policy_readiness_pipeline.py
 configs/v0_external_robot_adapter.template.json
 scripts/plan_v0_robot_adapter_manifest.py
 scripts/check_v0_robot_adapter_contract.py
@@ -202,6 +203,14 @@ After that readiness gate is `READY`, `scripts/prepare_v0_policy_api_review.py`
 writes the structured policy/API review packet. It does not train a policy or
 start ROS; it packages the validated request, dataset summary, gate summary, API
 boundary, manual review checklist, and explicit non-claims.
+After the V0 dataset exists, `scripts/run_v0_offline_policy_readiness_pipeline.py`
+is the local handoff into residual-policy preparation. It chains the policy/API
+review, dataset audit, experiment plan, feature dry-run, label-source audit,
+label dry-run, label dataset extraction, training preflight, and training
+dry-run. In the current baseline-only state it must remain blocked at the
+policy/API review step; when the variation batch and dataset are complete it can
+advance to `READY_FOR_LOCAL_TRAINING_DRY_RUN` without touching paid compute,
+Brev, Isaac, ROS, or hardware.
 The robot-adapter checker encodes the portability boundary from the other side:
 the committed template is `BLOCKED`, not `READY`, and a future named arm must
 supply concrete URDF/USD or equivalent model sources, TCP/base/fixture
@@ -248,6 +257,7 @@ python3 scripts/plan_v0_policy_label_dry_run.py --no-output
 python3 scripts/extract_v0_policy_label_dataset.py --no-output
 python3 scripts/check_v0_policy_training_preflight.py --no-output
 python3 scripts/train_v0_residual_policy.py --dry-run --no-output
+python3 scripts/run_v0_offline_policy_readiness_pipeline.py --skip-phase2-contact-gate --no-summary
 python3 scripts/evaluate_v0_residual_policy.py --dry-run --no-output
 python3 scripts/plan_v0_robot_adapter_manifest.py \
   --robot-id demo_arm_v0 \
@@ -530,6 +540,7 @@ manifest with:
 python3 scripts/prepare_success_variation_dataset.py \
   artifacts/manifests/success_trace_variations_2026-06-25.json
 python3 scripts/prepare_v0_policy_api_review.py
+python3 scripts/run_v0_offline_policy_readiness_pipeline.py
 ```
 
 The dataset prep script is offline/read-only. In the current baseline-only
@@ -546,6 +557,11 @@ artifacts/reviews/v0_policy_api/README.md
 Those files are allowed to support residual-policy and skill-API design, but
 they still are not proof of a learned policy, sim-to-real readiness, or direct
 cross-robot portability.
+
+The offline policy-readiness pipeline then writes the downstream local review,
+audit, feature, label, label-dataset, training-preflight, and training-dry-run
+artifacts in fail-closed order. It is a local orchestration gate only: no paid
+instance creation, no Isaac run, no ROS execution, and no external-arm claim.
 
 After the residual-label dataset is extracted and
 `scripts/check_v0_policy_training_preflight.py` is READY, use

@@ -832,6 +832,7 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "python3 scripts/extract_v0_policy_label_dataset.py --no-output",
             "python3 scripts/check_v0_policy_training_preflight.py --no-output",
             "python3 scripts/train_v0_residual_policy.py --dry-run --no-output",
+            "python3 scripts/run_v0_offline_policy_readiness_pipeline.py --skip-phase2-contact-gate --no-summary",
             "python3 scripts/evaluate_v0_residual_policy.py --dry-run --no-output",
             "python3 scripts/check_v0_policy_promotion_gate.py --skip-phase2-contact-gate --no-output",
             "python3 scripts/check_v0_robot_adapter_contract.py",

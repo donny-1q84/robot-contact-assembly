@@ -104,6 +104,14 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    lifecycle wrapper now runs `scripts/prepare_v0_policy_api_review.py` after
    finalize succeeds, so a passing batch writes the policy/API review packet
    before reporting lifecycle PASS.
+   After that dataset exists, `scripts/run_v0_offline_policy_readiness_pipeline.py`
+   is the local post-batch handoff: it chains the policy/API review, dataset
+   audit, residual-policy experiment plan, feature dry-run, label-source audit,
+   label dry-run, label dataset extraction, training preflight, and
+   residual-policy training dry-run. It must stay `BLOCKED` while the variation
+   gate or dataset is missing, and it is explicitly not a paid run, Brev/Isaac
+   launcher, ROS integration, hardware execution, sim-to-real proof, or
+   cross-robot drop-in claim.
 9. keep the V0 language/skill/robot-adapter boundary checked by
    `configs/v0_skill_api_contract.json` and
    `scripts/check_v0_skill_api_contract.py`, with request-level examples checked
@@ -158,6 +166,7 @@ policy_label_dry_run: scripts/plan_v0_policy_label_dry_run.py stays blocked unti
 policy_label_dataset: scripts/extract_v0_policy_label_dataset.py stays blocked until label dry-run is ready; it writes JSONL plus manifest/checksum for allowed residual labels only, not a trained policy
 policy_training_preflight: scripts/check_v0_policy_training_preflight.py stays blocked until the label dataset exists; it checks JSONL checksum/schema and the implemented scripts/train_v0_residual_policy.py entrypoint before local training
 policy_training_entrypoint: scripts/train_v0_residual_policy.py supports fail-closed dry-run planning without torch and real local PyTorch training only after the label-dataset preflight passes
+policy_readiness_pipeline: scripts/run_v0_offline_policy_readiness_pipeline.py chains the offline post-batch review/audit/feature/label/training-preflight/training-dry-run gates; it stays blocked until the V0 variation dataset exists and never creates paid resources
 policy_eval_entrypoint: scripts/evaluate_v0_residual_policy.py verifies training metadata, checkpoint checksum, label manifest checksum, and JSONL checksum before supervised residual-label evaluation; it is not an Isaac closed-loop policy gate
 policy_promotion_gate: scripts/check_v0_policy_promotion_gate.py stays blocked until V0 skill readiness, supervised residual-policy evaluation, and an Isaac closed-loop policy evaluation with the same checkpoint checksum, strict successes, fail-closed negative control, and scripted-baseline comparison are all present
 external_robot_adapter_planner: scripts/plan_v0_robot_adapter_manifest.py writes named-arm manifests that remain safely blocked
