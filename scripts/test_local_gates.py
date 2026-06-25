@@ -1465,6 +1465,28 @@ def run_success_variation_manifest_tests() -> None:
         assert_status(result, 1, "success variation result gate rejects incomplete batch")
         assert_contains(result, "missing planned trace artifacts", "incomplete variation batch result-gate detail")
 
+        review_json = tmp_dir / "success_variation_review.json"
+        review_md = tmp_dir / "success_variation_review.md"
+        result = run(
+            [
+                "python3",
+                "scripts/review_success_variation_batch.py",
+                str(manifest_path),
+                "--skip-brev-safety",
+                "--output-json",
+                str(review_json),
+                "--output-md",
+                str(review_md),
+            ]
+        )
+        assert_status(result, 0, "success variation review summarizes incomplete batch")
+        assert_contains(result, "decision=continue_variation_batch_or_debug", "incomplete review decision detail")
+        review = json.loads(review_json.read_text(encoding="utf-8"))
+        if review["decision"] != "continue_variation_batch_or_debug":
+            raise AssertionError(f"incomplete batch review has wrong decision: {review['decision']}")
+        if "missing planned trace artifacts" not in review_md.read_text(encoding="utf-8"):
+            raise AssertionError("review markdown should include missing-artifact failure detail")
+
         pass_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         for case in pass_manifest["cases"]:
             case_id = case["case_id"]
@@ -1479,6 +1501,22 @@ def run_success_variation_manifest_tests() -> None:
         result = run(["python3", "scripts/check_success_variation_batch_results.py", str(pass_manifest_path)])
         assert_status(result, 0, "success variation result gate accepts strict successes plus fail-closed negative")
         assert_contains(result, "[success-variation-result-gate] PASS", "success variation result-gate PASS detail")
+        result = run(
+            [
+                "python3",
+                "scripts/review_success_variation_batch.py",
+                str(pass_manifest_path),
+                "--skip-brev-safety",
+                "--output-json",
+                str(review_json),
+            ]
+        )
+        assert_status(result, 0, "success variation review accepts promotable batch")
+        assert_contains(
+            result,
+            "decision=ready_for_dataset_policy_preparation",
+            "promotable review decision detail",
+        )
 
         negative_success_manifest = json.loads(pass_manifest_path.read_text(encoding="utf-8"))
         for case in negative_success_manifest["cases"]:
@@ -1512,6 +1550,9 @@ def run_success_variation_manifest_tests() -> None:
         ).read_text(encoding="utf-8")
         result_gate = (
             REPO_ROOT / "scripts" / "check_success_variation_batch_results.py"
+        ).read_text(encoding="utf-8")
+        review_script = (
+            REPO_ROOT / "scripts" / "review_success_variation_batch.py"
         ).read_text(encoding="utf-8")
         gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
 
@@ -1621,6 +1662,21 @@ def run_success_variation_manifest_tests() -> None:
                 raise AssertionError(f"success variation result gate missing snippet: {expected_snippet}")
         if "brev create" in result_gate or '"${BREV_BIN}" create' in result_gate:
             raise AssertionError("success variation result gate must be offline and must not create Brev instances")
+
+        for expected_snippet in (
+            "classify_success_variation_results",
+            "check_success_variation_batch_results",
+            "brev_paid_safety_status.sh",
+            "continue_variation_batch_or_debug",
+            "ready_for_dataset_policy_preparation",
+            "cleanup_required",
+            "Do not start learned policy, VLM, ROS, or sim-to-real work yet.",
+            "[success-variation-review] decision=",
+        ):
+            if expected_snippet not in review_script:
+                raise AssertionError(f"success variation review script missing snippet: {expected_snippet}")
+        if "brev create" in review_script or '"${BREV_BIN}" create' in review_script:
+            raise AssertionError("success variation review script must be read-only and must not create Brev instances")
 
 
 def write_action_response_trace(

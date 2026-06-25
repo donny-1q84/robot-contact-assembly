@@ -50,6 +50,8 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    paid preflight, watchdog, artifact pull, deletion, and empty-org confirmation
    to the existing lifecycle wrapper;
 8. after the pulled artifacts are classified, use
+   `scripts/review_success_variation_batch.py` for the one-page decision record
+   and
    `scripts/check_success_variation_batch_results.py` to require at least 5
    non-baseline/non-negative strict successes, `baseline_replay` still
    `strict_success`, the 25 mm socket-shift negative control `fail_closed`, and

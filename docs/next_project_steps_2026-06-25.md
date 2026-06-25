@@ -196,6 +196,7 @@ scripts/recreate_brev_and_run_success_variation_batch.sh
 scripts/run_success_variation_batch_from_config.sh
 scripts/check_success_variation_batch_readiness.py
 scripts/check_success_variation_batch_results.py
+scripts/review_success_variation_batch.py
 configs/success_variation_batch_run.env.example
 tests in scripts/test_local_gates.py for the variation manifest / classifier
 artifacts/manifests/success_trace_variations_2026-06-25.json
@@ -260,9 +261,12 @@ path. The lifecycle-risk acknowledgement is required while
 `docs/brev_launchable_lifecycle_hold.md` is active.
 
 After the batch artifacts are pulled and classified, gate promotion to learned
-policy work with:
+policy work and write the review record with:
 
 ```bash
+python3 scripts/review_success_variation_batch.py \
+  artifacts/manifests/success_trace_variations_2026-06-25.json
+
 python3 scripts/check_success_variation_batch_results.py \
   artifacts/manifests/success_trace_variations_2026-06-25.json
 ```
