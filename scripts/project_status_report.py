@@ -217,6 +217,42 @@ def success_variation_dataset_prep_status() -> Check:
     return Check("V0 scripted-skill dataset prep", status, detail)
 
 
+def success_variation_recovery_plan_status() -> Check:
+    result = run_script(
+        "python3",
+        "scripts/plan_success_variation_recovery_batch.py",
+        str(SUCCESS_VARIATION_MANIFEST),
+        "--no-output",
+    )
+    marker = "[success-variation-recovery] facts="
+    if marker not in result.stdout:
+        return Check(
+            "Success variation recovery plan",
+            "FAIL",
+            "Could not parse scripts/plan_success_variation_recovery_batch.py output.",
+        )
+    try:
+        facts = _json_prefix(result.stdout.split(marker, 1)[1])
+    except (json.JSONDecodeError, ValueError) as exc:
+        return Check("Success variation recovery plan", "FAIL", f"Recovery JSON parse failed: {exc}")
+
+    raw_status = str(facts.get("status") or "BLOCKED")
+    status = "READY" if raw_status in {"READY", "NOTHING_TO_RERUN"} else raw_status
+    rerun_ids = facts.get("rerun_case_ids") if isinstance(facts.get("rerun_case_ids"), list) else []
+    blocked_cases = facts.get("blocked_cases") if isinstance(facts.get("blocked_cases"), list) else []
+    side_effects = facts.get("side_effects") if isinstance(facts.get("side_effects"), dict) else {}
+    classification = facts.get("classification_summary") if isinstance(facts.get("classification_summary"), dict) else {}
+    detail = (
+        f"recovery_status={raw_status}; rerun_case_count={facts.get('rerun_case_count')}; "
+        f"rerun_cases={','.join(str(case_id) for case_id in rerun_ids)}; "
+        f"blocked_case_count={len(blocked_cases)}; missing={classification.get('missing_count')}; "
+        f"negative_control_in_rerun={'socket_x_pos_25mm_negative_control' in rerun_ids}; "
+        f"writes_recovery_artifacts={side_effects.get('writes_recovery_artifacts')}; "
+        f"creates_paid_instance={side_effects.get('creates_paid_instance')}."
+    )
+    return Check("Success variation recovery plan", status, detail)
+
+
 def success_variation_paid_lifecycle_preflight_status() -> Check:
     result = run_script(
         "python3",
@@ -866,6 +902,7 @@ def checks() -> list[Check]:
         contact_gate_status(),
         post_smoke_trace_status(),
         success_variation_status(),
+        success_variation_recovery_plan_status(),
         success_variation_dataset_prep_status(),
         success_variation_pre_batch_assumption_audit_status(),
         success_variation_paid_lifecycle_preflight_status(),
@@ -1097,7 +1134,7 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "python3 scripts/check_success_variation_batch_results.py artifacts/manifests/success_trace_variations_2026-06-25.json",
             "python3 scripts/prepare_success_variation_dataset.py artifacts/manifests/success_trace_variations_2026-06-25.json --dry-run",
             "python3 scripts/audit_success_variation_assumptions.py artifacts/manifests/success_trace_variations_2026-06-25.json --phase pre-batch --run-packet artifacts/analysis/success_variation_run_packet_2026-06-25.json --no-output",
-            "python3 scripts/plan_success_variation_recovery_batch.py artifacts/manifests/success_trace_variations_2026-06-25.json",
+            "python3 scripts/plan_success_variation_recovery_batch.py artifacts/manifests/success_trace_variations_2026-06-25.json --no-output",
             "python3 scripts/prepare_brev_credit_review.py --no-output",
             "python3 scripts/prepare_brev_credit_review.py --balance-eur <current-brev-ui-balance> --no-output",
             "python3 scripts/write_brev_credit_evidence.py --balance-eur <current-brev-ui-balance> --budget-eur 6.00 --dry-run",

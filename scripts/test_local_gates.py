@@ -2326,6 +2326,7 @@ def run_success_variation_manifest_tests() -> None:
             ]
         )
         assert_status(result, 0, "success variation recovery planner handles incomplete batch")
+        assert_contains(result, "[success-variation-recovery] facts=", "recovery planner facts detail")
         assert_contains(result, "[success-variation-recovery] status=READY", "recovery planner ready detail")
         recovery = json.loads(recovery_json.read_text(encoding="utf-8"))
         if recovery["rerun_case_count"] != 8:
@@ -2334,6 +2335,24 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError("recovery planner must not rerun the baseline positive control")
         if "socket_x_pos_25mm_negative_control" not in recovery_sh.read_text(encoding="utf-8"):
             raise AssertionError("recovery shell should include the missing negative-control rerun")
+        recovery_no_output_json = tmp_dir / "recovery_no_output.json"
+        recovery_no_output_sh = tmp_dir / "recovery_no_output.sh"
+        result = run(
+            [
+                "python3",
+                "scripts/plan_success_variation_recovery_batch.py",
+                str(manifest_path),
+                "--output-json",
+                str(recovery_no_output_json),
+                "--output-sh",
+                str(recovery_no_output_sh),
+                "--no-output",
+            ]
+        )
+        assert_status(result, 0, "success variation recovery planner supports no-output status mode")
+        assert_contains(result, '"writes_recovery_artifacts": false', "recovery planner no-output side-effect detail")
+        if recovery_no_output_json.exists() or recovery_no_output_sh.exists():
+            raise AssertionError("no-output recovery planner must not write recovery artifacts")
 
         blocked_dataset_json = tmp_dir / "blocked_dataset" / "manifest.json"
         blocked_dataset_md = tmp_dir / "blocked_dataset" / "README.md"
@@ -5947,6 +5966,22 @@ def main() -> int:
         )
         assert_contains(
             result,
+            "Success variation recovery plan | READY",
+            "status report recovery plan detail",
+        )
+        assert_contains(result, "rerun_case_count=8", "status report recovery rerun count detail")
+        assert_contains(
+            result,
+            "negative_control_in_rerun=True",
+            "status report recovery negative-control detail",
+        )
+        assert_contains(
+            result,
+            "writes_recovery_artifacts=False",
+            "status report recovery no-write detail",
+        )
+        assert_contains(
+            result,
             "result_gate_pass=False",
             "status report dataset prep result-gate detail",
         )
@@ -6099,6 +6134,11 @@ def main() -> int:
             result,
             "python3 scripts/prepare_success_variation_paid_batch.py --balance-eur <current-brev-ui-balance> --force-credit --i-understand-this-arms-paid-run",
             "status report paid prepare helper command detail",
+        )
+        assert_contains(
+            result,
+            "python3 scripts/plan_success_variation_recovery_batch.py artifacts/manifests/success_trace_variations_2026-06-25.json --no-output",
+            "status report recovery no-output command detail",
         )
         assert_contains(
             result,

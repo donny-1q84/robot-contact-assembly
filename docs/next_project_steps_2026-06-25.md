@@ -608,7 +608,7 @@ python3 scripts/check_success_variation_batch_results.py \
 python3 scripts/run_v0_offline_policy_readiness_pipeline.py \
   --manifest artifacts/manifests/success_trace_variations_2026-06-25.json
 python3 scripts/plan_success_variation_recovery_batch.py \
-  artifacts/manifests/success_trace_variations_2026-06-25.json
+  artifacts/manifests/success_trace_variations_2026-06-25.json --no-output
 ```
 
 The default promotion contract is deliberately strict: `baseline_replay` must
@@ -620,7 +620,9 @@ classified `fail_closed`, and no planned trace artifact may be missing.
 If a fixed-budget batch only fills some traces, use
 `scripts/plan_success_variation_recovery_batch.py` before any rerun. It skips
 already satisfied strict-success cases and the fail-closed negative control, and
-blocks if the negative control unexpectedly succeeds.
+blocks if the negative control unexpectedly succeeds. Use `--no-output` for
+status/audit reads when you only need the current rerun case list without
+writing recovery JSON/shell artifacts.
 
 Only after that result gate passes, preview and then freeze the first V0
 scripted-skill dataset manifest with:

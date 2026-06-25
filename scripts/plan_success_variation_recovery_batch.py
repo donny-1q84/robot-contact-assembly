@@ -178,6 +178,7 @@ def main() -> int:
     parser.add_argument("--steps", type=int, default=220)
     parser.add_argument("--output-json", type=Path, default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--output-sh", type=Path, default=DEFAULT_OUTPUT_SH)
+    parser.add_argument("--no-output", action="store_true")
     parser.add_argument("--fail-on-blocked", action="store_true")
     args = parser.parse_args()
 
@@ -193,18 +194,26 @@ def main() -> int:
         task=args.task,
         steps=args.steps,
     )
+    recovery["side_effects"] = {
+        "writes_recovery_artifacts": not args.no_output,
+        "creates_paid_instance": False,
+        "runs_remote_code": False,
+        "starts_isaac": False,
+        "calls_ros_or_robot": False,
+    }
 
-    if args.output_json is not None:
+    if not args.no_output and args.output_json is not None:
         output_json = _resolve(args.output_json)
         output_json.parent.mkdir(parents=True, exist_ok=True)
         output_json.write_text(json.dumps(recovery, indent=2, sort_keys=True), encoding="utf-8")
         print(f"[success-variation-recovery] wrote JSON: {_rel(output_json)}")
-    if args.output_sh is not None:
+    if not args.no_output and args.output_sh is not None:
         output_sh = _resolve(args.output_sh)
         output_sh.parent.mkdir(parents=True, exist_ok=True)
         output_sh.write_text(batch_planner.render_shell(recovery["plan"]), encoding="utf-8")
         print(f"[success-variation-recovery] wrote shell: {_rel(output_sh)}")
 
+    print("[success-variation-recovery] facts=" + json.dumps(recovery, indent=2, sort_keys=True))
     print("[success-variation-recovery] status=" + recovery["status"])
     print("[success-variation-recovery] rerun_cases=" + ",".join(recovery["rerun_case_ids"]))
     print("[success-variation-recovery] blocked_case_count=" + str(recovery["blocked_case_count"]))
