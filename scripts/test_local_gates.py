@@ -3202,11 +3202,54 @@ def main() -> int:
             "budget_eur=1",
             "estimated_eur_per_hour=10",
             "estimated_max_cost_eur=0.8333",
+            "open_dashboard_on_manual=1",
         ):
             if needle not in watchdog_meta_text:
                 print(f"[gate-tests] FAIL watchdog metadata missing {needle!r}", file=sys.stderr)
                 print(watchdog_meta_text, file=sys.stderr)
                 raise SystemExit(1)
+
+        fake_bin_dir = tmp_dir / "fake-bin"
+        fake_bin_dir.mkdir()
+        fake_open_log = tmp_dir / "fake-open.log"
+        fake_open = fake_bin_dir / "open"
+        fake_open.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "printf '%s\\n' \"$*\" >> \"${FAKE_OPEN_LOG}\"\n",
+            encoding="utf-8",
+        )
+        fake_open.chmod(fake_open.stat().st_mode | stat.S_IXUSR)
+        manual_ledger = tmp_dir / "watchdog-manual-ledger"
+        result = run(
+            ["scripts/brev_paid_run_watchdog.sh"],
+            env={
+                "PATH": f"{fake_bin_dir}:{os.environ.get('PATH', '')}",
+                "FAKE_OPEN_LOG": str(fake_open_log),
+                "RCA_BREV_CLI": str(fake_brev),
+                "RCA_BREV_WATCHDOG_SCOPE": "target",
+                "RCA_BREV_WATCHDOG_INSTANCE_NAME": "watchdog-login-drop",
+                "RCA_BREV_WATCHDOG_MAX_MINUTES": "5",
+                "RCA_BREV_WATCHDOG_POLL_SECONDS": "5",
+                "RCA_BREV_WATCHDOG_QUERY_FAILURE_LIMIT": "1",
+                "RCA_BREV_WATCHDOG_NOTIFY": "0",
+                "RCA_BREV_WATCHDOG_SOUND": "0",
+                "RCA_BREV_WATCHDOG_LEDGER_DIR": str(manual_ledger),
+                "RCA_BREV_WATCHDOG_DASHBOARD_URL": "https://brev.nvidia.com/org/test/environments",
+                "FAKE_BREV_EXIT": "1",
+            },
+        )
+        assert_status(result, 86, "Brev watchdog opens dashboard when CLI query/login fails")
+        assert_contains(result, "MANUAL DELETE REQUIRED", "watchdog manual delete alert detail")
+        if not (manual_ledger / "manual_delete_required.txt").is_file():
+            raise AssertionError("watchdog must write manual_delete_required.txt on query/login failure")
+        if not fake_open_log.is_file() or "https://brev.nvidia.com/org/test/environments" not in fake_open_log.read_text(
+            encoding="utf-8"
+        ):
+            raise AssertionError("watchdog must open the Brev dashboard on manual cleanup risk")
+        events_text = (manual_ledger / "events.tsv").read_text(encoding="utf-8")
+        if "dashboard_open_requested" not in events_text:
+            raise AssertionError("watchdog events should record dashboard_open_requested")
 
         lifecycle_hold = tmp_dir / "brev-lifecycle-hold.md"
         lifecycle_hold.write_text("synthetic lifecycle hold\n", encoding="utf-8")

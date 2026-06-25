@@ -28,6 +28,7 @@ DELETE_ON_TIMEOUT="${RCA_BREV_WATCHDOG_DELETE_ON_TIMEOUT:-1}"
 STOP_BEFORE_DELETE="${RCA_BREV_WATCHDOG_STOP_BEFORE_DELETE:-1}"
 NOTIFY="${RCA_BREV_WATCHDOG_NOTIFY:-1}"
 PLAY_SOUND="${RCA_BREV_WATCHDOG_SOUND:-1}"
+OPEN_DASHBOARD_ON_MANUAL="${RCA_BREV_WATCHDOG_OPEN_DASHBOARD_ON_MANUAL:-1}"
 DRY_RUN="${RCA_BREV_WATCHDOG_DRY_RUN:-0}"
 ONCE="${RCA_BREV_WATCHDOG_ONCE:-0}"
 DASHBOARD_URL="${RCA_BREV_WATCHDOG_DASHBOARD_URL:-https://brev.nvidia.com/org/org-3BaYGdtoRGmgc77Z7NHHhPSD254/environments}"
@@ -108,6 +109,16 @@ OSA
   fi
 }
 
+open_dashboard_for_manual_cleanup() {
+  if [[ "${OPEN_DASHBOARD_ON_MANUAL}" != "1" ]]; then
+    return 0
+  fi
+  if command -v open >/dev/null 2>&1; then
+    open "${DASHBOARD_URL}" >/dev/null 2>&1 || true
+    record_event "dashboard_open_requested" "${DASHBOARD_URL}"
+  fi
+}
+
 manual_delete_required() {
   local reason="$1"
   local body
@@ -126,6 +137,7 @@ Recorded at: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 EOF
   record_event "manual_delete_required" "${reason}"
   notify_user "Brev billing risk" "${body}"
+  open_dashboard_for_manual_cleanup
 }
 
 run_with_timeout() {
@@ -214,6 +226,7 @@ poll_seconds=${POLL_SECONDS}
 query_failure_limit=${QUERY_FAILURE_LIMIT}
 delete_on_timeout=${DELETE_ON_TIMEOUT}
 stop_before_delete=${STOP_BEFORE_DELETE}
+open_dashboard_on_manual=${OPEN_DASHBOARD_ON_MANUAL}
 dashboard_url=${DASHBOARD_URL}
 ledger_dir=${LEDGER_DIR}
 started_at_utc=$(date -u +"%Y-%m-%dT%H:%M:%SZ")

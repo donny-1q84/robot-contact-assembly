@@ -19,7 +19,7 @@ If any instance is already running and it is not part of the current task, stop 
 
 ## Mandatory Billing Watchdog
 
-Every paid Brev run must have a local watchdog before the instance is created or immediately after a UI-created Launchable appears. The watchdog records a local ledger with the TTL plus any supplied budget/hourly-estimate cost boundary, polls `brev ls instances --json --all`, and enforces a hard TTL. If the Brev CLI login expires, it cannot delete the instance automatically, but it fails loudly by writing `manual_delete_required.txt` and sending a macOS notification with the Dashboard URL.
+Every paid Brev run must have a local watchdog before the instance is created or immediately after a UI-created Launchable appears. The watchdog records a local ledger with the TTL plus any supplied budget/hourly-estimate cost boundary, polls `brev ls instances --json --all`, and enforces a hard TTL. If the Brev CLI login expires, it cannot delete the instance automatically, but it fails loudly by writing `manual_delete_required.txt`, sending a macOS notification with the Dashboard URL, and opening the Dashboard deletion page by default (`RCA_BREV_WATCHDOG_OPEN_DASHBOARD_ON_MANUAL=1`).
 
 For target-specific monitoring:
 
