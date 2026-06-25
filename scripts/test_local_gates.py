@@ -3682,6 +3682,9 @@ def run_success_variation_manifest_tests() -> None:
         assert_status(result, 0, "success variation paid lifecycle preflight reports blocked current state")
         assert_contains(result, "[success-variation-paid-preflight] status=BLOCKED", "paid lifecycle preflight blocked marker")
         assert_contains(result, "Brev credit evidence file is missing", "paid lifecycle preflight credit blocker detail")
+        assert_contains(result, "watchdog_max_minutes", "paid lifecycle preflight watchdog plan detail")
+        assert_contains(result, "estimated_max_cost_eur", "paid lifecycle preflight cost-envelope detail")
+        assert_contains(result, "required_cleanup_guards", "paid lifecycle preflight cleanup guard detail")
         assert_contains(
             result,
             "success-variation pre-batch assumption audit must pass before the paid lifecycle",
@@ -3796,10 +3799,26 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"paid lifecycle preflight should record READY contact bundle: {ready_preflight}")
         if ready_preflight["pre_batch_assumption_audit"]["audit_status"] != "PASS":
             raise AssertionError(f"paid lifecycle preflight should enforce a passing pre-batch audit: {ready_preflight}")
+        lifecycle_plan = ready_preflight["lifecycle_plan"]
+        if lifecycle_plan["budget"]["watchdog_max_minutes"] != 75:
+            raise AssertionError(f"paid lifecycle preflight should expose watchdog TTL: {ready_preflight}")
+        if lifecycle_plan["budget"]["estimated_max_cost_eur"] != 5.625:
+            raise AssertionError(f"paid lifecycle preflight should expose estimated max cost: {ready_preflight}")
+        if lifecycle_plan["timeouts"]["auto_disarm"] is not True:
+            raise AssertionError(f"paid lifecycle preflight should expose auto-disarm: {ready_preflight}")
+        if "manual_disarm_fallback" not in lifecycle_plan["commands"]:
+            raise AssertionError(f"paid lifecycle preflight should expose manual disarm fallback: {ready_preflight}")
+        if "SAFE_NO_VISIBLE_PAID_INSTANCE" not in " ".join(lifecycle_plan["required_cleanup_guards"]):
+            raise AssertionError(f"paid lifecycle preflight should expose cleanup confirmation guard: {ready_preflight}")
+        if any(lifecycle_plan["side_effects"].values()):
+            raise AssertionError(f"paid lifecycle plan must remain side-effect free: {ready_preflight}")
         if any(ready_preflight["side_effects"].values()):
             raise AssertionError(f"paid lifecycle preflight must remain side-effect free: {ready_preflight}")
-        if "Success Variation Paid Lifecycle Preflight" not in ready_preflight_md.read_text(encoding="utf-8"):
+        ready_preflight_md_text = ready_preflight_md.read_text(encoding="utf-8")
+        if "Success Variation Paid Lifecycle Preflight" not in ready_preflight_md_text:
             raise AssertionError("paid lifecycle preflight README should include a clear title")
+        if "Cleanup Guards" not in ready_preflight_md_text:
+            raise AssertionError("paid lifecycle preflight README should include cleanup guards")
         result = run(
             [
                 "python3",
@@ -3862,6 +3881,10 @@ def run_success_variation_manifest_tests() -> None:
             "check_success_variation_batch_plan.py",
             "audit_success_variation_assumptions",
             "pre_batch_assumption_audit",
+            "lifecycle_plan",
+            "required_cleanup_guards",
+            "estimated_max_cost_eur",
+            "manual_disarm_fallback",
             "success-variation pre-batch assumption audit must pass before the paid lifecycle",
             "arm_success_variation_paid_env",
             "READY_FOR_SINGLE_PAID_LIFECYCLE",

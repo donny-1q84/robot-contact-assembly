@@ -418,7 +418,11 @@ python3 scripts/check_success_variation_paid_lifecycle_preflight.py --no-output
 
 It summarizes clean source state, current contact-smoke bundle readiness, Brev
 UI credit evidence, `SAFE_NO_VISIBLE_PAID_INSTANCE`, local env armability, and
-batch-plan readiness. It does not arm the env or create a paid instance.
+batch-plan readiness. It also emits a read-only `lifecycle_plan` with the
+watchdog TTL, budget, estimated hourly price, estimated max cost, manual disarm
+fallback, safety snapshot command, recovery command, and cleanup guards that
+require final `SAFE_NO_VISIBLE_PAID_INSTANCE` / `workspaces: null` evidence.
+It does not arm the env or create a paid instance.
 `scripts/prepare_brev_credit_review.py --no-output` is the read-only bridge for
 the remaining external blocker: it prints the Brev organization dashboard URL,
 the missing credit-evidence status, preview and real

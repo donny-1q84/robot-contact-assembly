@@ -208,9 +208,14 @@ def success_variation_paid_lifecycle_preflight_status() -> Check:
     credit = facts.get("credit_evidence") if isinstance(facts.get("credit_evidence"), dict) else {}
     credit_blockers = credit.get("blockers") if isinstance(credit.get("blockers"), list) else []
     plan = facts.get("batch_plan_gate") if isinstance(facts.get("batch_plan_gate"), dict) else {}
+    lifecycle_plan = facts.get("lifecycle_plan") if isinstance(facts.get("lifecycle_plan"), dict) else {}
+    lifecycle_budget = lifecycle_plan.get("budget") if isinstance(lifecycle_plan.get("budget"), dict) else {}
     detail = (
         f"config={facts.get('config')}; credit={credit.get('status')}; "
-        f"plan_exit={plan.get('exit_code')}; blockers={len(blockers)}; "
+        f"plan_exit={plan.get('exit_code')}; "
+        f"watchdog_max_minutes={lifecycle_budget.get('watchdog_max_minutes')}; "
+        f"estimated_max_cost_eur={lifecycle_budget.get('estimated_max_cost_eur')}; "
+        f"blockers={len(blockers)}; "
         f"credit_blockers={len(credit_blockers)}; next_action={facts.get('next_action')}."
     )
     return Check("Success variation paid lifecycle preflight", status, detail)

@@ -36,6 +36,7 @@ DEFAULT_MANIFEST = REPO_ROOT / "artifacts" / "manifests" / "success_trace_variat
 DEFAULT_RUN_PACKET = REPO_ROOT / "artifacts" / "analysis" / "success_variation_run_packet_2026-06-25.json"
 DEFAULT_OUTPUT_JSON = REPO_ROOT / "artifacts" / "analysis" / "success_variation_paid_lifecycle_preflight.json"
 DEFAULT_OUTPUT_MD = REPO_ROOT / "artifacts" / "analysis" / "success_variation_paid_lifecycle_preflight.md"
+DEFAULT_DASHBOARD_URL = "https://brev.nvidia.com/org/org-3BaYGdtoRGmgc77Z7NHHhPSD254/environments"
 
 
 def _rel(path: Path) -> str:
@@ -94,6 +95,129 @@ def _int_env(values: dict[str, str], key: str, default: int, blockers: list[str]
         blockers.append(f"{key} must be positive, got {raw!r}")
         return None
     return parsed
+
+
+def _bool_env(values: dict[str, str], key: str, default: str) -> bool:
+    return values.get(key, default).strip() == "1"
+
+
+def _lifecycle_plan(
+    *,
+    values: dict[str, str],
+    config_path: Path,
+    manifest_path: Path,
+    run_packet_path: Path,
+    credit_path: Path,
+    budget_eur: float | None,
+    credit_max_age_minutes: int | None,
+    blockers: list[str],
+) -> dict[str, Any]:
+    hourly = _float_env(values, "RCA_PAID_ESTIMATED_EUR_PER_HOUR", blockers) if values else None
+    watchdog_minutes = _int_env(values, "RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES", 75, blockers) if values else None
+    arm_max_age_minutes = _int_env(values, "RCA_PAID_ARMING_MAX_AGE_MINUTES", 15, blockers) if values else None
+    estimated_max_cost = None
+    if hourly is not None and watchdog_minutes is not None:
+        estimated_max_cost = round(hourly * watchdog_minutes / 60.0, 4)
+
+    return {
+        "instance": {
+            "name": values.get("RCA_SUCCESS_VARIATION_ENV_NAME", "rca-success-variation-batch-vm"),
+            "type": values.get("RCA_SUCCESS_VARIATION_INSTANCE_TYPE", "g6e.xlarge"),
+            "remote_root": values.get("RCA_SUCCESS_VARIATION_REMOTE_ROOT"),
+            "compose_root": values.get("RCA_SUCCESS_VARIATION_COMPOSE_ROOT"),
+        },
+        "budget": {
+            "budget_eur": budget_eur,
+            "estimated_eur_per_hour": hourly,
+            "watchdog_max_minutes": watchdog_minutes,
+            "estimated_max_cost_eur": estimated_max_cost,
+            "credit_evidence_max_age_minutes": credit_max_age_minutes,
+            "arming_max_age_minutes": arm_max_age_minutes,
+        },
+        "timeouts": {
+            "setup_reserve_seconds": _int_env(values, "RCA_SUCCESS_VARIATION_SETUP_RESERVE_SECONDS", 900, blockers)
+            if values
+            else None,
+            "per_case_calibration_timeout_seconds": _int_env(
+                values, "RCA_SUCCESS_VARIATION_CASE_CALIBRATION_TIMEOUT_SECONDS", 300, blockers
+            )
+            if values
+            else None,
+            "per_case_trace_timeout_seconds": _int_env(
+                values, "RCA_SUCCESS_VARIATION_CASE_TRACE_TIMEOUT_SECONDS", 300, blockers
+            )
+            if values
+            else None,
+            "trace_timeout_kill_seconds": _int_env(
+                values, "RCA_SUCCESS_VARIATION_TRACE_TIMEOUT_KILL_SECONDS", 60, blockers
+            )
+            if values
+            else None,
+            "timeout_margin_seconds": _int_env(values, "RCA_SUCCESS_VARIATION_TIMEOUT_MARGIN_SECONDS", 300, blockers)
+            if values
+            else None,
+            "auto_disarm": _bool_env(values, "RCA_SUCCESS_VARIATION_AUTO_DISARM", "1") if values else None,
+        },
+        "commands": {
+            "preview_prepare_without_create": [
+                "python3",
+                "scripts/prepare_success_variation_paid_batch.py",
+                "--balance-eur",
+                "<current-brev-ui-balance>",
+                "--budget-eur",
+                f"{budget_eur:.2f}" if budget_eur is not None else "<budget-eur>",
+                "--force-credit",
+                "--i-understand-this-arms-paid-run",
+                "--dry-run",
+            ],
+            "run_single_paid_lifecycle": [
+                "python3",
+                "scripts/run_success_variation_paid_lifecycle.py",
+                "--balance-eur",
+                "<current-brev-ui-balance>",
+                "--run",
+                "--i-understand-this-can-create-paid-instance",
+            ],
+            "manual_disarm_fallback": [
+                "python3",
+                "scripts/arm_success_variation_paid_env.py",
+                "--config",
+                _rel(config_path),
+                "--output",
+                _rel(config_path),
+                "--disarm",
+            ],
+            "safety_snapshot": ["./scripts/brev_paid_safety_status.sh"],
+            "finalize_after_artifacts": ["scripts/finalize_success_variation_batch.sh", _rel(manifest_path)],
+            "recovery_after_failure": [
+                "python3",
+                "scripts/plan_success_variation_recovery_batch.py",
+                _rel(manifest_path),
+            ],
+        },
+        "required_cleanup_guards": [
+            "guarded wrapper starts a target-specific watchdog before paid lifecycle work",
+            "run_success_variation_batch_from_config.sh --run auto-disarms local paid acknowledgements on exit",
+            "run_success_variation_paid_lifecycle.py disarms and reruns brev_paid_safety_status.sh after preflight, run, interruption, or failure",
+            "final safety evidence must show SAFE_NO_VISIBLE_PAID_INSTANCE / workspaces null before claiming cleanup",
+            "watchdog writes manual_delete_required.txt and opens the Brev dashboard when CLI queries fail repeatedly or login expires",
+        ],
+        "evidence_paths": {
+            "credit_evidence": _rel(credit_path),
+            "config": _rel(config_path),
+            "manifest": _rel(manifest_path),
+            "run_packet": _rel(run_packet_path),
+            "dashboard_url": DEFAULT_DASHBOARD_URL,
+        },
+        "side_effects": {
+            "writes_local_env": False,
+            "creates_paid_instance": False,
+            "runs_remote_code": False,
+            "starts_isaac": False,
+            "copies_artifacts": False,
+            "deletes_instances": False,
+        },
+    }
 
 
 def _run_capture(args: list[str], timeout_seconds: int) -> dict[str, Any]:
@@ -190,6 +314,16 @@ def build_report(
     credit_max_age = _int_env(values, "RCA_BREV_CREDIT_EVIDENCE_MAX_AGE_MINUTES", 60, blockers) if values else None
     credit_path_raw = values.get("RCA_BREV_CREDIT_EVIDENCE_JSON", "configs/brev_credit_verification.local.json")
     credit_path = _resolve(Path(credit_path_raw))
+    lifecycle_plan = _lifecycle_plan(
+        values=values,
+        config_path=config_path,
+        manifest_path=manifest_path,
+        run_packet_path=run_packet_path,
+        credit_path=credit_path,
+        budget_eur=budget,
+        credit_max_age_minutes=credit_max_age,
+        blockers=blockers,
+    )
     credit_report: dict[str, Any] | None = None
     if budget is not None and credit_max_age is not None:
         credit_report = credit_gate.build_report(
@@ -268,6 +402,7 @@ def build_report(
         "armability": arm_report,
         "batch_plan_gate": plan_report,
         "pre_batch_assumption_audit": pre_batch_audit,
+        "lifecycle_plan": lifecycle_plan,
         "blockers": list(dict.fromkeys(blockers)),
         "failures": list(dict.fromkeys(failures)),
         "next_action": next_action,
@@ -278,6 +413,7 @@ def build_report(
             "runs_remote_code": False,
             "starts_isaac": False,
             "copies_artifacts": False,
+            "deletes_instances": False,
         },
         "not_claims": [
             "not a paid run",
@@ -302,6 +438,8 @@ def _render_markdown(report: dict[str, Any]) -> str:
         f"- git_worktree: {report['source_state']['git_worktree']['status']}",
         f"- contact_smoke_bundle: {report['source_state']['contact_smoke_bundle']['status']}",
         f"- budget_eur: {report['budget_eur']}",
+        f"- watchdog_max_minutes: {report['lifecycle_plan']['budget']['watchdog_max_minutes']}",
+        f"- estimated_max_cost_eur: {report['lifecycle_plan']['budget']['estimated_max_cost_eur']}",
         f"- next_action: {report['next_action']}",
         f"- pre_batch_assumption_audit: "
         f"{(report.get('pre_batch_assumption_audit') or {}).get('audit_status')}",
@@ -325,6 +463,8 @@ def _render_markdown(report: dict[str, Any]) -> str:
     lines.extend(["", "## Side Effects", ""])
     for key, value in report["side_effects"].items():
         lines.append(f"- {key}: {value}")
+    lines.extend(["", "## Cleanup Guards", ""])
+    lines.extend(f"- {item}" for item in report["lifecycle_plan"]["required_cleanup_guards"])
     lines.extend(["", "## Not Claims", ""])
     lines.extend(f"- {item}" for item in report["not_claims"])
     return "\n".join(lines) + "\n"
