@@ -132,6 +132,67 @@ def _check_brev_safety(blockers: list[str], facts: dict[str, Any]) -> None:
         blockers.append("Brev safety status must be SAFE_NO_VISIBLE_PAID_INSTANCE before creating the batch VM")
 
 
+def _check_instance_price(blockers: list[str], facts: dict[str, Any]) -> None:
+    instance_type = (
+        os.environ.get("RCA_SUCCESS_VARIATION_INSTANCE_TYPE")
+        or os.environ.get("RCA_FINAL_CONTACT_INSTANCE_TYPE")
+        or "g6e.xlarge"
+    ).strip()
+    facts["instance_type"] = instance_type
+    try:
+        result = _run(["/Users/Shenghan/bin/brev", "search", "gpu", "--json"], timeout=60)
+    except subprocess.TimeoutExpired:
+        facts["instance_price_check"] = "timeout"
+        blockers.append("Brev instance price search timed out; current instance availability/price is unknown")
+        return
+
+    facts["instance_price_search_exit"] = result.returncode
+    if result.returncode != 0:
+        facts["instance_price_search_output"] = result.stdout[-2000:]
+        blockers.append("Brev instance price search failed; current instance availability/price is unknown")
+        return
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        facts["instance_price_search_output"] = result.stdout[-2000:]
+        blockers.append("Brev instance price search did not return parseable JSON")
+        return
+    if not isinstance(payload, list):
+        blockers.append("Brev instance price search JSON root is not a list")
+        return
+
+    matches = [item for item in payload if isinstance(item, dict) and item.get("type") == instance_type]
+    if not matches:
+        blockers.append(f"selected instance type is not currently visible in Brev search: {instance_type}")
+        return
+    selected = matches[0]
+    price = selected.get("price_per_hour")
+    try:
+        price_per_hour = float(price)
+    except (TypeError, ValueError):
+        blockers.append(f"selected instance type has no numeric price_per_hour: {instance_type}")
+        return
+
+    facts["instance_price"] = {
+        "type": selected.get("type"),
+        "cloud": selected.get("cloud"),
+        "provider": selected.get("provider"),
+        "gpu_name": selected.get("gpu_name"),
+        "gpu_count": selected.get("gpu_count"),
+        "total_vram_gb": selected.get("total_vram_gb"),
+        "ram_gb": selected.get("ram_gb"),
+        "stoppable": selected.get("stoppable"),
+        "price_per_hour": price_per_hour,
+    }
+    if selected.get("stoppable") is not True:
+        blockers.append(f"selected instance type is not stoppable: {instance_type}")
+    estimate = facts.get("estimated_eur_per_hour")
+    if isinstance(estimate, (int, float)) and price_per_hour > float(estimate):
+        blockers.append(
+            f"live Brev price_per_hour {price_per_hour:.4f} exceeds RCA_PAID_ESTIMATED_EUR_PER_HOUR {float(estimate):.4f}"
+        )
+
+
 def _check_manifest_contract(manifest_path: Path, blockers: list[str], facts: dict[str, Any]) -> None:
     if not manifest_path.is_file():
         blockers.append(f"manifest is missing: {_rel(manifest_path)}")
@@ -224,6 +285,7 @@ def main() -> int:
     _check_paid_env(blockers, facts)
     _check_phase2_gate(blockers, facts)
     _check_brev_safety(blockers, facts)
+    _check_instance_price(blockers, facts)
 
     print("[success-variation-readiness] facts=" + json.dumps(facts, indent=2, sort_keys=True))
     if blockers:

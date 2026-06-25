@@ -76,10 +76,10 @@ execution script assumes an already ready remote environment; it does not create
 or delete Brev instances. If creation is needed, the dedicated success-variation
 paid wrapper must still pass the success-variation readiness gate,
 `paid_compute_preflight.sh`, current-credit verification, fixed budget/TTL,
-`SAFE_NO_VISIBLE_PAID_INSTANCE`, and lifecycle-risk acknowledgement while
-`docs/brev_launchable_lifecycle_hold.md` is active. After the run, the
-success-variation result gate must pass before this project can move from
-scripted reproducibility into dataset/policy work.
+`SAFE_NO_VISIBLE_PAID_INSTANCE`, live Brev instance price/availability check,
+and lifecycle-risk acknowledgement while `docs/brev_launchable_lifecycle_hold.md`
+is active. After the run, the success-variation result gate must pass before
+this project can move from scripted reproducibility into dataset/policy work.
 
 Detailed plan:
 

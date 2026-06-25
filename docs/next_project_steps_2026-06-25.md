@@ -252,8 +252,9 @@ scripts/run_success_variation_batch_from_config.sh \
 Before creation, `scripts/check_success_variation_batch_readiness.py` checks
 the manifest/positive-control/negative-control contract, Phase 2 gate, explicit
 budget/hourly estimate/TTL, current-credit verification marker, lifecycle-risk
-acknowledgement, and `SAFE_NO_VISIBLE_PAID_INSTANCE`. The wrapper then reuses
-the existing `paid_compute_preflight.sh`,
+acknowledgement, `SAFE_NO_VISIBLE_PAID_INSTANCE`, and the current Brev search
+price/availability for the selected instance type. The wrapper then reuses the
+existing `paid_compute_preflight.sh`,
 `brev_paid_run_watchdog.sh`, artifact pull, delete, and empty-org confirmation
 path. The lifecycle-risk acknowledgement is required while
 `docs/brev_launchable_lifecycle_hold.md` is active.
