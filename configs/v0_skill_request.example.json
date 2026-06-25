@@ -1,0 +1,19 @@
+{
+  "request_name": "example_insert_peg_left_socket",
+  "instruction": "insert the peg into the left socket",
+  "task_parameters": {
+    "object_id": "peg",
+    "socket_id": "left_socket",
+    "target_pose_frame": "socket_fixture_frame",
+    "tolerance_profile": "strict",
+    "validation_profile": "strict_success"
+  },
+  "skill_selection": {
+    "skill_id": "peg_in_hole",
+    "controller_mode": "scripted_success_baseline"
+  },
+  "execution_policy": {
+    "max_attempts": 1,
+    "retry_policy": "none"
+  }
+}

@@ -1332,12 +1332,18 @@ def run_success_deliverable_bundle_tests() -> None:
 def run_v0_skill_api_contract_tests() -> None:
     contract_path = REPO_ROOT / "configs" / "v0_skill_api_contract.json"
     checker_path = REPO_ROOT / "scripts" / "check_v0_skill_api_contract.py"
+    request_path = REPO_ROOT / "configs" / "v0_skill_request.example.json"
+    request_checker_path = REPO_ROOT / "scripts" / "validate_v0_skill_request.py"
 
     result = run(["python3", str(checker_path), str(contract_path)])
     assert_status(result, 0, "V0 skill API contract validator accepts committed contract")
     assert_contains(result, "[v0-skill-api-contract] PASS", "V0 skill API contract PASS detail")
+    result = run(["python3", str(request_checker_path), str(request_path)])
+    assert_status(result, 0, "V0 skill request validator accepts committed example request")
+    assert_contains(result, "[v0-skill-request] PASS", "V0 skill request PASS detail")
 
     checker = checker_path.read_text(encoding="utf-8")
+    request_checker = request_checker_path.read_text(encoding="utf-8")
     for expected_snippet in (
         "raw_joint_targets",
         "not direct drop-in precision on another robot arm",
@@ -1350,6 +1356,17 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"V0 skill API contract checker missing snippet: {expected_snippet}")
     if "brev create" in checker or '"${BREV_BIN}" create' in checker:
         raise AssertionError("V0 skill API contract checker must be offline and must not create Brev instances")
+    for expected_snippet in (
+        "DIRECT_COMMAND_KEYS",
+        "raw_joint_targets",
+        "direct_force_commands",
+        "contract must require success-variation result gate before policy/API promotion",
+        "new_robot_requires_adapter_calibration_and_revalidation",
+    ):
+        if expected_snippet not in request_checker:
+            raise AssertionError(f"V0 skill request validator missing snippet: {expected_snippet}")
+    if "brev create" in request_checker or '"${BREV_BIN}" create' in request_checker:
+        raise AssertionError("V0 skill request validator must be offline and must not create Brev instances")
 
     contract = json.loads(contract_path.read_text(encoding="utf-8"))
     if "raw_joint_targets" not in contract["language_layer"]["forbidden_outputs"]:
@@ -1372,6 +1389,16 @@ def run_v0_skill_api_contract_tests() -> None:
         assert_contains(result, "raw_joint_targets", "unsafe V0 skill contract raw joint detail")
         assert_contains(result, "requires_min_strict_success_traces", "unsafe V0 skill contract trace-count detail")
         assert_contains(result, "not direct drop-in precision", "unsafe V0 skill contract non-claim detail")
+
+        bad_request = json.loads(request_path.read_text(encoding="utf-8"))
+        bad_request["raw_joint_targets"] = [0.0, 0.1, 0.2, 0.0, 0.0, 0.0, 0.0]
+        bad_request["skill_selection"]["controller_mode"] = "vlm_to_raw_joint_control"
+        bad_request_path = tmp_dir / "bad_v0_skill_request.json"
+        bad_request_path.write_text(json.dumps(bad_request), encoding="utf-8")
+        result = run(["python3", str(request_checker_path), str(bad_request_path)])
+        assert_status(result, 1, "V0 skill request validator rejects direct low-level control")
+        assert_contains(result, "forbidden direct control keys", "unsafe V0 request direct-command detail")
+        assert_contains(result, "controller_mode must be one of", "unsafe V0 request controller detail")
 
 
 def run_success_variation_manifest_tests() -> None:
