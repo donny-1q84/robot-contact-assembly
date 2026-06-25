@@ -4627,6 +4627,11 @@ def main() -> int:
         assert_contains(result, "Runtime source payload scope", "status report payload scope detail")
         assert_contains(result, "Runtime source payload SHA256", "status report payload detail")
         assert_contains(result, "Contact-smoke bundle", "status report contact-smoke bundle detail")
+        assert_contains(
+            result,
+            "Success variation paid lifecycle preflight | BLOCKED",
+            "status report paid lifecycle preflight detail",
+        )
         assert_contains(result, "V0 skill readiness | BLOCKED", "status report V0 readiness detail")
         assert_contains(result, "V0 policy/API review packet | BLOCKED", "status report V0 policy/API review detail")
         assert_contains(result, "External robot adapter | BLOCKED", "status report external adapter detail")

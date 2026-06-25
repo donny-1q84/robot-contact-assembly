@@ -185,6 +185,37 @@ def success_variation_status() -> Check:
     )
 
 
+def success_variation_paid_lifecycle_preflight_status() -> Check:
+    result = run_script(
+        "python3",
+        "scripts/check_success_variation_paid_lifecycle_preflight.py",
+        "--no-output",
+    )
+    marker = "[success-variation-paid-preflight] facts="
+    if marker not in result.stdout:
+        return Check(
+            "Success variation paid lifecycle preflight",
+            "FAIL",
+            "Could not parse scripts/check_success_variation_paid_lifecycle_preflight.py output.",
+        )
+    try:
+        facts = _json_prefix(result.stdout.split(marker, 1)[1])
+    except (json.JSONDecodeError, ValueError) as exc:
+        return Check("Success variation paid lifecycle preflight", "FAIL", f"Preflight JSON parse failed: {exc}")
+
+    status = str(facts.get("status") or "BLOCKED")
+    blockers = facts.get("blockers") if isinstance(facts.get("blockers"), list) else []
+    credit = facts.get("credit_evidence") if isinstance(facts.get("credit_evidence"), dict) else {}
+    credit_blockers = credit.get("blockers") if isinstance(credit.get("blockers"), list) else []
+    plan = facts.get("batch_plan_gate") if isinstance(facts.get("batch_plan_gate"), dict) else {}
+    detail = (
+        f"config={facts.get('config')}; credit={credit.get('status')}; "
+        f"plan_exit={plan.get('exit_code')}; blockers={len(blockers)}; "
+        f"credit_blockers={len(credit_blockers)}; next_action={facts.get('next_action')}."
+    )
+    return Check("Success variation paid lifecycle preflight", status, detail)
+
+
 def v0_skill_readiness_status() -> Check:
     result = run_script(
         "python3",
@@ -451,6 +482,7 @@ def checks() -> list[Check]:
         contact_gate_status(),
         post_smoke_trace_status(),
         success_variation_status(),
+        success_variation_paid_lifecycle_preflight_status(),
         v0_skill_readiness_status(),
         v0_policy_api_review_status(),
         external_robot_adapter_status(),
