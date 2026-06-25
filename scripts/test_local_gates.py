@@ -1501,12 +1501,19 @@ def run_success_variation_manifest_tests() -> None:
         paid_wrapper = (
             REPO_ROOT / "scripts" / "recreate_brev_and_run_success_variation_batch.sh"
         ).read_text(encoding="utf-8")
+        config_runner = (
+            REPO_ROOT / "scripts" / "run_success_variation_batch_from_config.sh"
+        ).read_text(encoding="utf-8")
+        config_example = (
+            REPO_ROOT / "configs" / "success_variation_batch_run.env.example"
+        ).read_text(encoding="utf-8")
         readiness_gate = (
             REPO_ROOT / "scripts" / "check_success_variation_batch_readiness.py"
         ).read_text(encoding="utf-8")
         result_gate = (
             REPO_ROOT / "scripts" / "check_success_variation_batch_results.py"
         ).read_text(encoding="utf-8")
+        gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
 
         for expected_snippet in (
             'TASK_NAME="${RCA_SUCCESS_VARIATION_TASK:-}"',
@@ -1541,6 +1548,36 @@ def run_success_variation_manifest_tests() -> None:
                 raise AssertionError(f"success variation paid wrapper missing snippet: {expected_snippet}")
         if "brev create" in paid_wrapper or '"${BREV_BIN}" create' in paid_wrapper:
             raise AssertionError("success variation paid wrapper must not duplicate Brev create logic")
+
+        for expected_snippet in (
+            "configs/success_variation_batch_run.local.env",
+            "configs/success_variation_batch_run.env.example",
+            "check_success_variation_batch_readiness.py",
+            "recreate_brev_and_run_success_variation_batch.sh",
+            'if [[ "${CONFIG_PATH}" == "--check-only" || "${CONFIG_PATH}" == "--run" ]]',
+            "--check-only",
+            "Real acknowledgement values should live in the ignored *.local.env file",
+            "disallowed config key",
+            "RCA_*|BREV_BIN",
+        ):
+            if expected_snippet not in config_runner:
+                raise AssertionError(f"success variation config runner missing snippet: {expected_snippet}")
+        if "brev create" in config_runner or '"${BREV_BIN}" create' in config_runner:
+            raise AssertionError("success variation config runner must delegate paid creation to the guarded wrapper")
+
+        for expected_snippet in (
+            "RCA_SUCCESS_VARIATION_MANIFEST=artifacts/manifests/success_trace_variations_2026-06-25.json",
+            "RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES=75",
+            "RCA_PAID_BUDGET_EUR=6.00",
+            "RCA_PAID_ESTIMATED_EUR_PER_HOUR=4.50",
+            "RCA_ALLOW_PAID_BREV_CREATE=0",
+            "RCA_BREV_CREDITS_VERIFIED=0",
+            "RCA_ACK_BREV_LIFECYCLE_RISK=0",
+        ):
+            if expected_snippet not in config_example:
+                raise AssertionError(f"success variation config example missing snippet: {expected_snippet}")
+        if "configs/*.local.env" not in gitignore:
+            raise AssertionError(".gitignore must exclude private success-variation local env configs")
 
         for expected_snippet in (
             "classify_success_variation_results",

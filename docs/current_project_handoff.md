@@ -42,7 +42,10 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    `scripts/run_remote_success_variation_batch.sh` so each remote trace writes
    to the manifest planned path with explicit socket/reset variation metadata;
 7. if a new Brev instance is required for the batch, use
-   `scripts/check_success_variation_batch_readiness.py` first, then
+   the fail-closed `configs/success_variation_batch_run.env.example` as the
+   reviewed template, put real one-run values in the git-ignored
+   `configs/success_variation_batch_run.local.env`, and run
+   `scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --check-only` before
    `scripts/recreate_brev_and_run_success_variation_batch.sh`, which delegates
    paid preflight, watchdog, artifact pull, deletion, and empty-org confirmation
    to the existing lifecycle wrapper;
