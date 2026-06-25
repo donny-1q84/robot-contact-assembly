@@ -253,7 +253,12 @@ low-speed review.
 `scripts/prepare_v0_portability_review.py` is the human-facing review packet for
 that boundary. It writes JSON/Markdown with the exact `NO_DIRECT_DROP_IN`
 answer, reusable layers, robot-specific layers, current blockers, and next
-commands without calling Brev, Isaac, ROS, a vendor SDK, or hardware.
+commands without calling Brev, Isaac, ROS, a vendor SDK, or hardware. It can
+also accept `--target-robot-id`, `--target-robot-family`, and `--end-effector`
+to preview a named target-arm adapter inside the same packet; that preview is
+expected to be `PASS_SAFE_BLOCKED`, not hardware-ready, until the target robot's
+model, calibration, safety, ROS 2 interfaces, runtime guards, and revalidation
+evidence are supplied.
 
 ## Do Not Do Next
 
@@ -289,15 +294,22 @@ python3 scripts/train_v0_residual_policy.py --dry-run --no-output
 python3 scripts/run_v0_offline_policy_readiness_pipeline.py --skip-phase2-contact-gate --no-summary
 python3 scripts/evaluate_v0_residual_policy.py --dry-run --no-output
 python3 scripts/plan_v0_robot_adapter_manifest.py \
-  --robot-id demo_arm_v0 \
-  --robot-family demo_6dof_arm \
-  --end-effector parallel_gripper_with_peg_fixture \
-  --joint-trajectory-action /demo_arm/joint_trajectory_controller/follow_joint_trajectory \
-  --joint-state-feedback /joint_states \
-  --skill-status /rca/skill_status
+  --robot-id <target_robot_id> \
+  --robot-family <target_robot_family> \
+  --end-effector <tool_or_gripper> \
+  --joint-trajectory-action <joint_trajectory_action_or_vendor_bridge> \
+  --joint-state-feedback <joint_state_feedback_topic> \
+  --skill-status <skill_status_topic> \
+  --no-output
 python3 scripts/check_v0_robot_adapter_contract.py
 python3 scripts/check_v0_portability_boundary.py --skip-phase2-contact-gate
 python3 scripts/prepare_v0_portability_review.py --skip-phase2-contact-gate --no-output
+python3 scripts/prepare_v0_portability_review.py \
+  --target-robot-id <target_robot_id> \
+  --target-robot-family <target_robot_family> \
+  --end-effector <tool_or_gripper> \
+  --skip-phase2-contact-gate \
+  --no-output
 python3 scripts/check_success_variation_batch_plan.py artifacts/manifests/success_trace_variations_2026-06-25.json
 python3 scripts/check_peg_in_hole_video_candidate.py artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json
 python3 scripts/check_final_contact_boundary_diagnostic.py artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json

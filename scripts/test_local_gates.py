@@ -1394,6 +1394,37 @@ def run_v0_skill_api_contract_tests() -> None:
     assert_contains(result, "[v0-portability-review] status=BLOCKED", "V0 portability review blocked detail")
     assert_contains(result, "NO_DIRECT_DROP_IN", "V0 portability review direct drop-in answer")
     assert_contains(result, "universal_drop_in_ready=false", "V0 portability review universal non-claim")
+    assert_contains(
+        result,
+        "target_adapter_preview_status=NOT_PROVIDED",
+        "V0 portability review default target-preview detail",
+    )
+    result = run(
+        [
+            "python3",
+            str(portability_review_path),
+            "--skip-phase2-contact-gate",
+            "--target-robot-id",
+            "demo_arm_v0",
+            "--target-robot-family",
+            "demo_6dof_arm",
+            "--end-effector",
+            "parallel_gripper",
+            "--no-output",
+        ]
+    )
+    assert_status(result, 0, "V0 portability review previews a named adapter without writing it")
+    assert_contains(
+        result,
+        "target_adapter_preview_status=PASS_SAFE_BLOCKED",
+        "V0 portability review named adapter preview detail",
+    )
+    assert_contains(result, "demo_arm_v0", "V0 portability review named adapter robot id detail")
+    assert_contains(
+        result,
+        "command_contract.command_frame",
+        "V0 portability review named adapter blocker detail",
+    )
     result = run(["python3", str(portability_review_path), "--skip-phase2-contact-gate", "--no-output", "--fail-on-blocked"])
     assert_status(result, 1, "V0 portability review can fail closed while blocked")
     result = run(["python3", str(execution_planner_path), "--skip-phase2-contact-gate", "--no-output"])
@@ -1845,6 +1876,9 @@ def run_v0_skill_api_contract_tests() -> None:
         "v0_cross_robot_portability_review",
         "NO_DIRECT_DROP_IN",
         "universal_drop_in_ready",
+        "target_adapter_preview",
+        "PASS_SAFE_BLOCKED",
+        "writes_target_adapter_manifest",
         "named external-robot adapter contract",
         "language/request and skill-target layers are reusable",
         "not evidence that arbitrary robot arms can be used without adaptation",
@@ -5835,6 +5869,11 @@ def main() -> int:
         assert_contains(result, "universal_drop_in_ready=False", "status report portability non-claim detail")
         assert_contains(
             result,
+            "target_adapter_preview=NOT_PROVIDED",
+            "status report portability target adapter preview detail",
+        )
+        assert_contains(
+            result,
             "python3 scripts/prepare_v0_policy_api_review.py --skip-phase2-contact-gate",
             "status report V0 policy/API review command detail",
         )
@@ -5875,7 +5914,7 @@ def main() -> int:
         )
         assert_contains(
             result,
-            "python3 scripts/plan_v0_robot_adapter_manifest.py --robot-id demo_arm_v0",
+            "python3 scripts/plan_v0_robot_adapter_manifest.py --robot-id <target_robot_id>",
             "status report adapter planner command detail",
         )
         assert_contains(
@@ -5887,6 +5926,11 @@ def main() -> int:
             result,
             "python3 scripts/prepare_v0_portability_review.py --skip-phase2-contact-gate --no-output",
             "status report portability review command detail",
+        )
+        assert_contains(
+            result,
+            "python3 scripts/prepare_v0_portability_review.py --target-robot-id <target_robot_id>",
+            "status report target portability review command detail",
         )
         assert_contains(
             result,

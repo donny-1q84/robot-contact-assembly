@@ -584,11 +584,14 @@ def v0_portability_review_packet_status() -> Check:
     status = str(facts.get("status") or "BLOCKED")
     summary = facts.get("gate_summary") if isinstance(facts.get("gate_summary"), dict) else {}
     blockers = facts.get("current_blockers") if isinstance(facts.get("current_blockers"), list) else []
+    target_preview = facts.get("target_adapter_preview") if isinstance(facts.get("target_adapter_preview"), dict) else {}
     detail = (
         f"readiness_label={facts.get('readiness_label')}; "
         f"direct_drop_in_answer={facts.get('direct_drop_in_answer')}; "
         f"named_robot_ready={facts.get('named_robot_ready')}; "
         f"universal_drop_in_ready={facts.get('universal_drop_in_ready')}; "
+        f"target_adapter_preview={target_preview.get('status')}; "
+        f"target_adapter_blockers={target_preview.get('blocker_count')}; "
         f"skill_readiness={summary.get('skill_readiness_status')}; "
         f"adapter={summary.get('adapter_status')}; "
         f"blockers={len(blockers)}; next_action={summary.get('next_action')}."
@@ -1029,9 +1032,10 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "python3 scripts/evaluate_v0_residual_policy.py --dry-run --no-output",
             "python3 scripts/check_v0_policy_promotion_gate.py --skip-phase2-contact-gate --no-output",
             "python3 scripts/check_v0_robot_adapter_contract.py",
-            "python3 scripts/plan_v0_robot_adapter_manifest.py --robot-id demo_arm_v0 --robot-family demo_6dof_arm --end-effector parallel_gripper --no-output",
+            "python3 scripts/plan_v0_robot_adapter_manifest.py --robot-id <target_robot_id> --robot-family <target_robot_family> --end-effector <tool_or_gripper> --no-output",
             "python3 scripts/check_v0_portability_boundary.py --skip-phase2-contact-gate",
             "python3 scripts/prepare_v0_portability_review.py --skip-phase2-contact-gate --no-output",
+            "python3 scripts/prepare_v0_portability_review.py --target-robot-id <target_robot_id> --target-robot-family <target_robot_family> --end-effector <tool_or_gripper> --skip-phase2-contact-gate --no-output",
             "scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --check-only",
             "python3 scripts/write_brev_credit_evidence.py --balance-eur <current-brev-ui-balance> --budget-eur 6.00 --force",
             "python3 scripts/arm_success_variation_paid_env.py --i-understand-this-arms-paid-run",

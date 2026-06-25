@@ -150,7 +150,13 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    contract keeps language at task-parameter and skill-selection level, forbids
    raw joint/force commands from language requests, and requires robot-specific
    model, calibration, safety, ROS 2 interface, and revalidation gates before
-   any external-arm portability claim.
+   any external-arm portability claim. `scripts/prepare_v0_portability_review.py`
+   can now also accept `--target-robot-id`, `--target-robot-family`, and
+   `--end-effector` to preview a named target-arm adapter inside the review
+   packet without writing the adapter, calling ROS/hardware, or changing the
+   non-drop-in answer; that preview should be `PASS_SAFE_BLOCKED` until the
+   named robot supplies real model, calibration, safety, interface, and
+   revalidation evidence.
 
 The first local variation contract is:
 
@@ -193,7 +199,7 @@ policy_promotion_gate: scripts/check_v0_policy_promotion_gate.py stays blocked u
 external_robot_adapter_planner: scripts/plan_v0_robot_adapter_manifest.py writes named-arm manifests that remain safely blocked
 external_robot_adapter: configs/v0_external_robot_adapter.template.json is safely blocked by scripts/check_v0_robot_adapter_contract.py; docs/v0_robot_adapter_contract.md defines command/frame/runtime guards so portability is adapter-specific, not drop-in
 portability_boundary: scripts/check_v0_portability_boundary.py combines V0 skill readiness with the named adapter contract and keeps universal_drop_in_ready=false
-portability_review_packet: scripts/prepare_v0_portability_review.py packages the portability boundary, reusable layers, robot-specific layers, current blockers, and exact non-drop-in answer into JSON/Markdown without touching Brev, Isaac, ROS, or hardware
+portability_review_packet: scripts/prepare_v0_portability_review.py packages the portability boundary, reusable layers, robot-specific layers, current blockers, exact non-drop-in answer, and optional target_adapter_preview into JSON/Markdown without touching Brev, Isaac, ROS, or hardware
 dataset_preparation: blocked until the result gate passes
 ```
 

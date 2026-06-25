@@ -18,6 +18,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+import tempfile
 from typing import Any
 
 
@@ -28,6 +29,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import check_v0_portability_boundary as portability_gate  # noqa: E402
+import plan_v0_robot_adapter_manifest as adapter_planner  # noqa: E402
 
 
 DEFAULT_REQUEST = portability_gate.DEFAULT_REQUEST
@@ -39,6 +41,12 @@ DEFAULT_OUTPUT_DIR = REPO_ROOT / "artifacts" / "reviews" / "v0_portability"
 DEFAULT_OUTPUT_JSON = DEFAULT_OUTPUT_DIR / "review_packet.json"
 DEFAULT_OUTPUT_MD = DEFAULT_OUTPUT_DIR / "README.md"
 REUSE_SUMMARY = "language/request and skill-target layers are reusable; robot execution is adapter-specific"
+TARGET_PREVIEW_NOT_CLAIMS = [
+    "not ready for hardware execution",
+    "not verified on this robot",
+    "not sim-to-real",
+    "not direct drop-in precision on another robot arm",
+]
 
 
 def _rel(path: Path) -> str:
@@ -59,20 +67,53 @@ def _command_text(command: list[str]) -> str:
     return " ".join(command)
 
 
+def _adapter_identity_from_preview(packet: dict[str, Any]) -> tuple[str, str, str]:
+    preview = packet.get("target_adapter_preview")
+    if isinstance(preview, dict):
+        target = preview.get("target_robot")
+        if isinstance(target, dict):
+            robot_id = str(target.get("robot_id") or "<target_robot_id>")
+            robot_family = str(target.get("robot_family") or "<target_robot_family>")
+            end_effector = str(target.get("end_effector") or "<tool_or_gripper>")
+            return robot_id, robot_family, end_effector
+    return "<target_robot_id>", "<target_robot_family>", "<tool_or_gripper>"
+
+
+def _target_adapter_output_path(robot_id: str) -> str:
+    if robot_id.startswith("<"):
+        return "artifacts/adapters/v0_external_robot_adapter_<target_robot_id>.json"
+    safe = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in robot_id)
+    return f"artifacts/adapters/v0_external_robot_adapter_{safe}.json"
+
+
 def _next_commands(packet: dict[str, Any]) -> dict[str, list[str]]:
     adapter = str(packet["inputs"]["adapter"])
     manifest = str(packet["inputs"]["manifest"])
     dataset = str(packet["inputs"]["dataset"])
+    robot_id, robot_family, end_effector = _adapter_identity_from_preview(packet)
     return {
-        "plan_named_adapter_manifest": [
+        "preview_named_adapter_manifest": [
             "python3",
             "scripts/plan_v0_robot_adapter_manifest.py",
             "--robot-id",
-            "<target_robot_id>",
+            robot_id,
             "--robot-family",
-            "<target_robot_family>",
+            robot_family,
             "--end-effector",
-            "<tool_or_gripper>",
+            end_effector,
+            "--no-output",
+        ],
+        "write_named_adapter_manifest": [
+            "python3",
+            "scripts/plan_v0_robot_adapter_manifest.py",
+            "--robot-id",
+            robot_id,
+            "--robot-family",
+            robot_family,
+            "--end-effector",
+            end_effector,
+            "--output-json",
+            _target_adapter_output_path(robot_id),
         ],
         "check_named_adapter_contract": [
             "python3",
@@ -100,6 +141,95 @@ def _next_commands(packet: dict[str, Any]) -> dict[str, list[str]]:
     }
 
 
+def _provided(*values: str | None) -> bool:
+    return any(value is not None and bool(value.strip()) for value in values)
+
+
+def _target_adapter_preview(
+    *,
+    target_robot_id: str | None,
+    target_robot_family: str | None,
+    control_stack: str,
+    end_effector: str | None,
+    joint_trajectory_action: str | None,
+    joint_state_feedback: str | None,
+    skill_status: str | None,
+) -> dict[str, Any]:
+    if not _provided(
+        target_robot_id,
+        target_robot_family,
+        end_effector,
+        joint_trajectory_action,
+        joint_state_feedback,
+        skill_status,
+    ):
+        return {
+            "status": "NOT_PROVIDED",
+            "provided": False,
+            "target_robot": None,
+            "adapter_contract_status": None,
+            "blocker_count": None,
+            "top_blockers": [],
+            "next_action": "provide_named_target_robot_identity_before_external_arm_planning",
+            "not_claims": TARGET_PREVIEW_NOT_CLAIMS,
+        }
+
+    missing = []
+    if not target_robot_id or not target_robot_id.strip():
+        missing.append("target_robot_id")
+    if not target_robot_family or not target_robot_family.strip():
+        missing.append("target_robot_family")
+    if not end_effector or not end_effector.strip():
+        missing.append("end_effector")
+    if missing:
+        return {
+            "status": "BLOCKED_INCOMPLETE_TARGET",
+            "provided": True,
+            "target_robot": {
+                "robot_id": target_robot_id,
+                "robot_family": target_robot_family,
+                "control_stack": control_stack,
+                "end_effector": end_effector,
+            },
+            "failures": [f"missing required target field: {name}" for name in missing],
+            "adapter_contract_status": None,
+            "blocker_count": None,
+            "top_blockers": [],
+            "next_action": "provide_robot_id_robot_family_and_end_effector",
+            "not_claims": TARGET_PREVIEW_NOT_CLAIMS,
+        }
+
+    adapter = adapter_planner.build_adapter(
+        template_path=adapter_planner.DEFAULT_TEMPLATE,
+        robot_id=target_robot_id.strip(),
+        robot_family=target_robot_family.strip(),
+        control_stack=control_stack.strip(),
+        end_effector=end_effector.strip(),
+        joint_trajectory_action=joint_trajectory_action,
+        joint_state_feedback=joint_state_feedback,
+        skill_status=skill_status,
+    )
+    with tempfile.TemporaryDirectory(prefix="rca-adapter-preview-") as tmp_dir:
+        preview_path = Path(tmp_dir) / "adapter.json"
+        preview_path.write_text(json.dumps(adapter, indent=2, sort_keys=True), encoding="utf-8")
+        checker = portability_gate.adapter_gate.build_report(preview_path)
+
+    blockers = checker.get("blockers") if isinstance(checker.get("blockers"), list) else []
+    return {
+        "status": "PASS_SAFE_BLOCKED" if checker.get("status") == "BLOCKED" else checker.get("status"),
+        "provided": True,
+        "target_robot": adapter["target_robot"],
+        "planned_adapter_name": adapter["adapter_name"],
+        "ready_for_external_robot": adapter["ready_for_external_robot"],
+        "adapter_contract_status": checker.get("status"),
+        "blocker_count": len(blockers),
+        "top_blockers": blockers[:8],
+        "next_action": "fill_named_robot_adapter_evidence_then_rerun_portability_review",
+        "planned_adapter": adapter,
+        "not_claims": TARGET_PREVIEW_NOT_CLAIMS,
+    }
+
+
 def build_packet(
     *,
     request_path: Path,
@@ -110,6 +240,13 @@ def build_packet(
     min_strict_successes: int,
     negative_control_id: str,
     skip_phase2: bool,
+    target_robot_id: str | None,
+    target_robot_family: str | None,
+    control_stack: str,
+    end_effector: str | None,
+    joint_trajectory_action: str | None,
+    joint_state_feedback: str | None,
+    skill_status: str | None,
 ) -> dict[str, Any]:
     boundary = portability_gate.build_report(
         request_path=_resolve(request_path),
@@ -120,6 +257,15 @@ def build_packet(
         min_strict_successes=min_strict_successes,
         negative_control_id=negative_control_id,
         skip_phase2=skip_phase2,
+    )
+    target_preview = _target_adapter_preview(
+        target_robot_id=target_robot_id,
+        target_robot_family=target_robot_family,
+        control_stack=control_stack,
+        end_effector=end_effector,
+        joint_trajectory_action=joint_trajectory_action,
+        joint_state_feedback=joint_state_feedback,
+        skill_status=skill_status,
     )
     packet = {
         "packet_name": "v0_cross_robot_portability_review",
@@ -144,6 +290,7 @@ def build_packet(
             "blocker_count": len(boundary["blockers"]),
             "next_action": boundary["next_action"],
         },
+        "target_adapter_preview": target_preview,
         "reusable_layers": boundary["reusable_layers"],
         "robot_specific_layers": boundary["robot_specific_layers"],
         "current_blockers": boundary["blockers"],
@@ -156,6 +303,7 @@ def build_packet(
         ],
         "side_effects": {
             "writes_review_artifacts": True,
+            "writes_target_adapter_manifest": False,
             "creates_paid_instance": False,
             "runs_remote_code": False,
             "starts_isaac": False,
@@ -192,6 +340,23 @@ def _render_markdown(packet: dict[str, Any]) -> str:
     lines.extend(f"- {item}" for item in packet["reusable_layers"])
     lines.extend(["", "## Robot-Specific Layers", ""])
     lines.extend(f"- {item}" for item in packet["robot_specific_layers"])
+    preview = packet.get("target_adapter_preview") if isinstance(packet.get("target_adapter_preview"), dict) else {}
+    lines.extend(
+        [
+            "",
+            "## Target Adapter Preview",
+            "",
+            f"- status: {preview.get('status')}",
+            f"- target_robot: {preview.get('target_robot')}",
+            f"- adapter_contract_status: {preview.get('adapter_contract_status')}",
+            f"- blocker_count: {preview.get('blocker_count')}",
+            f"- next_action: {preview.get('next_action')}",
+        ]
+    )
+    top_blockers = preview.get("top_blockers") if isinstance(preview.get("top_blockers"), list) else []
+    if top_blockers:
+        lines.extend(["", "Top adapter blockers:"])
+        lines.extend(f"- {item}" for item in top_blockers)
     lines.extend(["", "## Current Blockers", ""])
     if packet["current_blockers"]:
         lines.extend(f"- {item}" for item in packet["current_blockers"])
@@ -217,6 +382,13 @@ def main() -> int:
     parser.add_argument("--min-strict-successes", type=int, default=5)
     parser.add_argument("--negative-control-id", default=portability_gate.skill_gate.variation_gate.DEFAULT_NEGATIVE_CONTROL)
     parser.add_argument("--skip-phase2-contact-gate", action="store_true")
+    parser.add_argument("--target-robot-id")
+    parser.add_argument("--target-robot-family")
+    parser.add_argument("--control-stack", default="ros2_joint_trajectory_or_vendor_bridge")
+    parser.add_argument("--end-effector")
+    parser.add_argument("--joint-trajectory-action")
+    parser.add_argument("--joint-state-feedback")
+    parser.add_argument("--skill-status")
     parser.add_argument("--output-json", type=Path, default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--output-md", type=Path, default=DEFAULT_OUTPUT_MD)
     parser.add_argument("--no-output", action="store_true")
@@ -232,6 +404,13 @@ def main() -> int:
         min_strict_successes=max(1, args.min_strict_successes),
         negative_control_id=args.negative_control_id,
         skip_phase2=args.skip_phase2_contact_gate,
+        target_robot_id=args.target_robot_id,
+        target_robot_family=args.target_robot_family,
+        control_stack=args.control_stack,
+        end_effector=args.end_effector,
+        joint_trajectory_action=args.joint_trajectory_action,
+        joint_state_feedback=args.joint_state_feedback,
+        skill_status=args.skill_status,
     )
 
     if args.no_output:
@@ -250,6 +429,7 @@ def main() -> int:
     print("[v0-portability-review] status=" + packet["status"])
     print("[v0-portability-review] readiness_label=" + packet["readiness_label"])
     print("[v0-portability-review] universal_drop_in_ready=false")
+    print("[v0-portability-review] target_adapter_preview_status=" + str(packet["target_adapter_preview"]["status"]))
     if packet["status"] != "READY" and args.fail_on_blocked:
         return 1
     return 0
