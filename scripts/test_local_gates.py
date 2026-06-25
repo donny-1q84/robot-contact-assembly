@@ -1706,11 +1706,14 @@ def run_success_variation_manifest_tests() -> None:
             "configs/success_variation_batch_run.env.example",
             "check_success_variation_batch_readiness.py",
             "write_success_variation_run_packet.py",
+            "audit_success_variation_assumptions.py",
             "recreate_brev_and_run_success_variation_batch.sh",
             'if [[ "${CONFIG_PATH}" == "--check-only" || "${CONFIG_PATH}" == "--run" ]]',
             "--check-only",
             "RCA_SUCCESS_VARIATION_RUN_PACKET_JSON",
             "writing read-only run packet",
+            "writing read-only pre-batch assumption audit",
+            "--phase pre-batch",
             "Real acknowledgement values should live in the ignored *.local.env file",
             "disallowed config key",
             "RCA_*|BREV_BIN",
@@ -1833,6 +1836,10 @@ def run_success_variation_manifest_tests() -> None:
             "not sim-to-real",
             "does not create, delete, copy to, or execute on Brev instances",
             "Metric Sources",
+            "pre-batch",
+            "post-batch",
+            "run packet is required for pre-batch paid-run audit",
+            "post-batch result gate is not expected to pass before generating planned variation traces",
             "--fail-on-blocked",
         ):
             if expected_snippet not in audit_script:
@@ -1888,12 +1895,14 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError("run packet template must keep credit acknowledgement fail-closed")
         if "finalize_success_variation_batch.sh" not in run_packet["commands"]["finalize"]:
             raise AssertionError(f"run packet should include finalizer command: {run_packet['commands']}")
+        if "audit_success_variation_assumptions.py" not in run_packet["commands"]["pre_batch_audit"]:
+            raise AssertionError(f"run packet should include pre-batch audit command: {run_packet['commands']}")
         run_packet_md_text = run_packet_md.read_text(encoding="utf-8")
         if "Current Blockers" not in run_packet_md_text or "Brev UI/org credit balance" not in run_packet_md_text:
             raise AssertionError("run packet markdown should include blocker details")
 
-        audit_json = tmp_dir / "assumption_audit.json"
-        audit_md = tmp_dir / "assumption_audit.md"
+        post_batch_audit_json = tmp_dir / "post_batch_assumption_audit.json"
+        post_batch_audit_md = tmp_dir / "post_batch_assumption_audit.md"
         result = run(
             [
                 "python3",
@@ -1902,24 +1911,26 @@ def run_success_variation_manifest_tests() -> None:
                 "--run-packet",
                 str(run_packet_json),
                 "--output-json",
-                str(audit_json),
+                str(post_batch_audit_json),
                 "--output-md",
-                str(audit_md),
+                str(post_batch_audit_md),
             ]
         )
-        assert_status(result, 0, "success variation assumption audit writes blocked report")
-        assert_contains(result, "status=BLOCKED", "assumption audit blocked status detail")
-        audit = json.loads(audit_json.read_text(encoding="utf-8"))
-        if audit["audit_status"] != "BLOCKED":
-            raise AssertionError(f"assumption audit should be blocked for incomplete manifest: {audit['audit_status']}")
-        if audit["source_trace"]["status"] != "pass":
-            raise AssertionError(f"assumption audit should verify source trace checksum: {audit['source_trace']}")
-        audit_blockers = "\n".join(audit["blockers"])
-        if "missing planned trace artifacts" not in audit_blockers:
-            raise AssertionError(f"assumption audit should include missing planned artifacts: {audit['blockers']}")
-        if "RCA_BREV_CREDITS_VERIFIED" not in audit_blockers:
-            raise AssertionError(f"assumption audit should include paid-run credit blocker: {audit['blockers']}")
-        metric_names = {item["metric"] for item in audit["metric_sources"]}
+        assert_status(result, 0, "post-batch assumption audit writes blocked report")
+        assert_contains(result, "status=BLOCKED", "post-batch assumption audit blocked status detail")
+        post_batch_audit = json.loads(post_batch_audit_json.read_text(encoding="utf-8"))
+        if post_batch_audit["phase"] != "post-batch" or post_batch_audit["audit_status"] != "BLOCKED":
+            raise AssertionError(f"post-batch audit should be blocked: {post_batch_audit}")
+        if post_batch_audit["source_trace"]["status"] != "pass":
+            raise AssertionError(
+                f"post-batch audit should verify source trace checksum: {post_batch_audit['source_trace']}"
+            )
+        post_batch_blockers = "\n".join(post_batch_audit["blockers"])
+        if "missing planned trace artifacts" not in post_batch_blockers:
+            raise AssertionError(
+                f"post-batch audit should include missing planned artifacts: {post_batch_audit['blockers']}"
+            )
+        metric_names = {item["metric"] for item in post_batch_audit["metric_sources"]}
         expected_metrics = {
             "strict_success",
             "negative_control_fail_closed",
@@ -1929,9 +1940,9 @@ def run_success_variation_manifest_tests() -> None:
         }
         if metric_names != expected_metrics:
             raise AssertionError(f"assumption audit metric set changed: {metric_names}")
-        audit_md_text = audit_md.read_text(encoding="utf-8")
-        if "Metric Sources" not in audit_md_text or "not sim-to-real" not in audit_md_text:
-            raise AssertionError("assumption audit markdown should include sources and non-claims")
+        post_batch_md_text = post_batch_audit_md.read_text(encoding="utf-8")
+        if "Metric Sources" not in post_batch_md_text or "not sim-to-real" not in post_batch_md_text:
+            raise AssertionError("post-batch audit markdown should include sources and non-claims")
         result = run(
             [
                 "python3",
@@ -1946,12 +1957,73 @@ def run_success_variation_manifest_tests() -> None:
                 "--fail-on-blocked",
             ]
         )
-        assert_status(result, 1, "success variation assumption audit fail-on-blocked rejects incomplete batch")
+        assert_status(result, 1, "post-batch assumption audit fail-on-blocked rejects incomplete batch")
+
+        pre_batch_blocked_json = tmp_dir / "pre_batch_assumption_audit_blocked.json"
+        pre_batch_blocked_md = tmp_dir / "pre_batch_assumption_audit_blocked.md"
+        result = run(
+            [
+                "python3",
+                "scripts/audit_success_variation_assumptions.py",
+                str(manifest_path),
+                "--phase",
+                "pre-batch",
+                "--run-packet",
+                str(run_packet_json),
+                "--output-json",
+                str(pre_batch_blocked_json),
+                "--output-md",
+                str(pre_batch_blocked_md),
+            ]
+        )
+        assert_status(result, 0, "pre-batch assumption audit writes blocked report")
+        pre_batch_blocked = json.loads(pre_batch_blocked_json.read_text(encoding="utf-8"))
+        if pre_batch_blocked["phase"] != "pre-batch" or pre_batch_blocked["audit_status"] != "BLOCKED":
+            raise AssertionError(f"pre-batch audit should block on paid readiness: {pre_batch_blocked}")
+        pre_batch_blockers = "\n".join(pre_batch_blocked["blockers"])
+        if "RCA_BREV_CREDITS_VERIFIED" not in pre_batch_blockers:
+            raise AssertionError(f"pre-batch audit should include paid-run credit blocker: {pre_batch_blocked['blockers']}")
+        if "missing planned trace artifacts" in pre_batch_blockers:
+            raise AssertionError(f"pre-batch audit must not block on planned traces it is about to run: {pre_batch_blockers}")
+
+        ready_run_packet = json.loads(run_packet_json.read_text(encoding="utf-8"))
+        ready_run_packet["readiness"]["status"] = "READY"
+        ready_run_packet["readiness"]["blockers"] = []
+        ready_run_packet_json = tmp_dir / "run_packet_ready.json"
+        ready_run_packet_json.write_text(json.dumps(ready_run_packet), encoding="utf-8")
+        pre_batch_ready_json = tmp_dir / "pre_batch_assumption_audit_ready.json"
+        pre_batch_ready_md = tmp_dir / "pre_batch_assumption_audit_ready.md"
+        result = run(
+            [
+                "python3",
+                "scripts/audit_success_variation_assumptions.py",
+                str(manifest_path),
+                "--phase",
+                "pre-batch",
+                "--run-packet",
+                str(ready_run_packet_json),
+                "--output-json",
+                str(pre_batch_ready_json),
+                "--output-md",
+                str(pre_batch_ready_md),
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 0, "pre-batch assumption audit allows ready packet with missing planned traces")
+        pre_batch_ready = json.loads(pre_batch_ready_json.read_text(encoding="utf-8"))
+        if pre_batch_ready["audit_status"] != "PASS":
+            raise AssertionError(f"pre-batch ready audit should pass before generating traces: {pre_batch_ready}")
+        if pre_batch_ready["classification_summary"]["missing_count"] < 1:
+            raise AssertionError(f"pre-batch audit should preserve missing planned count: {pre_batch_ready}")
+        if not pre_batch_ready["warnings"]:
+            raise AssertionError("pre-batch ready audit should warn that post-batch promotion is not proven yet")
 
         for expected_snippet in (
             "check_success_variation_batch_readiness.py",
             "run_success_variation_batch_from_config.sh",
             "finalize_success_variation_batch.sh",
+            "audit_success_variation_assumptions.py",
+            "--phase pre-batch",
             "RCA_BREV_CREDITS_VERIFIED",
             "does not create or delete Brev instances",
             "--readiness-output",

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Audit assumptions and metric sources for the success-variation batch.
 
-This script is a read-only assumption-and-metric audit before paid compute or
-post-batch promotion. It traces each critical success metric to concrete local
-sources: the manifest, source trace checksum, classifier gates, result gate,
-negative control, readiness packet, budget, and cleanup status.
+This script is a read-only assumption-and-metric audit for either pre-batch
+paid execution or post-batch promotion. It traces each critical success metric
+to concrete local sources: the manifest, source trace checksum, classifier
+gates, result gate, negative control, readiness packet, budget, and cleanup
+status.
 
 It does not create, delete, copy to, or execute on Brev instances.
 """
@@ -103,6 +104,8 @@ def _metric_sources(
     classification: dict[str, Any],
     gate: dict[str, Any],
     run_packet: dict[str, Any] | None,
+    *,
+    phase: str,
 ) -> list[dict[str, Any]]:
     by_case = {
         str(result.get("case_id")): result
@@ -146,7 +149,10 @@ def _metric_sources(
                     "strict_non_negative_variation_count"
                 ),
             },
-            "interpretation": "batch is incomplete until planned artifacts exist and classify cleanly",
+            "interpretation": (
+                "pre-batch expects missing planned artifacts to run; "
+                "post-batch requires planned artifacts to exist and classify cleanly"
+            ),
         },
         {
             "metric": "paid_run_budget_and_cleanup",
@@ -183,6 +189,7 @@ def _build_audit(
     run_packet: dict[str, Any] | None,
     min_strict_successes: int,
     negative_control_id: str,
+    phase: str,
 ) -> dict[str, Any]:
     blockers: list[str] = []
     warnings: list[str] = []
@@ -196,8 +203,17 @@ def _build_audit(
         allow_near_success=False,
         allow_missing=False,
     )
-    if not gate.get("pass"):
+    if phase == "post-batch" and not gate.get("pass"):
         blockers.extend(str(failure) for failure in gate.get("failures", []))
+
+    by_case = {
+        str(result.get("case_id")): result
+        for result in classification.get("results", [])
+        if isinstance(result, dict)
+    }
+    baseline = by_case.get("baseline_replay")
+    if not baseline or baseline.get("classification") != "strict_success":
+        blockers.append("baseline_replay must remain a strict_success positive control")
 
     remote_policy = manifest.get("remote_run_policy")
     if not isinstance(remote_policy, dict):
@@ -206,25 +222,44 @@ def _build_audit(
         blockers.append("manifest must require budget/watchdog/pullback/delete")
 
     negative_case = _trace_case(manifest, negative_control_id)
+    negative_result = by_case.get(negative_control_id)
     if negative_case is None:
         blockers.append(f"negative control case missing: {negative_control_id}")
     elif negative_case.get("expected") != "fail_closed":
         blockers.append(f"{negative_control_id} must have expected=fail_closed")
+    elif negative_result and negative_result.get("classification") == "strict_success":
+        blockers.append(f"{negative_control_id} is already strict_success; metric definition is invalid")
+
+    missing_cases = gate.get("missing_cases") or []
+    if phase == "pre-batch" and not missing_cases:
+        blockers.append("no missing planned variation cases remain to run; use post-batch promotion instead")
 
     readiness = run_packet.get("readiness") if isinstance(run_packet, dict) else None
-    if run_packet is None:
+    if run_packet is None and phase == "pre-batch":
+        blockers.append("run packet is required for pre-batch paid-run audit")
+    elif run_packet is None:
         warnings.append("run packet is missing; paid-run budget/cleanup facts are not included")
     elif isinstance(readiness, dict):
-        if readiness.get("status") != "READY":
+        if phase == "pre-batch" and readiness.get("status") != "READY":
             blockers.extend(str(blocker) for blocker in (readiness.get("blockers") or []))
-    else:
+        elif phase == "post-batch" and readiness.get("status") != "READY":
+            warnings.append("run packet readiness is not READY; using post-batch result evidence as the hard gate")
+    elif phase == "pre-batch":
         blockers.append("run packet readiness object is missing")
+    else:
+        warnings.append("run packet readiness object is missing")
 
-    metric_sources = _metric_sources(manifest, classification, gate, run_packet)
+    if phase == "pre-batch" and not gate.get("pass"):
+        warnings.append(
+            "post-batch result gate is not expected to pass before generating planned variation traces"
+        )
+
+    metric_sources = _metric_sources(manifest, classification, gate, run_packet, phase=phase)
     unique_blockers = list(dict.fromkeys(blockers))
     audit_status = "PASS" if not unique_blockers else "BLOCKED"
     return {
         "audit_name": "success_variation_assumption_metric_audit",
+        "phase": phase,
         "audit_status": audit_status,
         "manifest": _rel(manifest_path),
         "run_packet": _rel(run_packet_path) if run_packet_path is not None else None,
@@ -248,6 +283,7 @@ def _render_markdown(audit: dict[str, Any]) -> str:
         "# Success Variation Assumption And Metric Audit",
         "",
         f"- audit_status: {audit['audit_status']}",
+        f"- phase: {audit['phase']}",
         f"- manifest: {audit['manifest']}",
         f"- run_packet: {audit.get('run_packet')}",
         f"- source_trace_status: {audit['source_trace'].get('status')}",
@@ -290,6 +326,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=Path, nargs="?", default=DEFAULT_MANIFEST)
     parser.add_argument("--run-packet", type=Path, default=DEFAULT_RUN_PACKET)
+    parser.add_argument("--phase", choices=("pre-batch", "post-batch"), default="post-batch")
     parser.add_argument("--min-strict-successes", type=int, default=5)
     parser.add_argument("--negative-control-id", default=DEFAULT_NEGATIVE_CONTROL)
     parser.add_argument("--output-json", type=Path, default=DEFAULT_OUTPUT_JSON)
@@ -308,6 +345,7 @@ def main() -> int:
         run_packet=run_packet,
         min_strict_successes=args.min_strict_successes,
         negative_control_id=args.negative_control_id,
+        phase=args.phase,
     )
 
     args.output_json.parent.mkdir(parents=True, exist_ok=True)

@@ -48,9 +48,10 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    reviewed template, put real one-run values in the git-ignored
    `configs/success_variation_batch_run.local.env`, generate the current
    read-only packet with `scripts/write_success_variation_run_packet.py`, run
-   `scripts/audit_success_variation_assumptions.py` to trace every critical
-   success/negative-control/budget/promotion metric back to concrete sources,
-   and only then run
+   `scripts/audit_success_variation_assumptions.py --phase pre-batch` to trace
+   every critical success/negative-control/budget/promotion metric back to
+   concrete sources without treating the still-missing planned traces as a paid
+   run blocker, and only then run
    `scripts/prepare_success_variation_local_env.py` if the local env file needs
    to be created in its default fail-closed state before editing for a single
    reviewed run. Then run
@@ -80,7 +81,8 @@ batch_plan_sh: artifacts/analysis/success_trace_variation_batch_plan_2026-06-25.
 result: 1 strict_success positive control, 8 missing planned cases
 negative_control: socket_x_pos_25mm_negative_control expected fail_closed
 paid_compute_allowed: false
-assumption_audit: blocked until planned traces and one-run paid acknowledgements exist
+pre_batch_assumption_audit: blocked until one-run paid acknowledgements exist; planned traces may still be missing
+post_batch_assumption_audit: blocked until planned traces and negative control results exist
 dataset_preparation: blocked until the result gate passes
 ```
 

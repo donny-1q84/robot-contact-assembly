@@ -111,6 +111,19 @@ python3 "${SCRIPT_DIR}/write_success_variation_run_packet.py" \
   --output-json "${RUN_PACKET_JSON}" \
   --output-md "${RUN_PACKET_MD}"
 
+AUDIT_ARGS=(
+  "${SCRIPT_DIR}/audit_success_variation_assumptions.py"
+  "${MANIFEST}"
+  --phase pre-batch
+  --run-packet "${RUN_PACKET_JSON}"
+)
+if [[ "${MODE}" == "--run" ]]; then
+  AUDIT_ARGS+=(--fail-on-blocked)
+fi
+
+echo "[success-variation-config] writing read-only pre-batch assumption audit"
+python3 "${AUDIT_ARGS[@]}"
+
 "${SCRIPT_DIR}/check_success_variation_batch_readiness.py" "${MANIFEST}"
 
 if [[ "${MODE}" == "--check-only" ]]; then

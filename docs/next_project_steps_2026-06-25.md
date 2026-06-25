@@ -254,7 +254,8 @@ This writes the current readiness facts, blockers, estimated cost, one-run env
 template, and exact check/run/finalize commands under `artifacts/analysis/`.
 It does not create, delete, copy to, or execute on Brev instances.
 The config launcher also writes this packet automatically before each
-`--check-only` or `--run`.
+`--check-only` or `--run`, then writes the read-only `pre-batch` assumption
+audit before the readiness gate and any guarded paid wrapper.
 
 Before editing the ignored local env or opening paid compute, run the
 read-only assumption-and-metric audit:
@@ -262,15 +263,19 @@ read-only assumption-and-metric audit:
 ```bash
 python3 scripts/audit_success_variation_assumptions.py \
   artifacts/manifests/success_trace_variations_2026-06-25.json \
+  --phase pre-batch \
   --run-packet artifacts/analysis/success_variation_run_packet_2026-06-25.json \
   --fail-on-blocked
 ```
 
 This traces `strict_success`, the deliberate negative control, planned
 variation coverage, paid-run budget/cleanup, and dataset-promotion policy back
-to concrete code/data sources. It is expected to fail in the current
-baseline-only state because planned variation traces are missing and the
-one-run paid acknowledgements remain fail-closed. It does not create, delete,
+to concrete code/data sources. In `pre-batch` mode, missing planned variation
+traces are expected because this is the batch that will generate them; the hard
+blockers are invalid baseline/negative-control assumptions, a missing or
+non-READY run packet, budget/cleanup issues, or one-run paid acknowledgements
+still being fail-closed. In default `post-batch` mode, missing planned traces
+are blockers for dataset/policy promotion. The audit does not create, delete,
 copy to, or execute on Brev instances.
 
 Prepare the ignored local env file in a fail-closed state with:
