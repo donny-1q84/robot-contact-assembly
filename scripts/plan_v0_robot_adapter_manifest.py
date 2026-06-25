@@ -14,6 +14,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+import tempfile
 from typing import Any
 
 
@@ -123,7 +124,12 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             joint_state_feedback=args.joint_state_feedback,
             skill_status=args.skill_status,
         )
-        if not args.no_output:
+        if args.no_output:
+            with tempfile.TemporaryDirectory(prefix="rca-adapter-plan-") as tmp_dir:
+                preview_path = Path(tmp_dir) / "adapter.json"
+                preview_path.write_text(json.dumps(adapter, indent=2, sort_keys=True), encoding="utf-8")
+                checker_report = adapter_gate.build_report(preview_path)
+        else:
             output_json.parent.mkdir(parents=True, exist_ok=True)
             output_json.write_text(json.dumps(adapter, indent=2, sort_keys=True), encoding="utf-8")
             checker_report = adapter_gate.build_report(output_json)

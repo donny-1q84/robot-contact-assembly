@@ -248,7 +248,10 @@ adapter boundary, not direct drop-in precision on arbitrary arms.
 `scripts/plan_v0_robot_adapter_manifest.py` turns a named target arm and any
 known ROS 2 interface names into a machine-readable adapter manifest, but still
 leaves it safely blocked until the checker sees robot-specific model,
-calibration, safety, interface-validation, and revalidation evidence.
+calibration, safety, interface-validation, and revalidation evidence. In
+`--no-output` mode it still validates the planned manifest through a temporary
+contract-check file, reports `adapter_contract_status=BLOCKED` and the real
+blocker list, then deletes the preview file.
 `scripts/check_v0_portability_boundary.py` is the aggregate claim gate: it
 combines V0 skill readiness with the named robot adapter status and keeps
 `universal_drop_in_ready=false` even when one named adapter is ready for

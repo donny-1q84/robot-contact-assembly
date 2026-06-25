@@ -1980,6 +1980,46 @@ def run_v0_skill_api_contract_tests() -> None:
         assert_contains(result, "ready_for_external_robot cannot be true", "premature adapter ready failure detail")
         assert_contains(result, "not direct drop-in precision", "premature adapter non-claim failure detail")
 
+        planned_adapter_preview_path = tmp_dir / "planned_external_robot_adapter_preview.json"
+        result = run(
+            [
+                "python3",
+                str(robot_adapter_planner_path),
+                "--robot-id",
+                "demo_arm_v0",
+                "--robot-family",
+                "demo_6dof_arm",
+                "--control-stack",
+                "ros2_control_joint_trajectory",
+                "--end-effector",
+                "parallel_gripper_with_peg_fixture",
+                "--joint-trajectory-action",
+                "/demo_arm/joint_trajectory_controller/follow_joint_trajectory",
+                "--joint-state-feedback",
+                "/joint_states",
+                "--skill-status",
+                "/rca/skill_status",
+                "--output-json",
+                str(planned_adapter_preview_path),
+                "--no-output",
+            ]
+        )
+        assert_status(result, 0, "V0 robot adapter planner previews safe blocked manifest")
+        assert_contains(result, "PASS_SAFE_BLOCKED", "V0 robot adapter planner preview safe-blocked detail")
+        assert_contains(result, '"adapter_contract_status": "BLOCKED"', "V0 planner preview checker status detail")
+        assert_contains(result, "command_contract.command_frame", "V0 planner preview blocker detail")
+        preview_report, _ = json.JSONDecoder().raw_decode(
+            result.stdout.split("[v0-robot-adapter-planner] facts=", 1)[1].lstrip()
+        )
+        if preview_report["adapter_contract_status"] != "BLOCKED":
+            raise AssertionError(f"planned adapter preview should run contract checker: {preview_report}")
+        if not preview_report["adapter_contract_blockers"]:
+            raise AssertionError(f"planned adapter preview should expose blockers: {preview_report}")
+        if preview_report["output_json"] is not None:
+            raise AssertionError(f"planned adapter preview must not report an output path: {preview_report}")
+        if planned_adapter_preview_path.exists():
+            raise AssertionError("V0 adapter planner --no-output must not write a manifest")
+
         planned_adapter_path = tmp_dir / "planned_external_robot_adapter.json"
         result = run(
             [
