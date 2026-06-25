@@ -2014,6 +2014,31 @@ def run_success_variation_manifest_tests() -> None:
         ready_skill = json.loads(ready_skill_json.read_text(encoding="utf-8"))
         if ready_skill["next_action"] != "ready_for_policy_api_review":
             raise AssertionError(f"ready V0 skill should point to policy/API review: {ready_skill}")
+        execution_plan_json = tmp_dir / "v0_skill_execution" / "plan.json"
+        result = run(
+            [
+                "python3",
+                "scripts/plan_v0_skill_execution.py",
+                "configs/v0_skill_request.example.json",
+                "--manifest",
+                str(pass_manifest_path),
+                "--dataset",
+                str(dataset_json),
+                "--skip-phase2-contact-gate",
+                "--output-json",
+                str(execution_plan_json),
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 0, "V0 skill execution planner accepts promotable manifest plus dataset")
+        assert_contains(result, "[v0-skill-execution-plan] status=READY", "ready V0 skill execution detail")
+        execution_plan = json.loads(execution_plan_json.read_text(encoding="utf-8"))
+        if execution_plan["ready_for_execution"] is not True:
+            raise AssertionError(f"execution planner should be ready after V0 readiness gate: {execution_plan}")
+        if execution_plan["execution_surface"]["allowed_command_boundary"] != "task_parameters_to_skill_controller":
+            raise AssertionError(f"execution planner should preserve skill boundary: {execution_plan['execution_surface']}")
+        if "raw_joint_targets" not in execution_plan["execution_surface"]["forbidden_command_boundary"]:
+            raise AssertionError("execution planner must preserve raw joint command ban")
         policy_review_json = tmp_dir / "policy_api_review" / "review_packet.json"
         policy_review_md = tmp_dir / "policy_api_review" / "README.md"
         result = run(
