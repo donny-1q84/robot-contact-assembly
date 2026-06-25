@@ -22,13 +22,21 @@ ACTION_RESPONSE_STOP_AFTER_FIRST_SUCCESS="${RCA_ACTION_RESPONSE_STOP_AFTER_FIRST
 FORCE_APP_LAUNCHER="${RCA_FORCE_APP_LAUNCHER:-1}"
 SCRIPTED_WATCHDOG_SECONDS="${RCA_SCRIPTED_WATCHDOG_SECONDS:-120}"
 TRACE_PHASE_STEPS="${RCA_TRACE_PHASE_STEPS:-5}"
+TRACE_DIR_NAME="${RCA_TRACE_ONLY_DIR_NAME:-}"
+TRACE_REMOTE_DIR_OVERRIDE="${RCA_TRACE_ONLY_REMOTE_DIR:-}"
+TRACE_VARIATION_CASE_ID="${RCA_TRACE_VARIATION_CASE_ID:-}"
+TRACE_VARIATION_SOCKET_DELTA_M="${RCA_TRACE_VARIATION_SOCKET_DELTA_M:-}"
+TRACE_VARIATION_RESET_JOINT_NOISE_RAD="${RCA_TRACE_VARIATION_RESET_JOINT_NOISE_RAD:-}"
 
 TIMESTAMP_UTC="$(date -u +"%Y-%m-%dT%H-%M-%SZ")"
-REMOTE_TRACE_DIR="/workspace/artifacts/videos/trace_only/${TIMESTAMP_UTC}"
+if [[ -z "${TRACE_DIR_NAME}" ]]; then
+  TRACE_DIR_NAME="${TIMESTAMP_UTC}"
+fi
+REMOTE_TRACE_DIR="${TRACE_REMOTE_DIR_OVERRIDE:-/workspace/artifacts/videos/trace_only/${TRACE_DIR_NAME}}"
 REMOTE_LOG_PATH="${REMOTE_TRACE_DIR}/trace_only.log"
 REMOTE_COMMAND_PATH="${REMOTE_TRACE_DIR}/trace_command.txt"
 REMOTE_RUN_PATH="${REMOTE_TRACE_DIR}/run_trace_only.sh"
-REMOTE_HYDRA_DIR="/workspace/artifacts/hydra/trace_only_${TIMESTAMP_UTC}"
+REMOTE_HYDRA_DIR="/workspace/artifacts/hydra/trace_only_${TRACE_DIR_NAME//\//_}"
 REMOTE_SUMMARY_PATH="${REMOTE_TRACE_DIR}/video_summary.json"
 REMOTE_TRACE_PATH="${REMOTE_TRACE_DIR}/video_trace.json"
 REMOTE_ACTION_RESPONSE_CHECK_PATH="${REMOTE_TRACE_DIR}/action_response_check.log"
@@ -41,6 +49,8 @@ echo "[trace-only] timeout_seconds=${TRACE_TIMEOUT_SECONDS} timeout_kill_seconds
 echo "[trace-only] force_app_launcher=${FORCE_APP_LAUNCHER}"
 echo "[trace-only] scripted_watchdog_seconds=${SCRIPTED_WATCHDOG_SECONDS}"
 echo "[trace-only] trace_phase_steps=${TRACE_PHASE_STEPS}"
+echo "[trace-only] trace_dir_name=${TRACE_DIR_NAME}"
+echo "[trace-only] remote_trace_dir=${REMOTE_TRACE_DIR}"
 echo "[trace-only] validate_action_response=${VALIDATE_ACTION_RESPONSE}"
 echo "[trace-only] action_response_min_command_norm=${ACTION_RESPONSE_MIN_COMMAND_NORM}"
 echo "[trace-only] action_response_stop_after_first_success=${ACTION_RESPONSE_STOP_AFTER_FIRST_SUCCESS}"
@@ -49,6 +59,11 @@ echo "[trace-only] validate_peg_video_candidate=${VALIDATE_PEG_VIDEO_CANDIDATE}"
 echo "[trace-only] validate_trace_frame_alignment=${VALIDATE_TRACE_FRAME_ALIGNMENT}"
 if [[ -n "${EXTRA_PLAY_ARGS}" ]]; then
   echo "[trace-only] extra_play_args=${EXTRA_PLAY_ARGS}"
+fi
+if [[ -n "${TRACE_VARIATION_CASE_ID}" ]]; then
+  echo "[trace-only] variation_case_id=${TRACE_VARIATION_CASE_ID}"
+  echo "[trace-only] variation_socket_delta_m=${TRACE_VARIATION_SOCKET_DELTA_M}"
+  echo "[trace-only] variation_reset_joint_noise_rad=${TRACE_VARIATION_RESET_JOINT_NOISE_RAD}"
 fi
 
 rca_remote_container_exec "mkdir -p '${REMOTE_TRACE_DIR}' '${REMOTE_HYDRA_DIR}'"
@@ -69,6 +84,9 @@ export LD_PRELOAD=/isaac-sim/kit/libcarb.so
 export RCA_FORCE_APP_LAUNCHER='${FORCE_APP_LAUNCHER}'
 export RCA_SCRIPTED_WATCHDOG_SECONDS='${SCRIPTED_WATCHDOG_SECONDS}'
 export RCA_TRACE_PHASE_STEPS='${TRACE_PHASE_STEPS}'
+export RCA_TRACE_VARIATION_CASE_ID='${TRACE_VARIATION_CASE_ID}'
+export RCA_TRACE_VARIATION_SOCKET_DELTA_M='${TRACE_VARIATION_SOCKET_DELTA_M}'
+export RCA_TRACE_VARIATION_RESET_JOINT_NOISE_RAD='${TRACE_VARIATION_RESET_JOINT_NOISE_RAD}'
 
 /isaac-sim/kit/python/bin/python3 scripts/scripted_agent.py --task ${TASK_NAME} --headless --viz none --steps ${STEPS} --num_envs ${NUM_ENVS} --seed ${SEED} --summary-json '${REMOTE_SUMMARY_PATH}' --trace-json '${REMOTE_TRACE_PATH}' hydra.run.dir=${REMOTE_HYDRA_DIR} hydra.output_subdir=null ${EXTRA_PLAY_ARGS}
 EOF

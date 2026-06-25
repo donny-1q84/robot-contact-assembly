@@ -189,10 +189,14 @@ Implemented in the local follow-up:
 ```text
 scripts/create_success_variation_manifest.py
 scripts/classify_success_variation_results.py
+scripts/plan_success_variation_batch.py
+scripts/run_remote_success_variation_batch.sh
 tests in scripts/test_local_gates.py for the variation manifest / classifier
 artifacts/manifests/success_trace_variations_2026-06-25.json
 artifacts/analysis/success_trace_variation_classification_2026-06-25.json
 artifacts/analysis/success_trace_variation_classification_2026-06-25.md
+artifacts/analysis/success_trace_variation_batch_plan_2026-06-25.json
+artifacts/analysis/success_trace_variation_batch_plan_2026-06-25.sh
 ```
 
 Regenerate and reclassify the current local contract with:
@@ -205,7 +209,24 @@ python3 scripts/classify_success_variation_results.py \
   artifacts/manifests/success_trace_variations_2026-06-25.json \
   --output-json artifacts/analysis/success_trace_variation_classification_2026-06-25.json \
   --output-md artifacts/analysis/success_trace_variation_classification_2026-06-25.md
+python3 scripts/plan_success_variation_batch.py \
+  artifacts/manifests/success_trace_variations_2026-06-25.json \
+  --output-json artifacts/analysis/success_trace_variation_batch_plan_2026-06-25.json \
+  --output-sh artifacts/analysis/success_trace_variation_batch_plan_2026-06-25.sh
 ```
 
 Only after reviewing that contract should a new fixed-budget trace-only remote
 run be considered.
+
+If a ready remote environment already exists under the normal repo/compose
+paths, run the planned traces without creating or deleting Brev resources:
+
+```bash
+RCA_SUCCESS_VARIATION_STEPS=220 \
+  scripts/run_remote_success_variation_batch.sh \
+  artifacts/manifests/success_trace_variations_2026-06-25.json \
+  <env-name>
+```
+
+Use the existing paid-create preflight/watchdog/deletion flow to create and
+clean up `<env-name>` when no ready environment exists.

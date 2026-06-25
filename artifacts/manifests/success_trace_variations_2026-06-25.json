@@ -134,7 +134,7 @@
     "near_success": "strict gates fail but relaxed near-contact metrics are met",
     "strict_success": "peg-video-candidate, final-contact-boundary, and trace-frame-alignment gates all pass"
   },
-  "created_utc": "2026-06-25T04-33-20Z",
+  "created_utc": "2026-06-25T04-44-19Z",
   "manifest_version": 1,
   "near_success_thresholds": {
     "best_axial_max_m": 0.06,
@@ -148,6 +148,11 @@
     "requires_budget_watchdog_pullback_delete": true,
     "run_mode": "trace-only-first"
   },
+  "source_socket_frame_pos_m": [
+    0.52,
+    0.0,
+    0.19
+  ],
   "source_summary": {
     "best_axial": 0.007546612061560154,
     "best_lateral": 0.00014721538173034787,

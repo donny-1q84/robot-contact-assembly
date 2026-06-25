@@ -754,6 +754,11 @@ def run_scripted_agent_quaternion_static_tests() -> None:
         "\"insertion_success_termination_disabled\"",
         "--success-hold-steps",
         "--socket-insertion-servo-maintain-contact-preload",
+        "--reset-joint-noise-rad",
+        "reset_joints_by_offset",
+        "\"reset_joint_noise_rad\": reset_joint_noise_rad",
+        "\"variation_case_id\": os.environ.get(\"RCA_TRACE_VARIATION_CASE_ID\")",
+        "\"variation_socket_delta_m\": os.environ.get(\"RCA_TRACE_VARIATION_SOCKET_DELTA_M\")",
         "\"event\": \"post_success_hold_action\"",
         "\"mode\": post_success_hold_mode",
         "\"event\": \"success_hold_break\"",
@@ -873,6 +878,9 @@ def run_trace_only_runtime_profile_static_tests() -> None:
     trace_recreate_script = (
         REPO_ROOT / "scripts" / "recreate_brev_and_run_final_contact_servo_trace.sh"
     ).read_text(encoding="utf-8")
+    trace_only_script = (
+        REPO_ROOT / "scripts" / "run_remote_scripted_trace_only.sh"
+    ).read_text(encoding="utf-8")
 
     required_install_snippets = [
         'RUNTIME_PROFILE="${RCA_ISAACLAB_RUNTIME_PROFILE:-full}"',
@@ -958,6 +966,22 @@ def run_trace_only_runtime_profile_static_tests() -> None:
             raise AssertionError(
                 "recreate_brev_and_run_final_contact_servo_trace.sh is missing trace-only "
                 f"runtime profile snippet: {snippet}"
+            )
+
+    required_trace_only_snippets = [
+        'TRACE_DIR_NAME="${RCA_TRACE_ONLY_DIR_NAME:-}"',
+        'TRACE_REMOTE_DIR_OVERRIDE="${RCA_TRACE_ONLY_REMOTE_DIR:-}"',
+        'REMOTE_TRACE_DIR="${TRACE_REMOTE_DIR_OVERRIDE:-/workspace/artifacts/videos/trace_only/${TRACE_DIR_NAME}}"',
+        'TRACE_VARIATION_CASE_ID="${RCA_TRACE_VARIATION_CASE_ID:-}"',
+        "export RCA_TRACE_VARIATION_CASE_ID='${TRACE_VARIATION_CASE_ID}'",
+        "export RCA_TRACE_VARIATION_SOCKET_DELTA_M='${TRACE_VARIATION_SOCKET_DELTA_M}'",
+        "export RCA_TRACE_VARIATION_RESET_JOINT_NOISE_RAD='${TRACE_VARIATION_RESET_JOINT_NOISE_RAD}'",
+    ]
+    for snippet in required_trace_only_snippets:
+        if snippet not in trace_only_script:
+            raise AssertionError(
+                "run_remote_scripted_trace_only.sh is missing variation trace directory/metadata "
+                f"snippet: {snippet}"
             )
 
 
@@ -1327,7 +1351,7 @@ def run_success_variation_manifest_tests() -> None:
                 "--output",
                 str(manifest_path),
                 "--output-trace-root",
-                str(results_root),
+                "artifacts/videos/success_variations/2026-06-25",
             ]
         )
         assert_status(result, 0, "success variation manifest generator exits cleanly")
@@ -1394,6 +1418,48 @@ def run_success_variation_manifest_tests() -> None:
         by_case = {case["case_id"]: case for case in report["results"]}
         if by_case["seed_43_nominal"]["classification"] != "fail_closed":
             raise AssertionError(f"bad trace should fail closed: {by_case['seed_43_nominal']}")
+
+        plan_json = tmp_dir / "batch_plan.json"
+        plan_sh = tmp_dir / "batch_plan.sh"
+        result = run(
+            [
+                "python3",
+                "scripts/plan_success_variation_batch.py",
+                str(manifest_path),
+                "--output-json",
+                str(plan_json),
+                "--output-sh",
+                str(plan_sh),
+            ]
+        )
+        assert_status(result, 0, "success variation batch planner handles manifest")
+        assert_contains(result, "cases=8", "success variation planner excludes available baseline by default")
+        plan = json.loads(plan_json.read_text(encoding="utf-8"))
+        by_plan_case = {case["case_id"]: case for case in plan["cases"]}
+        if "baseline_replay" in by_plan_case:
+            raise AssertionError("batch planner should not rerun the available baseline unless explicitly requested")
+        if by_plan_case["socket_x_pos_1mm"]["socket_pos_m"] != [0.521, 0.0, 0.19]:
+            raise AssertionError(f"socket X +1mm plan has wrong absolute socket position: {by_plan_case['socket_x_pos_1mm']}")
+        if "--socket-pos 0.521000,0.000000,0.190000" not in by_plan_case["socket_x_pos_1mm"]["env"].get(
+            "RCA_SOCKET_INSERTION_SERVO_EXTRA_ARGS", ""
+        ):
+            raise AssertionError("socket X +1mm plan must pass --socket-pos through the runner env")
+        if "--reset-joint-noise-rad 0.010000" not in by_plan_case["seed_44_reset_noise"]["env"].get(
+            "RCA_SOCKET_INSERTION_SERVO_EXTRA_ARGS", ""
+        ):
+            raise AssertionError("reset-noise variation must pass explicit reset noise through the runner env")
+        if by_plan_case["socket_x_pos_25mm_negative_control"]["remote_trace_dir"] != (
+            "/workspace/artifacts/videos/success_variations/2026-06-25/socket_x_pos_25mm_negative_control"
+        ):
+            raise AssertionError("negative-control remote trace dir must match the manifest planned artifact path")
+        rendered_plan = plan_sh.read_text(encoding="utf-8")
+        for expected_snippet in (
+            "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_PEG_VIDEO_CANDIDATE=0",
+            "RCA_TRACE_VARIATION_CASE_ID=socket_x_pos_25mm_negative_control",
+            "scripts/run_remote_joint_response_socket_insertion_servo_trace.sh",
+        ):
+            if expected_snippet not in rendered_plan:
+                raise AssertionError(f"rendered batch plan missing snippet: {expected_snippet}")
 
 
 def write_action_response_trace(

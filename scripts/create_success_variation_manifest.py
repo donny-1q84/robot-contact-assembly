@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import sys
@@ -22,6 +23,17 @@ sys.dont_write_bytecode = True
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE_TRACE = REPO_ROOT / "artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "artifacts/manifests"
+CONSTANTS_PATH = (
+    REPO_ROOT
+    / "source"
+    / "robot_contact_assembly_tasks"
+    / "robot_contact_assembly_tasks"
+    / "tasks"
+    / "manager_based"
+    / "manipulation"
+    / "peg_in_hole"
+    / "constants.py"
+)
 
 
 def _rel(path: Path) -> str:
@@ -45,6 +57,15 @@ def _load_trace_summary(trace_path: Path) -> dict[str, Any]:
     if not isinstance(summary, dict):
         raise RuntimeError(f"source trace has no summary object: {_rel(trace_path)}")
     return summary
+
+
+def _load_source_socket_frame_pos() -> list[float]:
+    spec = importlib.util.spec_from_file_location("rca_peg_constants", CONSTANTS_PATH)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"unable to load constants from {_rel(CONSTANTS_PATH)}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return [float(value) for value in module.SOCKET_FRAME_POS]
 
 
 def _case(
@@ -184,6 +205,7 @@ def build_manifest(
             "best_rot": summary.get("best_rot"),
             "max_contact_force_magnitude": summary.get("max_contact_force_magnitude"),
         },
+        "source_socket_frame_pos_m": _load_source_socket_frame_pos(),
         "classification_contract": {
             "strict_success": "peg-video-candidate, final-contact-boundary, and trace-frame-alignment gates all pass",
             "near_success": "strict gates fail but relaxed near-contact metrics are met",

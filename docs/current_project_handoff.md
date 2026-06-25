@@ -37,7 +37,10 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    socket/reset perturbations;
 5. use `scripts/create_success_variation_manifest.py` and
    `scripts/classify_success_variation_results.py` to keep the next paid batch
-   bounded, classifiable, and negative-control checked before opening compute.
+   bounded, classifiable, and negative-control checked before opening compute;
+6. use `scripts/plan_success_variation_batch.py` and
+   `scripts/run_remote_success_variation_batch.sh` so each remote trace writes
+   to the manifest planned path with explicit socket/reset variation metadata.
 
 The first local variation contract is:
 
@@ -45,6 +48,8 @@ The first local variation contract is:
 manifest: artifacts/manifests/success_trace_variations_2026-06-25.json
 classification_json: artifacts/analysis/success_trace_variation_classification_2026-06-25.json
 classification_md: artifacts/analysis/success_trace_variation_classification_2026-06-25.md
+batch_plan_json: artifacts/analysis/success_trace_variation_batch_plan_2026-06-25.json
+batch_plan_sh: artifacts/analysis/success_trace_variation_batch_plan_2026-06-25.sh
 result: 1 strict_success positive control, 8 missing planned cases
 negative_control: socket_x_pos_25mm_negative_control expected fail_closed
 paid_compute_allowed: false
@@ -52,7 +57,10 @@ paid_compute_allowed: false
 
 Do not open another paid GPU run for a prettier video, old Abs IK/JointPos
 sweeps, RL/BC, or VLM work until the variation manifest/classifier has been
-reviewed and a fixed-budget trace-only batch plan is explicit.
+reviewed and a fixed-budget trace-only batch plan is explicit. The current batch
+execution script assumes an already ready remote environment; it does not create
+or delete Brev instances, so paid lifecycle remains the responsibility of the
+existing preflight/watchdog/create/delete wrapper.
 
 Detailed plan:
 

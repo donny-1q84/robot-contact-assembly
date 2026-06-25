@@ -729,6 +729,15 @@ parser.add_argument(
     help="Disable reset joint randomization for deterministic controller gates.",
 )
 parser.add_argument(
+    "--reset-joint-noise-rad",
+    type=float,
+    default=0.0,
+    help=(
+        "Use absolute per-joint reset noise in radians via Isaac Lab reset_joints_by_offset. "
+        "Zero keeps the task default unless --deterministic-reset is set."
+    ),
+)
+parser.add_argument(
     "--socket-pos",
     type=_parse_vec3,
     default=None,
@@ -2091,6 +2100,7 @@ def main():
     with _launched_env_cfg(args_cli.task, args_cli) as env_cfg:
         from isaaclab.assets import RigidObject
         from isaaclab.controllers import DifferentialIKController, DifferentialIKControllerCfg
+        import isaaclab.envs.mdp as base_mdp
         from isaaclab.managers import SceneEntityCfg
         from isaaclab.utils.math import combine_frame_transforms, compute_pose_error, subtract_frame_transforms
         from robot_contact_assembly_tasks.tasks.manager_based.manipulation.peg_in_hole import mdp
@@ -2167,7 +2177,20 @@ def main():
                 )
         # Keep a fixed target for the scripted baseline so convergence is measured against one command.
         env_cfg.commands.socket_pose.resampling_time_range = (1.0e6, 1.0e6)
-        if args_cli.deterministic_reset:
+        reset_joint_noise_rad = max(0.0, args_cli.reset_joint_noise_rad)
+        if args_cli.deterministic_reset and reset_joint_noise_rad > 0.0:
+            raise ValueError("--deterministic-reset and --reset-joint-noise-rad > 0 are mutually exclusive")
+        if reset_joint_noise_rad > 0.0:
+            if not hasattr(base_mdp, "reset_joints_by_offset"):
+                raise RuntimeError("Isaac Lab reset_joints_by_offset is required for --reset-joint-noise-rad")
+            env_cfg.events.reset_robot_joints.func = base_mdp.reset_joints_by_offset
+            env_cfg.events.reset_robot_joints.params["position_range"] = (-reset_joint_noise_rad, reset_joint_noise_rad)
+            env_cfg.events.reset_robot_joints.params["velocity_range"] = (0.0, 0.0)
+            print(
+                f"[SCRIPTED] using absolute reset joint noise +/-{reset_joint_noise_rad:.6f} rad",
+                flush=True,
+            )
+        elif args_cli.deterministic_reset:
             env_cfg.events.reset_robot_joints.params["position_range"] = (1.0, 1.0)
         initial_joint_pos_overrides = dict(args_cli.initial_joint_pos or {})
         if initial_joint_pos_overrides:
@@ -5625,7 +5648,11 @@ def main():
             "joint_step_limit_mode": args_cli.joint_step_limit_mode,
             "joint_limit_margin": args_cli.joint_limit_margin,
             "deterministic_reset": args_cli.deterministic_reset,
+            "reset_joint_noise_rad": reset_joint_noise_rad,
             "socket_pos_override": list(args_cli.socket_pos) if args_cli.socket_pos is not None else None,
+            "variation_case_id": os.environ.get("RCA_TRACE_VARIATION_CASE_ID"),
+            "variation_socket_delta_m": os.environ.get("RCA_TRACE_VARIATION_SOCKET_DELTA_M"),
+            "variation_reset_joint_noise_rad": os.environ.get("RCA_TRACE_VARIATION_RESET_JOINT_NOISE_RAD"),
             "trace_json": os.path.abspath(args_cli.trace_json) if args_cli.trace_json else None,
         }
         print(
