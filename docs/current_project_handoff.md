@@ -52,18 +52,14 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    paid preflight, watchdog, artifact pull, deletion, and empty-org confirmation
    to the existing lifecycle wrapper;
 8. after the pulled artifacts are classified, use
-   `scripts/review_success_variation_batch.py` for the one-page decision record
-   and
-   `scripts/check_success_variation_batch_results.py` to require at least 5
+   `scripts/finalize_success_variation_batch.sh` to write the review record,
+   enforce the strict result gate, and prepare the V0 scripted-skill dataset
+   only if the gate passes. The result gate requires at least 5
    non-baseline/non-negative strict successes, `baseline_replay` still
    `strict_success`, the 25 mm socket-shift negative control `fail_closed`, and
    no missing planned trace artifacts before learned policy, VLM, ROS, or
-   sim-to-real claims;
-9. only after that result gate passes, run
-   `scripts/prepare_success_variation_dataset.py` to write the V0 scripted-skill
-   dataset manifest and README under
-   `artifacts/datasets/v0_scripted_skill_success_variations/`; this script is
-   offline/read-only and must fail closed in the current baseline-only state.
+   sim-to-real claims. The finalizer does not create or delete Brev instances
+   and must fail closed in the current baseline-only state.
 
 The first local variation contract is:
 

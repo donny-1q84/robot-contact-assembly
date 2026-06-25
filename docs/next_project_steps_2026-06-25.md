@@ -198,6 +198,7 @@ scripts/check_success_variation_batch_readiness.py
 scripts/check_success_variation_batch_results.py
 scripts/review_success_variation_batch.py
 scripts/prepare_success_variation_dataset.py
+scripts/finalize_success_variation_batch.sh
 configs/success_variation_batch_run.env.example
 tests in scripts/test_local_gates.py for the variation manifest / classifier
 artifacts/manifests/success_trace_variations_2026-06-25.json
@@ -263,6 +264,15 @@ path. The lifecycle-risk acknowledgement is required while
 
 After the batch artifacts are pulled and classified, gate promotion to learned
 policy work and write the review record with:
+
+```bash
+scripts/finalize_success_variation_batch.sh \
+  artifacts/manifests/success_trace_variations_2026-06-25.json
+```
+
+The finalizer runs the post-batch review, the strict result gate, and the V0
+dataset prep in order. It writes a review record even when blocked, and it does
+not create or delete Brev instances. The equivalent lower-level commands are:
 
 ```bash
 python3 scripts/review_success_variation_batch.py \

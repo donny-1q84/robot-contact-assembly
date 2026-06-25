@@ -1505,6 +1505,28 @@ def run_success_variation_manifest_tests() -> None:
         if "missing planned trace artifacts" not in review_md.read_text(encoding="utf-8"):
             raise AssertionError("review markdown should include missing-artifact failure detail")
 
+        finalize_blocked_dir = tmp_dir / "finalize_blocked"
+        result = run(
+            [
+                "scripts/finalize_success_variation_batch.sh",
+                str(manifest_path),
+            ],
+            env={
+                "RCA_SUCCESS_VARIATION_FINALIZE_SKIP_BREV_SAFETY": "1",
+                "RCA_SUCCESS_VARIATION_REVIEW_JSON": str(finalize_blocked_dir / "review.json"),
+                "RCA_SUCCESS_VARIATION_REVIEW_MD": str(finalize_blocked_dir / "review.md"),
+                "RCA_SUCCESS_VARIATION_RESULT_GATE_JSON": str(finalize_blocked_dir / "result_gate.json"),
+                "RCA_SUCCESS_VARIATION_DATASET_JSON": str(finalize_blocked_dir / "dataset" / "manifest.json"),
+                "RCA_SUCCESS_VARIATION_DATASET_MD": str(finalize_blocked_dir / "dataset" / "README.md"),
+            },
+        )
+        assert_status(result, 1, "success variation finalizer blocks incomplete batch")
+        assert_contains(result, "[success-variation-finalize] BLOCKED", "blocked finalizer detail")
+        if not (finalize_blocked_dir / "review.json").is_file():
+            raise AssertionError("blocked finalizer should still write the review record")
+        if (finalize_blocked_dir / "dataset" / "manifest.json").exists():
+            raise AssertionError("blocked finalizer must not write dataset manifest")
+
         pass_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         for case in pass_manifest["cases"]:
             case_id = case["case_id"]
@@ -1563,6 +1585,30 @@ def run_success_variation_manifest_tests() -> None:
             "promotable review decision detail",
         )
 
+        finalize_pass_dir = tmp_dir / "finalize_pass"
+        result = run(
+            [
+                "scripts/finalize_success_variation_batch.sh",
+                str(pass_manifest_path),
+            ],
+            env={
+                "RCA_SUCCESS_VARIATION_FINALIZE_SKIP_BREV_SAFETY": "1",
+                "RCA_SUCCESS_VARIATION_REVIEW_JSON": str(finalize_pass_dir / "review.json"),
+                "RCA_SUCCESS_VARIATION_REVIEW_MD": str(finalize_pass_dir / "review.md"),
+                "RCA_SUCCESS_VARIATION_RESULT_GATE_JSON": str(finalize_pass_dir / "result_gate.json"),
+                "RCA_SUCCESS_VARIATION_DATASET_JSON": str(finalize_pass_dir / "dataset" / "manifest.json"),
+                "RCA_SUCCESS_VARIATION_DATASET_MD": str(finalize_pass_dir / "dataset" / "README.md"),
+            },
+        )
+        assert_status(result, 0, "success variation finalizer accepts promotable batch")
+        assert_contains(result, "[success-variation-finalize] PASS", "promotable finalizer detail")
+        finalized_dataset = json.loads((finalize_pass_dir / "dataset" / "manifest.json").read_text(encoding="utf-8"))
+        if finalized_dataset["dataset_name"] != "v0_scripted_skill_success_variations":
+            raise AssertionError(f"finalizer wrote wrong dataset: {finalized_dataset['dataset_name']}")
+        finalized_result_gate = json.loads((finalize_pass_dir / "result_gate.json").read_text(encoding="utf-8"))
+        if not finalized_result_gate["gate"]["pass"]:
+            raise AssertionError(f"finalizer result gate should pass: {finalized_result_gate['gate']}")
+
         negative_success_manifest = json.loads(pass_manifest_path.read_text(encoding="utf-8"))
         for case in negative_success_manifest["cases"]:
             if case["case_id"] == "socket_x_pos_25mm_negative_control":
@@ -1601,6 +1647,9 @@ def run_success_variation_manifest_tests() -> None:
         ).read_text(encoding="utf-8")
         dataset_script = (
             REPO_ROOT / "scripts" / "prepare_success_variation_dataset.py"
+        ).read_text(encoding="utf-8")
+        finalizer_script = (
+            REPO_ROOT / "scripts" / "finalize_success_variation_batch.sh"
         ).read_text(encoding="utf-8")
         gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
 
@@ -1746,6 +1795,21 @@ def run_success_variation_manifest_tests() -> None:
                 raise AssertionError(f"success variation dataset prep script missing snippet: {expected_snippet}")
         if "brev create" in dataset_script or '"${BREV_BIN}" create' in dataset_script:
             raise AssertionError("success variation dataset prep must be offline and must not create Brev instances")
+
+        for expected_snippet in (
+            "review_success_variation_batch.py",
+            "check_success_variation_batch_results.py",
+            "prepare_success_variation_dataset.py",
+            "--fail-on-blocked",
+            "RCA_SUCCESS_VARIATION_FINALIZE_SKIP_BREV_SAFETY",
+            "[success-variation-finalize] BLOCKED",
+            "[success-variation-finalize] PASS",
+            "does not create or delete Brev instances",
+        ):
+            if expected_snippet not in finalizer_script:
+                raise AssertionError(f"success variation finalizer missing snippet: {expected_snippet}")
+        if "brev create" in finalizer_script or '"${BREV_BIN}" create' in finalizer_script:
+            raise AssertionError("success variation finalizer must not create Brev instances")
 
 
 def write_action_response_trace(
