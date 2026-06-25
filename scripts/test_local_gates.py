@@ -1470,6 +1470,9 @@ def run_success_variation_manifest_tests() -> None:
         paid_wrapper = (
             REPO_ROOT / "scripts" / "recreate_brev_and_run_success_variation_batch.sh"
         ).read_text(encoding="utf-8")
+        readiness_gate = (
+            REPO_ROOT / "scripts" / "check_success_variation_batch_readiness.py"
+        ).read_text(encoding="utf-8")
 
         for expected_snippet in (
             'TASK_NAME="${RCA_SUCCESS_VARIATION_TASK:-}"',
@@ -1492,16 +1495,40 @@ def run_success_variation_manifest_tests() -> None:
 
         for expected_snippet in (
             "recreate_brev_and_run_final_contact_servo_trace.sh",
+            "check_success_variation_batch_readiness.py",
             'RCA_FINAL_CONTACT_TRACE_RUNNER="${SCRIPT_DIR}/run_remote_success_variation_batch_as_trace_runner.sh"',
             "RCA_FINAL_CONTACT_VALIDATE_PEG_VIDEO_CANDIDATE=0",
             'RCA_SUCCESS_VARIATION_MANIFEST="${MANIFEST}"',
             'RCA_FINAL_CONTACT_WATCHDOG_MAX_MINUTES="${RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES:-',
+            "set an explicit TTL with RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES",
             "delegates create, preflight, watchdog, artifact pull",
         ):
             if expected_snippet not in paid_wrapper:
                 raise AssertionError(f"success variation paid wrapper missing snippet: {expected_snippet}")
         if "brev create" in paid_wrapper or '"${BREV_BIN}" create' in paid_wrapper:
             raise AssertionError("success variation paid wrapper must not duplicate Brev create logic")
+
+        for expected_snippet in (
+            "classify_success_variation_results",
+            "scripts/check_phase2_contact_gate.py",
+            "./scripts/brev_paid_safety_status.sh",
+            "SAFE_NO_VISIBLE_PAID_INSTANCE",
+            "RCA_ALLOW_PAID_BREV_CREATE",
+            "RCA_BREV_CREDITS_VERIFIED",
+            "RCA_ACK_BREV_LIFECYCLE_RISK",
+            "RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES",
+            "RCA_PAID_BUDGET_EUR",
+            "RCA_PAID_ESTIMATED_EUR_PER_HOUR",
+            "baseline_replay must remain a strict_success positive control",
+            "negative control is already strict_success",
+            "estimated max cost",
+            "[success-variation-readiness] BLOCKED",
+            "[success-variation-readiness] READY",
+        ):
+            if expected_snippet not in readiness_gate:
+                raise AssertionError(f"success variation readiness gate missing snippet: {expected_snippet}")
+        if "brev create" in readiness_gate or '"${BREV_BIN}" create' in readiness_gate:
+            raise AssertionError("success variation readiness gate must be read-only and must not create Brev instances")
 
 
 def write_action_response_trace(

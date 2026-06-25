@@ -42,6 +42,7 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    `scripts/run_remote_success_variation_batch.sh` so each remote trace writes
    to the manifest planned path with explicit socket/reset variation metadata;
 7. if a new Brev instance is required for the batch, use
+   `scripts/check_success_variation_batch_readiness.py` first, then
    `scripts/recreate_brev_and_run_success_variation_batch.sh`, which delegates
    paid preflight, watchdog, artifact pull, deletion, and empty-org confirmation
    to the existing lifecycle wrapper.
@@ -64,9 +65,10 @@ sweeps, RL/BC, or VLM work until the variation manifest/classifier has been
 reviewed and a fixed-budget trace-only batch plan is explicit. The current batch
 execution script assumes an already ready remote environment; it does not create
 or delete Brev instances. If creation is needed, the dedicated success-variation
-paid wrapper must still pass `paid_compute_preflight.sh`, current-credit
-verification, fixed budget/TTL, `SAFE_NO_VISIBLE_PAID_INSTANCE`, and lifecycle
-risk acknowledgement while `docs/brev_launchable_lifecycle_hold.md` is active.
+paid wrapper must still pass the success-variation readiness gate,
+`paid_compute_preflight.sh`, current-credit verification, fixed budget/TTL,
+`SAFE_NO_VISIBLE_PAID_INSTANCE`, and lifecycle-risk acknowledgement while
+`docs/brev_launchable_lifecycle_hold.md` is active.
 
 Detailed plan:
 

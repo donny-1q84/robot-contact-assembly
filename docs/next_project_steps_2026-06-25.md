@@ -193,6 +193,7 @@ scripts/plan_success_variation_batch.py
 scripts/run_remote_success_variation_batch.sh
 scripts/run_remote_success_variation_batch_as_trace_runner.sh
 scripts/recreate_brev_and_run_success_variation_batch.sh
+scripts/check_success_variation_batch_readiness.py
 tests in scripts/test_local_gates.py for the variation manifest / classifier
 artifacts/manifests/success_trace_variations_2026-06-25.json
 artifacts/analysis/success_trace_variation_classification_2026-06-25.json
@@ -238,12 +239,17 @@ RCA_ALLOW_PAID_BREV_CREATE=1 \
 RCA_BREV_CREDITS_VERIFIED=1 \
 RCA_PAID_BUDGET_EUR=<explicit-budget> \
 RCA_PAID_ESTIMATED_EUR_PER_HOUR=<conservative-eur-per-hour> \
+RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES=<explicit-ttl-minutes> \
 RCA_ACK_BREV_LIFECYCLE_RISK=1 \
 scripts/recreate_brev_and_run_success_variation_batch.sh \
   artifacts/manifests/success_trace_variations_2026-06-25.json
 ```
 
-That wrapper reuses the existing `paid_compute_preflight.sh`,
+Before creation, `scripts/check_success_variation_batch_readiness.py` checks
+the manifest/positive-control/negative-control contract, Phase 2 gate, explicit
+budget/hourly estimate/TTL, current-credit verification marker, lifecycle-risk
+acknowledgement, and `SAFE_NO_VISIBLE_PAID_INSTANCE`. The wrapper then reuses
+the existing `paid_compute_preflight.sh`,
 `brev_paid_run_watchdog.sh`, artifact pull, delete, and empty-org confirmation
 path. The lifecycle-risk acknowledgement is required while
 `docs/brev_launchable_lifecycle_hold.md` is active.

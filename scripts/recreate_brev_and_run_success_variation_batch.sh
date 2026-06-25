@@ -17,6 +17,11 @@ if [[ ! -f "${MANIFEST}" ]]; then
   exit 2
 fi
 
+if [[ -z "${RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES:-${RCA_FINAL_CONTACT_WATCHDOG_MAX_MINUTES:-${RCA_PAID_MAX_MINUTES:-}}}" ]]; then
+  echo "[success-variation-paid] set an explicit TTL with RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES, RCA_FINAL_CONTACT_WATCHDOG_MAX_MINUTES, or RCA_PAID_MAX_MINUTES" >&2
+  exit 2
+fi
+
 cat >&2 <<EOF
 [success-variation-paid] This is a paid Brev create/run/cleanup wrapper.
 [success-variation-paid] It delegates create, preflight, watchdog, artifact pull,
@@ -26,6 +31,8 @@ cat >&2 <<EOF
 [success-variation-paid] credit verification, lifecycle-risk acknowledgement when active,
 [success-variation-paid] and an empty Brev org before any instance is created.
 EOF
+
+"${SCRIPT_DIR}/check_success_variation_batch_readiness.py" "${MANIFEST}"
 
 RCA_SUCCESS_VARIATION_MANIFEST="${MANIFEST}" \
 RCA_SUCCESS_VARIATION_TASK="${TASK_NAME}" \
