@@ -13,6 +13,7 @@ policy-readiness pipeline or writes a recovery rerun plan.
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import shlex
 import subprocess
@@ -137,11 +138,73 @@ def _build_commands(args: argparse.Namespace) -> dict[str, list[str]]:
     }
 
 
-def _print_dry_run(commands: dict[str, list[str]]) -> None:
+def _rel(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _dry_run_report(args: argparse.Namespace, commands: dict[str, list[str]]) -> dict:
+    config = _resolve(args.config)
+    manifest = _resolve(args.manifest)
+    return {
+        "status": "DRY_RUN",
+        "run_requested": bool(args.run),
+        "balance_eur": None if args.balance_eur is None else round(args.balance_eur, 2),
+        "budget_eur": round(args.budget_eur, 2),
+        "config": _rel(config),
+        "manifest": _rel(manifest),
+        "execution_order": [
+            "prepare",
+            "preflight",
+            "run",
+            "disarm",
+            "safety",
+            "finalize",
+            "policy_readiness",
+        ],
+        "failure_order": [
+            "prepare",
+            "preflight",
+            "run",
+            "disarm",
+            "safety",
+            "recovery",
+        ],
+        "commands": commands,
+        "cleanup_guards": [
+            "preflight failure disarms local paid env and reruns Brev safety",
+            "run failure disarms local paid env, reruns Brev safety, and writes a recovery plan",
+            "KeyboardInterrupt disarms local paid env, reruns Brev safety, and writes a recovery plan",
+            "success path reruns final Brev safety after policy-readiness handoff",
+        ],
+        "side_effects": {
+            "writes_credit_evidence": False,
+            "arms_local_env": False,
+            "creates_paid_instance": False,
+            "runs_remote_code": False,
+            "copies_artifacts": False,
+            "deletes_instances": False,
+            "writes_recovery_plan": False,
+        },
+        "not_claims": [
+            "not fresh Brev UI credit evidence",
+            "not an armed local env",
+            "not a paid run",
+            "not success-variation result evidence",
+            "not cleanup evidence",
+        ],
+    }
+
+
+def _print_dry_run(args: argparse.Namespace, commands: dict[str, list[str]]) -> None:
+    report = _dry_run_report(args, commands)
     print("[success-variation-lifecycle] DRY_RUN")
     print("[success-variation-lifecycle] would not create a paid instance")
     for label in ("prepare", "preflight", "run", "disarm", "safety", "finalize", "policy_readiness", "recovery"):
         print(f"- {label}: {_fmt(commands[label])}")
+    print("[success-variation-lifecycle] facts=" + json.dumps(report, indent=2, sort_keys=True))
 
 
 def _post_run_cleanup(commands: dict[str, list[str]]) -> None:
@@ -219,7 +282,7 @@ def main() -> int:
 
     commands = _build_commands(args)
     if args.dry_run:
-        _print_dry_run(commands)
+        _print_dry_run(args, commands)
         return 0
 
     blockers: list[str] = []

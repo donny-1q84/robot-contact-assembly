@@ -3912,6 +3912,7 @@ def run_success_variation_manifest_tests() -> None:
         assert_status(result, 0, "success variation paid lifecycle dry-run succeeds")
         assert_contains(result, "DRY_RUN", "paid lifecycle dry-run marker")
         assert_contains(result, "would not create a paid instance", "paid lifecycle dry-run safety detail")
+        assert_contains(result, "[success-variation-lifecycle] facts=", "paid lifecycle dry-run facts marker")
         assert_contains(
             result,
             "check_success_variation_paid_lifecycle_preflight.py",
@@ -3924,6 +3925,23 @@ def run_success_variation_manifest_tests() -> None:
             "paid lifecycle offline policy-readiness detail",
         )
         assert_contains(result, "plan_success_variation_recovery_batch.py", "paid lifecycle recovery detail")
+        paid_lifecycle_facts, _ = json.JSONDecoder().raw_decode(
+            result.stdout.split("[success-variation-lifecycle] facts=", 1)[1].lstrip()
+        )
+        if paid_lifecycle_facts["status"] != "DRY_RUN":
+            raise AssertionError(f"paid lifecycle dry-run facts should report DRY_RUN: {paid_lifecycle_facts}")
+        if paid_lifecycle_facts["balance_eur"] != 20.0:
+            raise AssertionError(f"paid lifecycle dry-run should preserve provided balance: {paid_lifecycle_facts}")
+        if paid_lifecycle_facts["side_effects"]["creates_paid_instance"] is not False:
+            raise AssertionError(f"paid lifecycle dry-run must not create paid instances: {paid_lifecycle_facts}")
+        if paid_lifecycle_facts["side_effects"]["arms_local_env"] is not False:
+            raise AssertionError(f"paid lifecycle dry-run must not arm local env: {paid_lifecycle_facts}")
+        if paid_lifecycle_facts["side_effects"]["writes_recovery_plan"] is not False:
+            raise AssertionError(f"paid lifecycle dry-run must not write a recovery plan: {paid_lifecycle_facts}")
+        if "KeyboardInterrupt disarms local paid env" not in " ".join(paid_lifecycle_facts["cleanup_guards"]):
+            raise AssertionError(f"paid lifecycle dry-run should expose interrupt cleanup: {paid_lifecycle_facts}")
+        if paid_lifecycle_facts["execution_order"][:3] != ["prepare", "preflight", "run"]:
+            raise AssertionError(f"paid lifecycle dry-run execution order changed: {paid_lifecycle_facts}")
         custom_lifecycle_config = tmp_dir / "custom_success_variation_batch_run.local.env"
         custom_lifecycle_credit = tmp_dir / "custom_brev_credit_verification.local.json"
         custom_lifecycle_config.write_text(
@@ -4039,6 +4057,10 @@ def run_success_variation_manifest_tests() -> None:
             "run_success_variation_batch_from_config.sh",
             "arm_success_variation_paid_env.py",
             "brev_paid_safety_status.sh",
+            "[success-variation-lifecycle] facts=",
+            "cleanup_guards",
+            "KeyboardInterrupt disarms local paid env",
+            "writes_recovery_plan",
             "finalize_success_variation_batch.sh",
             "run_v0_offline_policy_readiness_pipeline.py",
             "plan_success_variation_recovery_batch.py",

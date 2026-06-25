@@ -482,7 +482,10 @@ disarms and runs Brev safety before exiting. After any paid run attempt it also
 disarms and safety-checks before either finalizing the dataset gate or writing
 the recovery rerun plan. Local gate tests cover the preflight-failure,
 preflight-interrupt, run-failure, finalize-failure, interrupt, and success
-cleanup paths.
+cleanup paths. Add `--dry-run` before `--run` when reviewing the full wrapper:
+it emits a parseable `[success-variation-lifecycle] facts=` block with the
+prepare/preflight/run/disarm/safety/finalize/recovery command sequence,
+cleanup guards, and explicit no-side-effect flags.
 
 Before editing the ignored local env or opening paid compute, run the
 read-only assumption-and-metric audit:
