@@ -933,6 +933,7 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "python3 scripts/audit_success_variation_assumptions.py artifacts/manifests/success_trace_variations_2026-06-25.json --phase pre-batch --run-packet artifacts/analysis/success_variation_run_packet_2026-06-25.json --no-output",
             "python3 scripts/plan_success_variation_recovery_batch.py artifacts/manifests/success_trace_variations_2026-06-25.json",
             "python3 scripts/prepare_brev_credit_review.py --no-output",
+            "python3 scripts/prepare_success_variation_paid_batch.py --balance-eur <current-brev-ui-balance> --force-credit --i-understand-this-arms-paid-run",
             "python3 scripts/check_v0_language_instruction_suite.py --no-output",
             "python3 scripts/check_v0_skill_readiness.py --skip-phase2-contact-gate",
             "python3 scripts/run_v0_language_skill_dry_run.py \"insert the peg into the left socket\" --skip-phase2-contact-gate --no-output",

@@ -3534,6 +3534,7 @@ def run_success_variation_manifest_tests() -> None:
         assert_contains(result, "NEEDS_BREV_UI_CREDIT_EVIDENCE", "Brev credit review missing evidence detail")
         assert_contains(result, "dashboard_url=https://brev.nvidia.com/org/", "Brev credit review dashboard detail")
         assert_contains(result, "write_credit_evidence=", "Brev credit review follow-up command detail")
+        assert_contains(result, "prepare_success_variation_paid_batch.py", "Brev credit review prepare helper command")
         result = run(["python3", str(credit_review_path), "--no-output", "--fail-on-blocked"])
         assert_status(result, 1, "Brev credit review can fail closed while UI evidence is missing")
 
@@ -3560,6 +3561,8 @@ def run_success_variation_manifest_tests() -> None:
             "READY_FOR_PAID_LIFECYCLE",
             "--source-status-output",
             "write_brev_credit_evidence.py",
+            "prepare_success_variation_paid_batch.py",
+            "prepare_paid_batch",
             "check_success_variation_paid_lifecycle_preflight.py",
             "run_success_variation_paid_lifecycle.py",
             "opens_dashboard",
@@ -5732,6 +5735,11 @@ def main() -> int:
             result,
             "python3 scripts/prepare_brev_credit_review.py --no-output",
             "status report Brev credit review command detail",
+        )
+        assert_contains(
+            result,
+            "python3 scripts/prepare_success_variation_paid_batch.py --balance-eur <current-brev-ui-balance> --force-credit --i-understand-this-arms-paid-run",
+            "status report paid prepare helper command detail",
         )
         assert_contains(
             result,

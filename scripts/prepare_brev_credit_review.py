@@ -115,6 +115,16 @@ def build_packet(
         "--run",
         "--i-understand-this-can-create-paid-instance",
     ]
+    prepare_paid_batch_command = [
+        "python3",
+        "scripts/prepare_success_variation_paid_batch.py",
+        "--balance-eur",
+        "<current-brev-ui-balance>",
+        "--budget-eur",
+        f"{budget:.2f}",
+        "--force-credit",
+        "--i-understand-this-arms-paid-run",
+    ]
     return {
         "packet_name": "brev_credit_review_packet",
         "status": _status_from_preflight(preflight),
@@ -128,6 +138,7 @@ def build_packet(
         "paid_lifecycle_preflight": preflight,
         "next_commands": {
             "write_credit_evidence": write_credit_command,
+            "prepare_paid_batch": prepare_paid_batch_command,
             "rerun_paid_lifecycle_preflight": rerun_preflight_command,
             "run_paid_lifecycle": lifecycle_command,
         },
@@ -135,6 +146,7 @@ def build_packet(
             "Log in to Brev/NVIDIA in the browser if required.",
             "Open the organization dashboard and read the current organization credit balance from the Brev UI.",
             "Use the current UI balance in the write_credit_evidence command; do not reuse an old email or memory value.",
+            "Prefer the prepare_paid_batch command to write credit evidence, arm the local env, refresh the run packet, and rerun the aggregate preflight in one fail-closed step.",
             "Rerun the paid lifecycle preflight before any paid create.",
         ],
         "side_effects": {
@@ -177,6 +189,7 @@ def _render_markdown(packet: dict[str, Any]) -> str:
             "",
             "```bash",
             _command_text(commands["write_credit_evidence"]),
+            _command_text(commands["prepare_paid_batch"]),
             _command_text(commands["rerun_paid_lifecycle_preflight"]),
             _command_text(commands["run_paid_lifecycle"]),
             "```",
