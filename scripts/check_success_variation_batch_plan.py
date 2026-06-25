@@ -199,12 +199,21 @@ def build_report(
         if planned.get("shell") and DIRECT_CREATE_MARKER in str(planned["shell"]):
             failures.append(f"{case_id} shell contains direct Brev resource creation")
 
+    planned_unique_seeds = sorted(
+        {
+            int(case.get("seed"))
+            for case in plan_cases
+            if isinstance(case.get("seed"), int)
+        }
+    )
     summary = {
         "manifest": _rel(manifest_path),
         "include_available": include_available,
         "manifest_case_count": len(manifest_cases),
         "planned_case_count": len(plan_cases),
         "planned_case_ids": sorted(plan_by_case),
+        "planned_unique_seeds": planned_unique_seeds,
+        "planned_unique_seed_count": len(planned_unique_seeds),
         "expected_case_ids": sorted(planned_case_ids),
         "negative_control_id": negative_control_id,
         "negative_control_in_plan": negative_control_id in plan_by_case,

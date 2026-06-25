@@ -80,6 +80,18 @@ def _parse_positive_int_env(name: str, default: int, blockers: list[str]) -> int
     return parsed
 
 
+def _parse_bool_env(name: str, default: bool, blockers: list[str]) -> bool | None:
+    value = os.environ.get(name, "").strip().lower()
+    if not value:
+        return default
+    if value in {"1", "true", "yes", "y", "on"}:
+        return True
+    if value in {"0", "false", "no", "n", "off"}:
+        return False
+    blockers.append(f"{name} must be boolean 0/1, got {value!r}")
+    return None
+
+
 def _check_paid_arming_freshness(blockers: list[str], facts: dict[str, Any]) -> None:
     max_age = _parse_positive_int_env(
         "RCA_PAID_ARMING_MAX_AGE_MINUTES",
@@ -332,6 +344,101 @@ def _check_batch_plan_contract(manifest_path: Path, blockers: list[str], facts: 
         blockers.append(f"success variation batch plan is invalid: {detail}")
 
 
+def _check_time_budget_contract(manifest_path: Path, blockers: list[str], facts: dict[str, Any]) -> None:
+    """Prove the configured case timeout envelope fits the paid VM TTL."""
+
+    try:
+        manifest = _load_json(manifest_path)
+    except Exception as exc:  # noqa: BLE001 - malformed manifest should block paid runs.
+        blockers.append(f"cannot check success variation timeout envelope: {exc}")
+        return
+    raw_cases = manifest.get("cases")
+    if not isinstance(raw_cases, list):
+        blockers.append("cannot check success variation timeout envelope: manifest.cases must be a list")
+        return
+
+    planned_cases = [
+        case
+        for case in raw_cases
+        if isinstance(case, dict) and case.get("status") != "available"
+    ]
+    planned_case_count = len(planned_cases)
+    planned_seeds: list[int] = []
+    for case in planned_cases:
+        try:
+            planned_seeds.append(int(case.get("seed") or 42))
+        except (TypeError, ValueError):
+            blockers.append(f"case {case.get('case_id')} seed must be an integer")
+            return
+
+    setup_reserve = _parse_positive_int_env("RCA_SUCCESS_VARIATION_SETUP_RESERVE_SECONDS", 900, blockers)
+    margin = _parse_positive_int_env("RCA_SUCCESS_VARIATION_TIMEOUT_MARGIN_SECONDS", 300, blockers)
+    case_calibration_timeout = _parse_positive_int_env(
+        "RCA_SUCCESS_VARIATION_CASE_CALIBRATION_TIMEOUT_SECONDS",
+        300,
+        blockers,
+    )
+    case_trace_timeout = _parse_positive_int_env(
+        "RCA_SUCCESS_VARIATION_CASE_TRACE_TIMEOUT_SECONDS",
+        300,
+        blockers,
+    )
+    reuse_calibration = _parse_bool_env("RCA_SUCCESS_VARIATION_REUSE_CALIBRATION", True, blockers)
+    ttl_minutes = facts.get("ttl_minutes")
+    if not isinstance(ttl_minutes, int) or ttl_minutes <= 0:
+        facts["time_budget"] = {
+            "status": "NOT_CHECKED",
+            "reason": "ttl_minutes is unavailable",
+            "planned_case_count": planned_case_count,
+            "planned_unique_seed_count": len(set(planned_seeds)),
+        }
+        return
+    if (
+        setup_reserve is None
+        or margin is None
+        or case_calibration_timeout is None
+        or case_trace_timeout is None
+        or reuse_calibration is None
+    ):
+        facts["time_budget"] = {
+            "status": "BLOCKED",
+            "reason": "invalid timeout envelope env",
+            "planned_case_count": planned_case_count,
+            "planned_unique_seed_count": len(set(planned_seeds)),
+        }
+        return
+
+    calibration_count = len(set(planned_seeds)) if reuse_calibration else planned_case_count
+    estimated_seconds = (
+        setup_reserve
+        + calibration_count * case_calibration_timeout
+        + planned_case_count * case_trace_timeout
+        + margin
+    )
+    ttl_seconds = ttl_minutes * 60
+    facts["time_budget"] = {
+        "status": "PASS" if estimated_seconds <= ttl_seconds else "BLOCKED",
+        "ttl_minutes": ttl_minutes,
+        "ttl_seconds": ttl_seconds,
+        "estimated_batch_timeout_seconds": estimated_seconds,
+        "setup_reserve_seconds": setup_reserve,
+        "timeout_margin_seconds": margin,
+        "case_calibration_timeout_seconds": case_calibration_timeout,
+        "case_trace_timeout_seconds": case_trace_timeout,
+        "reuse_calibration": reuse_calibration,
+        "planned_case_count": planned_case_count,
+        "planned_unique_seed_count": len(set(planned_seeds)),
+        "calibration_count": calibration_count,
+        "planned_seeds": sorted(set(planned_seeds)),
+    }
+    if estimated_seconds > ttl_seconds:
+        blockers.append(
+            "success variation timeout envelope exceeds TTL: "
+            f"{estimated_seconds}s > {ttl_seconds}s; lower case timeouts, reuse calibration, "
+            "or raise RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES after budget review"
+        )
+
+
 def _check_paid_env(blockers: list[str], facts: dict[str, Any]) -> None:
     paid_create_allowed = os.environ.get("RCA_ALLOW_PAID_BREV_CREATE") == "1"
     lifecycle_acknowledged = os.environ.get("RCA_ACK_BREV_LIFECYCLE_RISK") == "1"
@@ -397,6 +504,7 @@ def main() -> int:
     _check_manifest_contract(manifest_path, blockers, facts)
     _check_batch_plan_contract(manifest_path, blockers, facts)
     _check_paid_env(blockers, facts)
+    _check_time_budget_contract(manifest_path, blockers, facts)
     _check_phase2_gate(blockers, facts)
     _check_brev_safety(blockers, facts)
     _check_instance_price(blockers, facts)

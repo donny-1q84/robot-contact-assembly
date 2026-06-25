@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/remote_common.sh"
 
 ENV_NAME="${1:-isaac-l40s}"
 REMOTE_ROOT="${2:-/home/ubuntu/projects/robot-contact-assembly}"
@@ -13,17 +14,25 @@ SEED="${7:-42}"
 
 CALIBRATION_STEPS_PER_PROBE="${RCA_JOINT_RESPONSE_SOCKET_CALIBRATION_STEPS_PER_PROBE:-8}"
 CALIBRATION_TIMEOUT_SECONDS="${RCA_JOINT_RESPONSE_SOCKET_CALIBRATION_TIMEOUT_SECONDS:-900}"
+REUSE_CALIBRATION="${RCA_JOINT_RESPONSE_SOCKET_REUSE_CALIBRATION:-0}"
 SUMMARY_PATH="/workspace/artifacts/calibration/joint_position_action/latest_seed_${SEED}.json"
 
-echo "[joint-response-socket] calibrating empirical JointPositionAction response"
-"${SCRIPT_DIR}/run_remote_joint_response_calibration.sh" \
-  "${ENV_NAME}" \
-  "${REMOTE_ROOT}" \
-  "${COMPOSE_ROOT}" \
-  "${TASK_NAME}" \
-  "${CALIBRATION_STEPS_PER_PROBE}" \
-  "${SEED}" \
-  "${CALIBRATION_TIMEOUT_SECONDS}"
+echo "[joint-response-socket] reuse_calibration=${REUSE_CALIBRATION}"
+rca_init_remote_vars "${ENV_NAME}" "${REMOTE_ROOT}" "${COMPOSE_ROOT}"
+
+if [[ "${REUSE_CALIBRATION}" == "1" ]] && rca_remote_container_exec "test -s '${SUMMARY_PATH}'" >/dev/null 2>&1; then
+  echo "[joint-response-socket] reusing existing calibration ${SUMMARY_PATH}"
+else
+  echo "[joint-response-socket] calibrating empirical JointPositionAction response"
+  "${SCRIPT_DIR}/run_remote_joint_response_calibration.sh" \
+    "${ENV_NAME}" \
+    "${REMOTE_ROOT}" \
+    "${COMPOSE_ROOT}" \
+    "${TASK_NAME}" \
+    "${CALIBRATION_STEPS_PER_PROBE}" \
+    "${SEED}" \
+    "${CALIBRATION_TIMEOUT_SECONDS}"
+fi
 
 JOINT_RESPONSE_ARGS=(
   --joint-response-json "${SUMMARY_PATH}"

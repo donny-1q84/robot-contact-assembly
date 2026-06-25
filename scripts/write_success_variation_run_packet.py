@@ -163,8 +163,12 @@ def _local_env_template(config: dict[str, str]) -> str:
         "RCA_SUCCESS_VARIATION_INSTANCE_TYPE": "g6e.xlarge",
         "RCA_SUCCESS_VARIATION_MIN_DISK": "500",
         "RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES": "75",
-        "RCA_SUCCESS_VARIATION_TRACE_TIMEOUT_SECONDS": "3600",
+        "RCA_SUCCESS_VARIATION_SETUP_RESERVE_SECONDS": "900",
+        "RCA_SUCCESS_VARIATION_TIMEOUT_MARGIN_SECONDS": "300",
+        "RCA_SUCCESS_VARIATION_CASE_CALIBRATION_TIMEOUT_SECONDS": "300",
+        "RCA_SUCCESS_VARIATION_CASE_TRACE_TIMEOUT_SECONDS": "300",
         "RCA_SUCCESS_VARIATION_TRACE_TIMEOUT_KILL_SECONDS": "60",
+        "RCA_SUCCESS_VARIATION_REUSE_CALIBRATION": "1",
         "RCA_SUCCESS_VARIATION_AUTO_DISARM": "1",
         "RCA_PAID_BUDGET_EUR": "6.00",
         "RCA_PAID_ESTIMATED_EUR_PER_HOUR": "4.50",
@@ -196,8 +200,12 @@ def _local_env_template(config: dict[str, str]) -> str:
         "RCA_SUCCESS_VARIATION_INSTANCE_TYPE",
         "RCA_SUCCESS_VARIATION_MIN_DISK",
         "RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES",
-        "RCA_SUCCESS_VARIATION_TRACE_TIMEOUT_SECONDS",
+        "RCA_SUCCESS_VARIATION_SETUP_RESERVE_SECONDS",
+        "RCA_SUCCESS_VARIATION_TIMEOUT_MARGIN_SECONDS",
+        "RCA_SUCCESS_VARIATION_CASE_CALIBRATION_TIMEOUT_SECONDS",
+        "RCA_SUCCESS_VARIATION_CASE_TRACE_TIMEOUT_SECONDS",
         "RCA_SUCCESS_VARIATION_TRACE_TIMEOUT_KILL_SECONDS",
+        "RCA_SUCCESS_VARIATION_REUSE_CALIBRATION",
         "RCA_SUCCESS_VARIATION_AUTO_DISARM",
         "RCA_PAID_BUDGET_EUR",
         "RCA_PAID_ESTIMATED_EUR_PER_HOUR",
@@ -252,6 +260,7 @@ def _render_markdown(packet: dict[str, Any]) -> str:
     facts = readiness.get("facts") if isinstance(readiness.get("facts"), dict) else {}
     credit_evidence = facts.get("credit_evidence") if isinstance(facts.get("credit_evidence"), dict) else {}
     batch_plan = facts.get("batch_plan") if isinstance(facts.get("batch_plan"), dict) else {}
+    time_budget = facts.get("time_budget") if isinstance(facts.get("time_budget"), dict) else {}
     rows = [
         "# Success Variation Paid Batch Run Packet",
         "",
@@ -264,6 +273,7 @@ def _render_markdown(packet: dict[str, Any]) -> str:
         f"- phase2_contact_gate: {facts.get('phase2_contact_gate')}",
         f"- batch_plan_cases: {batch_plan.get('planned_case_count')}",
         f"- negative_control_in_plan: {batch_plan.get('negative_control_in_plan')}",
+        f"- time_budget_seconds: {time_budget.get('estimated_batch_timeout_seconds')} / {time_budget.get('ttl_seconds')}",
         f"- credit_evidence_status: {credit_evidence.get('status')}",
         "",
         "## Current Blockers",

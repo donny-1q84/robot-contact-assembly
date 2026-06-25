@@ -308,8 +308,11 @@ python3 scripts/write_success_variation_run_packet.py \
 ```
 
 This writes the current readiness facts, blockers, estimated cost, one-run env
-template, and exact check/run/finalize commands under `artifacts/analysis/`.
-It does not create, delete, copy to, or execute on Brev instances.
+template, timeout envelope, and exact check/run/finalize commands under
+`artifacts/analysis/`. The timeout envelope must show that setup reserve,
+same-seed calibration reuse, per-case trace timeouts, and margin fit inside the
+paid watchdog TTL. It does not create, delete, copy to, or execute on Brev
+instances.
 The config launcher also writes this packet automatically before each
 `--check-only` or `--run`, then writes the read-only `pre-batch` assumption
 audit before the readiness gate and any guarded paid wrapper.

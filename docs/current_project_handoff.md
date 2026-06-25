@@ -42,7 +42,10 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    `scripts/run_remote_success_variation_batch.sh` so each remote trace writes
    to the manifest planned path with explicit socket/reset variation metadata;
    the runner now attempts artifact pullback and local classification even when
-   one generated case command fails, then returns the original failure status;
+   one generated case command fails, then returns the original failure status.
+   The batch runner also forwards explicit per-case calibration/trace timeouts
+   and reuses same-seed calibration summaries by default, so repeated cases do
+   not spend a full calibration timeout each time;
 7. if a new Brev instance is required for the batch, use
    the fail-closed `configs/success_variation_batch_run.env.example` as the
    reviewed template, put real one-run values in the git-ignored
@@ -50,7 +53,11 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    read-only packet with `scripts/write_success_variation_run_packet.py`, run
    `scripts/check_success_variation_batch_plan.py` to prove the generated plan
    covers exactly the planned cases, remote artifact paths, and fail-closed
-   negative control before any paid create, run
+   negative control before any paid create. Also rely on
+   `scripts/check_success_variation_batch_readiness.py` to verify that the
+   configured setup reserve, per-seed calibration timeout, per-case trace
+   timeout, and margin fit inside the paid watchdog TTL before any paid create.
+   Then run
    `scripts/audit_success_variation_assumptions.py --phase pre-batch` to trace
    every critical success/negative-control/budget/promotion metric back to
    concrete sources without treating the still-missing planned traces as a paid

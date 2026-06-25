@@ -15,12 +15,20 @@ PLAN_JSON="${RCA_SUCCESS_VARIATION_PLAN_JSON:-${REPO_ROOT}/artifacts/analysis/su
 PLAN_SH="${RCA_SUCCESS_VARIATION_PLAN_SH:-${REPO_ROOT}/artifacts/analysis/success_trace_variation_batch_plan_2026-06-25.sh}"
 CLASSIFICATION_JSON="${RCA_SUCCESS_VARIATION_CLASSIFICATION_JSON:-${REPO_ROOT}/artifacts/analysis/success_trace_variation_classification_2026-06-25.json}"
 CLASSIFICATION_MD="${RCA_SUCCESS_VARIATION_CLASSIFICATION_MD:-${REPO_ROOT}/artifacts/analysis/success_trace_variation_classification_2026-06-25.md}"
+CASE_CALIBRATION_TIMEOUT_SECONDS="${RCA_SUCCESS_VARIATION_CASE_CALIBRATION_TIMEOUT_SECONDS:-300}"
+CASE_TRACE_TIMEOUT_SECONDS="${RCA_SUCCESS_VARIATION_CASE_TRACE_TIMEOUT_SECONDS:-300}"
+CASE_TRACE_TIMEOUT_KILL_SECONDS="${RCA_SUCCESS_VARIATION_TRACE_TIMEOUT_KILL_SECONDS:-60}"
+REUSE_CALIBRATION="${RCA_SUCCESS_VARIATION_REUSE_CALIBRATION:-1}"
 
 echo "[success-variation-batch] manifest=${MANIFEST}"
 echo "[success-variation-batch] env=${ENV_NAME}"
 echo "[success-variation-batch] remote_root=${REMOTE_ROOT}"
 echo "[success-variation-batch] compose_root=${COMPOSE_ROOT}"
 echo "[success-variation-batch] steps=${STEPS}"
+echo "[success-variation-batch] case_calibration_timeout_seconds=${CASE_CALIBRATION_TIMEOUT_SECONDS}"
+echo "[success-variation-batch] case_trace_timeout_seconds=${CASE_TRACE_TIMEOUT_SECONDS}"
+echo "[success-variation-batch] case_trace_timeout_kill_seconds=${CASE_TRACE_TIMEOUT_KILL_SECONDS}"
+echo "[success-variation-batch] reuse_calibration=${REUSE_CALIBRATION}"
 if [[ -n "${TASK_NAME}" ]]; then
   echo "[success-variation-batch] task=${TASK_NAME}"
 fi
@@ -43,7 +51,11 @@ python3 "${SCRIPT_DIR}/plan_success_variation_batch.py" "${PLANNER_ARGS[@]}"
 
 echo "[success-variation-batch] executing generated plan ${PLAN_SH}"
 set +e
-bash "${PLAN_SH}"
+RCA_JOINT_RESPONSE_SOCKET_CALIBRATION_TIMEOUT_SECONDS="${CASE_CALIBRATION_TIMEOUT_SECONDS}" \
+RCA_JOINT_RESPONSE_SOCKET_TRACE_TIMEOUT_SECONDS="${CASE_TRACE_TIMEOUT_SECONDS}" \
+RCA_JOINT_RESPONSE_SOCKET_TRACE_TIMEOUT_KILL_SECONDS="${CASE_TRACE_TIMEOUT_KILL_SECONDS}" \
+RCA_JOINT_RESPONSE_SOCKET_REUSE_CALIBRATION="${REUSE_CALIBRATION}" \
+  bash "${PLAN_SH}"
 plan_status=$?
 set -e
 echo "[success-variation-batch] generated plan exit_status=${plan_status}"

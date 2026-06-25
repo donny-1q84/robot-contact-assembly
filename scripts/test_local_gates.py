@@ -822,6 +822,9 @@ def run_joint_response_socket_wrapper_static_tests() -> None:
         "run_remote_joint_response_calibration.sh",
         'SUMMARY_PATH="/workspace/artifacts/calibration/joint_position_action/latest_seed_${SEED}.json"',
         '--joint-response-json "${SUMMARY_PATH}"',
+        'REUSE_CALIBRATION="${RCA_JOINT_RESPONSE_SOCKET_REUSE_CALIBRATION:-0}"',
+        'rca_remote_container_exec "test -s',
+        "reusing existing calibration",
         "--socket-insertion-servo-rotate-only-when-rot-misaligned",
         'RCA_JOINT_RESPONSE_SOCKET_SUCCESS_HOLD_STEPS:-5',
         "--trace-autoflush-every",
@@ -1939,6 +1942,12 @@ def run_success_variation_manifest_tests() -> None:
             'PLANNER_ARGS+=(--task "${TASK_NAME}")',
             'plan_success_variation_batch.py" "${PLANNER_ARGS[@]}"',
             "this script uses an existing remote environment; it does not create or delete Brev instances",
+            'CASE_CALIBRATION_TIMEOUT_SECONDS="${RCA_SUCCESS_VARIATION_CASE_CALIBRATION_TIMEOUT_SECONDS:-300}"',
+            'CASE_TRACE_TIMEOUT_SECONDS="${RCA_SUCCESS_VARIATION_CASE_TRACE_TIMEOUT_SECONDS:-300}"',
+            'REUSE_CALIBRATION="${RCA_SUCCESS_VARIATION_REUSE_CALIBRATION:-1}"',
+            "RCA_JOINT_RESPONSE_SOCKET_CALIBRATION_TIMEOUT_SECONDS",
+            "RCA_JOINT_RESPONSE_SOCKET_TRACE_TIMEOUT_SECONDS",
+            "RCA_JOINT_RESPONSE_SOCKET_REUSE_CALIBRATION",
             "plan_status=$?",
             "artifact pull failed status=",
             "classification failed status=",
@@ -2001,6 +2010,12 @@ def run_success_variation_manifest_tests() -> None:
         for expected_snippet in (
             "RCA_SUCCESS_VARIATION_MANIFEST=artifacts/manifests/success_trace_variations_2026-06-25.json",
             "RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES=75",
+            "RCA_SUCCESS_VARIATION_SETUP_RESERVE_SECONDS=900",
+            "RCA_SUCCESS_VARIATION_TIMEOUT_MARGIN_SECONDS=300",
+            "RCA_SUCCESS_VARIATION_CASE_CALIBRATION_TIMEOUT_SECONDS=300",
+            "RCA_SUCCESS_VARIATION_CASE_TRACE_TIMEOUT_SECONDS=300",
+            "RCA_SUCCESS_VARIATION_TRACE_TIMEOUT_KILL_SECONDS=60",
+            "RCA_SUCCESS_VARIATION_REUSE_CALIBRATION=1",
             "RCA_SUCCESS_VARIATION_AUTO_DISARM=1",
             "RCA_PAID_BUDGET_EUR=6.00",
             "RCA_PAID_ESTIMATED_EUR_PER_HOUR=4.50",
@@ -2063,6 +2078,9 @@ def run_success_variation_manifest_tests() -> None:
             "RCA_BREV_CREDITS_VERIFIED",
             "RCA_ACK_BREV_LIFECYCLE_RISK",
             "RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES",
+            "RCA_SUCCESS_VARIATION_CASE_CALIBRATION_TIMEOUT_SECONDS",
+            "RCA_SUCCESS_VARIATION_CASE_TRACE_TIMEOUT_SECONDS",
+            "RCA_SUCCESS_VARIATION_REUSE_CALIBRATION",
             "RCA_PAID_BUDGET_EUR",
             "RCA_PAID_ESTIMATED_EUR_PER_HOUR",
             "RCA_BREV_CREDIT_EVIDENCE_JSON",
@@ -2076,6 +2094,9 @@ def run_success_variation_manifest_tests() -> None:
             "check_success_variation_batch_plan",
             "success variation batch plan is invalid",
             "batch_plan",
+            "time_budget",
+            "estimated_batch_timeout_seconds",
+            "success variation timeout envelope exceeds TTL",
             "selected instance type is not currently visible",
             "live Brev price_per_hour",
             "selected instance type is not stoppable",
@@ -2100,6 +2121,7 @@ def run_success_variation_manifest_tests() -> None:
             "scripts/run_remote_joint_response_socket_insertion_servo_trace.sh",
             "socket_x_pos_25mm_negative_control",
             "negative_control_in_plan",
+            "planned_unique_seed_count",
             "[success-variation-plan-gate] PASS",
             "[success-variation-plan-gate] BLOCKED",
         ):
@@ -2202,7 +2224,8 @@ def run_success_variation_manifest_tests() -> None:
                     '  "budget_eur": 6.0,',
                     '  "estimated_eur_per_hour": 4.5,',
                     '  "estimated_max_cost_eur": 5.625,',
-                    '  "instance_price": {"type": "g6e.xlarge", "price_per_hour": 2.2332}',
+                    '  "instance_price": {"type": "g6e.xlarge", "price_per_hour": 2.2332},',
+                    '  "time_budget": {"estimated_batch_timeout_seconds": 4500, "ttl_seconds": 4500}',
                     '}',
                     "[success-variation-readiness] BLOCKED",
                     "- set RCA_ALLOW_PAID_BREV_CREATE=1 only for the deliberate paid batch run",
@@ -2246,6 +2269,8 @@ def run_success_variation_manifest_tests() -> None:
         run_packet_md_text = run_packet_md.read_text(encoding="utf-8")
         if "Current Blockers" not in run_packet_md_text or "Brev UI/org credit balance" not in run_packet_md_text:
             raise AssertionError("run packet markdown should include blocker details")
+        if "time_budget_seconds: 4500 / 4500" not in run_packet_md_text:
+            raise AssertionError("run packet markdown should include the success-variation time budget")
 
         post_batch_audit_json = tmp_dir / "post_batch_assumption_audit.json"
         post_batch_audit_md = tmp_dir / "post_batch_assumption_audit.md"
@@ -2379,6 +2404,7 @@ def run_success_variation_manifest_tests() -> None:
             "does not create or delete Brev instances",
             "--readiness-output",
             "Current Blockers",
+            "time_budget_seconds",
         ):
             if expected_snippet not in run_packet_script:
                 raise AssertionError(f"success variation run packet script missing snippet: {expected_snippet}")
@@ -2392,6 +2418,9 @@ def run_success_variation_manifest_tests() -> None:
             "RCA_BREV_CREDITS_VERIFIED",
             "RCA_ACK_BREV_LIFECYCLE_RISK",
             "RCA_PAID_ARMED_AT_UTC",
+            "RCA_SUCCESS_VARIATION_CASE_CALIBRATION_TIMEOUT_SECONDS",
+            "RCA_SUCCESS_VARIATION_CASE_TRACE_TIMEOUT_SECONDS",
+            "RCA_SUCCESS_VARIATION_REUSE_CALIBRATION",
             "--disarm",
             "--i-understand-this-arms-paid-run",
             "--brev-safety-output",
