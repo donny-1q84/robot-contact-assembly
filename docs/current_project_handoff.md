@@ -153,7 +153,8 @@ policy_feature_dry_run: scripts/plan_v0_policy_feature_dry_run.py stays blocked 
 policy_label_source_audit: scripts/audit_v0_policy_label_sources.py stays blocked until the feature dry-run is ready; it audits allowed skill-controller residual target sources while excluding raw_action/joint targets
 policy_label_dry_run: scripts/plan_v0_policy_label_dry_run.py stays blocked until the label-source audit is ready; it previews allowed residual labels only and never writes a training dataset/checkpoint
 policy_label_dataset: scripts/extract_v0_policy_label_dataset.py stays blocked until label dry-run is ready; it writes JSONL plus manifest/checksum for allowed residual labels only, not a trained policy
-policy_training_preflight: scripts/check_v0_policy_training_preflight.py stays blocked until the label dataset exists; it checks JSONL checksum/schema and keeps training_script_status=NOT_IMPLEMENTED
+policy_training_preflight: scripts/check_v0_policy_training_preflight.py stays blocked until the label dataset exists; it checks JSONL checksum/schema and the implemented scripts/train_v0_residual_policy.py entrypoint before local training
+policy_training_entrypoint: scripts/train_v0_residual_policy.py supports fail-closed dry-run planning without torch and real local PyTorch training only after the label-dataset preflight passes
 external_robot_adapter_planner: scripts/plan_v0_robot_adapter_manifest.py writes named-arm manifests that remain safely blocked
 external_robot_adapter: configs/v0_external_robot_adapter.template.json is safely blocked by scripts/check_v0_robot_adapter_contract.py; docs/v0_robot_adapter_contract.md defines command/frame/runtime guards so portability is adapter-specific, not drop-in
 portability_boundary: scripts/check_v0_portability_boundary.py combines V0 skill readiness with the named adapter contract and keeps universal_drop_in_ready=false

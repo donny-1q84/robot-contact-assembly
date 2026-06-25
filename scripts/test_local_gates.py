@@ -1349,6 +1349,7 @@ def run_v0_skill_api_contract_tests() -> None:
     policy_label_dry_run_path = REPO_ROOT / "scripts" / "plan_v0_policy_label_dry_run.py"
     policy_label_dataset_path = REPO_ROOT / "scripts" / "extract_v0_policy_label_dataset.py"
     policy_training_preflight_path = REPO_ROOT / "scripts" / "check_v0_policy_training_preflight.py"
+    policy_training_script_path = REPO_ROOT / "scripts" / "train_v0_residual_policy.py"
     robot_adapter_path = REPO_ROOT / "configs" / "v0_external_robot_adapter.template.json"
     robot_adapter_checker_path = REPO_ROOT / "scripts" / "check_v0_robot_adapter_contract.py"
     robot_adapter_planner_path = REPO_ROOT / "scripts" / "plan_v0_robot_adapter_manifest.py"
@@ -1423,6 +1424,9 @@ def run_v0_skill_api_contract_tests() -> None:
     assert_contains(result, "[v0-policy-training-preflight] status=BLOCKED", "V0 policy training preflight blocked detail")
     result = run(["python3", str(policy_training_preflight_path), "--no-output", "--fail-on-blocked"])
     assert_status(result, 1, "V0 policy training preflight can fail closed before label dataset exists")
+    result = run(["python3", str(policy_training_script_path), "--dry-run", "--no-output"])
+    assert_status(result, 1, "V0 residual policy trainer dry-run blocks before label dataset exists")
+    assert_contains(result, "[v0-residual-policy-train] BLOCKED", "V0 residual trainer blocked detail")
 
     checker = checker_path.read_text(encoding="utf-8")
     request_checker = request_checker_path.read_text(encoding="utf-8")
@@ -1437,6 +1441,7 @@ def run_v0_skill_api_contract_tests() -> None:
     policy_label_dry_run = policy_label_dry_run_path.read_text(encoding="utf-8")
     policy_label_dataset = policy_label_dataset_path.read_text(encoding="utf-8")
     policy_training_preflight = policy_training_preflight_path.read_text(encoding="utf-8")
+    policy_training_script = policy_training_script_path.read_text(encoding="utf-8")
     robot_adapter_checker = robot_adapter_checker_path.read_text(encoding="utf-8")
     robot_adapter_planner = robot_adapter_planner_path.read_text(encoding="utf-8")
     portability_checker = portability_checker_path.read_text(encoding="utf-8")
@@ -1595,7 +1600,7 @@ def run_v0_skill_api_contract_tests() -> None:
         raise AssertionError("V0 policy label dataset extractor must be offline and must not create Brev instances")
     for expected_snippet in (
         "Check V0 residual-policy training preflight",
-        "READY_FOR_TRAINING_SCRIPT_IMPLEMENTATION",
+        "READY_FOR_LOCAL_RESIDUAL_POLICY_TRAINING",
         "jsonl_sha256",
         "raw_action",
         "training_script_status",
@@ -1606,6 +1611,18 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"V0 policy training preflight missing snippet: {expected_snippet}")
     if "brev create" in policy_training_preflight or '"${BREV_BIN}" create' in policy_training_preflight:
         raise AssertionError("V0 policy training preflight must be offline and must not create Brev instances")
+    for expected_snippet in (
+        "Train the V0 residual policy",
+        "READY_FOR_LOCAL_TRAINING_DRY_RUN",
+        "TRAINED_NEEDS_EVALUATION",
+        "check_v0_policy_training_preflight",
+        "not direct drop-in precision on another robot arm",
+        "It does not call Brev, Isaac, ROS, a",
+    ):
+        if expected_snippet not in policy_training_script:
+            raise AssertionError(f"V0 residual policy trainer missing snippet: {expected_snippet}")
+    if "brev create" in policy_training_script or '"${BREV_BIN}" create' in policy_training_script:
+        raise AssertionError("V0 residual policy trainer must be offline and must not create Brev instances")
     for expected_snippet in (
         "external-arm portability",
         "ready_for_external_robot cannot be true while adapter evidence blockers remain",
@@ -2647,16 +2664,14 @@ def run_success_variation_manifest_tests() -> None:
         assert_status(result, 0, "V0 policy training preflight accepts checked label dataset")
         assert_contains(
             result,
-            "READY_FOR_TRAINING_SCRIPT_IMPLEMENTATION",
+            "READY_FOR_LOCAL_RESIDUAL_POLICY_TRAINING",
             "V0 policy training preflight ready detail",
         )
         policy_training_preflight = json.loads(policy_training_preflight_json.read_text(encoding="utf-8"))
-        if policy_training_preflight["ready_for_training"] is not False:
-            raise AssertionError(f"training preflight must not mark training ready: {policy_training_preflight}")
-        if policy_training_preflight["ready_for_training_launch"] is not False:
-            raise AssertionError(f"training preflight must not mark launch ready: {policy_training_preflight}")
-        if policy_training_preflight["training_script_status"] != "NOT_IMPLEMENTED":
-            raise AssertionError(f"training preflight must remain script-not-implemented: {policy_training_preflight}")
+        if policy_training_preflight["ready_for_training"] is not True:
+            raise AssertionError(f"training preflight should mark local training ready: {policy_training_preflight}")
+        if policy_training_preflight["training_script_status"] != "IMPLEMENTED":
+            raise AssertionError(f"training preflight should see implemented script: {policy_training_preflight}")
         if policy_training_preflight["sample_count"] != policy_label_dataset["sample_count"]:
             raise AssertionError(f"training preflight sample_count mismatch: {policy_training_preflight}")
         expected_jsonl_sha = hashlib.sha256(policy_label_dataset_jsonl.read_bytes()).hexdigest()
@@ -2666,6 +2681,36 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError("training preflight should preserve raw_action forbidden-token check")
         if "V0 Policy Training Preflight" not in policy_training_preflight_md.read_text(encoding="utf-8"):
             raise AssertionError("training preflight README should include a clear title")
+        training_dry_run_plan = tmp_dir / "policy_training" / "dry_run_plan.json"
+        training_checkpoint = tmp_dir / "policy_training" / "model.pt"
+        result = run(
+            [
+                "python3",
+                "scripts/train_v0_residual_policy.py",
+                "--label-dataset-manifest",
+                str(policy_label_dataset_manifest),
+                "--output-checkpoint",
+                str(training_checkpoint),
+                "--output-plan",
+                str(training_dry_run_plan),
+                "--dry-run",
+            ]
+        )
+        assert_status(result, 0, "V0 residual policy trainer dry-run accepts checked label dataset")
+        assert_contains(
+            result,
+            "READY_FOR_LOCAL_TRAINING_DRY_RUN",
+            "V0 residual policy dry-run ready detail",
+        )
+        if training_checkpoint.exists():
+            raise AssertionError("V0 residual policy dry-run must not write a checkpoint")
+        training_plan = json.loads(training_dry_run_plan.read_text(encoding="utf-8"))
+        if training_plan["sample_count"] != policy_label_dataset["sample_count"]:
+            raise AssertionError(f"training dry-run should preserve sample count: {training_plan}")
+        if "residual_socket_offset_x_m" not in training_plan["label_names"]:
+            raise AssertionError(f"training dry-run should preserve residual labels: {training_plan}")
+        if "not trained policy" not in training_plan["not_claims"]:
+            raise AssertionError(f"training dry-run must preserve not-trained non-claim: {training_plan}")
         result = run(
             [
                 "python3",
@@ -4847,6 +4892,8 @@ def main() -> int:
         )
         assert_contains(result, "V0 skill readiness | BLOCKED", "status report V0 readiness detail")
         assert_contains(result, "V0 policy/API review packet | BLOCKED", "status report V0 policy/API review detail")
+        assert_contains(result, "V0 policy training preflight | BLOCKED", "status report V0 training preflight detail")
+        assert_contains(result, "training_script_status=IMPLEMENTED", "status report V0 training script detail")
         assert_contains(result, "External robot adapter | BLOCKED", "status report external adapter detail")
         assert_contains(result, "Cross-robot portability | BLOCKED", "status report portability boundary detail")
         assert_contains(result, "universal_drop_in_ready=False", "status report portability non-claim detail")
@@ -4864,6 +4911,11 @@ def main() -> int:
             result,
             "python3 scripts/check_v0_portability_boundary.py --skip-phase2-contact-gate",
             "status report portability command detail",
+        )
+        assert_contains(
+            result,
+            "python3 scripts/train_v0_residual_policy.py --dry-run --no-output",
+            "status report V0 training dry-run command detail",
         )
 
         stale_scope_bundle = REPO_ROOT / "artifacts" / "launchable" / "robot-contact-assembly-contact-smoke-manual-preauth-9998-stale-scope-test.tar.gz"

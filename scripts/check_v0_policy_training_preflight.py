@@ -3,7 +3,7 @@
 
 This is an offline train/eval script preflight. It verifies the residual-label
 dataset manifest, JSONL checksum, sample schema, and forbidden low-level fields
-before any V0 training script is implemented or run.
+before any V0 training script is run.
 It does not train a policy, import torch, write a checkpoint, call Brev, start Isaac, call ROS, or talk to a robot.
 """
 
@@ -25,8 +25,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LABEL_DATASET_MANIFEST = REPO_ROOT / "artifacts" / "datasets" / "v0_residual_policy_labels" / "manifest.json"
 DEFAULT_OUTPUT_JSON = REPO_ROOT / "artifacts" / "analysis" / "v0_policy_training_preflight.json"
 DEFAULT_OUTPUT_MD = REPO_ROOT / "artifacts" / "analysis" / "v0_policy_training_preflight.md"
+DEFAULT_TRAINING_SCRIPT = REPO_ROOT / "scripts" / "train_v0_residual_policy.py"
 READY_LABEL_DATASET_STATUS = "READY_FOR_LOCAL_POLICY_DATASET_REVIEW"
-READY_STATUS = "READY_FOR_TRAINING_SCRIPT_IMPLEMENTATION"
+READY_STATUS = "READY_FOR_LOCAL_RESIDUAL_POLICY_TRAINING"
 
 FORBIDDEN_SAMPLE_TOKENS = [
     "raw_action",
@@ -116,11 +117,15 @@ def _check_numeric_mapping(mapping: Any, required_keys: list[str], label: str, f
 def build_preflight(
     *,
     label_dataset_manifest_path: Path,
+    training_script_path: Path,
     require_torch: bool,
 ) -> dict[str, Any]:
     failures: list[str] = []
     warnings: list[str] = []
     manifest = _load_required(label_dataset_manifest_path, failures, "V0 residual label dataset manifest")
+    training_script_path = _resolve(training_script_path)
+    if not training_script_path.is_file():
+        failures.append(f"training script is missing: {_rel(training_script_path)}")
 
     samples: list[dict[str, Any]] = []
     jsonl_path: Path | None = None
@@ -196,12 +201,14 @@ def build_preflight(
         warnings.append("PyTorch is not available in this Python environment; training must use the Isaac/PyTorch runtime")
 
     status = READY_STATUS if not failures else "BLOCKED"
+    ready_for_training = status == READY_STATUS
     return {
         "preflight_name": "v0_policy_training_preflight",
         "status": status,
-        "ready_for_training": False,
-        "ready_for_training_launch": False,
-        "training_script_status": "NOT_IMPLEMENTED",
+        "ready_for_training": ready_for_training,
+        "ready_for_training_launch": ready_for_training and torch_available,
+        "training_script_status": "IMPLEMENTED" if training_script_path.is_file() else "MISSING",
+        "training_script": _rel(training_script_path),
         "label_dataset_manifest": _rel(label_dataset_manifest_path),
         "jsonl": _rel(jsonl_path) if jsonl_path is not None else None,
         "sample_count": len(samples),
@@ -213,14 +220,14 @@ def build_preflight(
         "torch_available_by_spec": torch_available,
         "training_command_template": [
             "python3",
-            "scripts/train_v0_residual_policy.py",
+            _rel(training_script_path),
             "--label-dataset-manifest",
             _rel(label_dataset_manifest_path),
-            "--output",
+            "--output-checkpoint",
             "artifacts/policies/v0_residual_policy/model.pt",
         ],
         "required_before_training": [
-            "implement train_v0_residual_policy.py against this manifest contract",
+            "review the dry-run plan from scripts/train_v0_residual_policy.py --dry-run",
             "add an evaluator that checks the same manifest checksum before loading a checkpoint",
             "run training only in an explicit PyTorch/Isaac-compatible environment",
             "do not use Brev or paid GPU until a separate budget and cleanup plan is approved",
@@ -275,6 +282,7 @@ def _render_markdown(preflight: dict[str, Any]) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--label-dataset-manifest", type=Path, default=DEFAULT_LABEL_DATASET_MANIFEST)
+    parser.add_argument("--training-script", type=Path, default=DEFAULT_TRAINING_SCRIPT)
     parser.add_argument("--require-torch", action="store_true")
     parser.add_argument("--output-json", type=Path, default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--output-md", type=Path, default=DEFAULT_OUTPUT_MD)
@@ -284,6 +292,7 @@ def main() -> int:
 
     preflight = build_preflight(
         label_dataset_manifest_path=_resolve(args.label_dataset_manifest),
+        training_script_path=_resolve(args.training_script),
         require_torch=args.require_torch,
     )
     if not args.no_output:

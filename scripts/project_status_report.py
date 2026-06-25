@@ -275,6 +275,32 @@ def v0_policy_api_review_status() -> Check:
     )
 
 
+def v0_policy_training_preflight_status() -> Check:
+    result = run_script("python3", "scripts/check_v0_policy_training_preflight.py", "--no-output")
+    marker = "[v0-policy-training-preflight] facts="
+    if marker not in result.stdout:
+        return Check(
+            "V0 policy training preflight",
+            "FAIL",
+            "Could not parse scripts/check_v0_policy_training_preflight.py output.",
+        )
+    try:
+        facts = _json_prefix(result.stdout.split(marker, 1)[1])
+    except (json.JSONDecodeError, ValueError) as exc:
+        return Check("V0 policy training preflight", "FAIL", f"Training preflight JSON parse failed: {exc}")
+
+    status = str(facts.get("status") or "BLOCKED")
+    blockers = facts.get("blockers") if isinstance(facts.get("blockers"), list) else []
+    detail = (
+        f"label_dataset_manifest={facts.get('label_dataset_manifest')}; "
+        f"training_script_status={facts.get('training_script_status')}; "
+        f"ready_for_training={facts.get('ready_for_training')}; "
+        f"ready_for_training_launch={facts.get('ready_for_training_launch')}; "
+        f"blockers={len(blockers)}."
+    )
+    return Check("V0 policy training preflight", status, detail)
+
+
 def external_robot_adapter_status() -> Check:
     result = run_script("python3", "scripts/check_v0_robot_adapter_contract.py")
     marker = "[v0-robot-adapter] facts="
@@ -516,6 +542,7 @@ def checks() -> list[Check]:
         success_variation_paid_lifecycle_preflight_status(),
         v0_skill_readiness_status(),
         v0_policy_api_review_status(),
+        v0_policy_training_preflight_status(),
         external_robot_adapter_status(),
         cross_robot_portability_status(),
         action_semantics_probe_status(),
@@ -743,6 +770,7 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "python3 scripts/plan_v0_policy_label_dry_run.py --no-output",
             "python3 scripts/extract_v0_policy_label_dataset.py --no-output",
             "python3 scripts/check_v0_policy_training_preflight.py --no-output",
+            "python3 scripts/train_v0_residual_policy.py --dry-run --no-output",
             "python3 scripts/check_v0_robot_adapter_contract.py",
             "python3 scripts/plan_v0_robot_adapter_manifest.py --robot-id demo_arm_v0 --robot-family demo_6dof_arm --end-effector parallel_gripper --no-output",
             "python3 scripts/check_v0_portability_boundary.py --skip-phase2-contact-gate",

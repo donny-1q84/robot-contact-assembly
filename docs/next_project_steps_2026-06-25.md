@@ -247,6 +247,7 @@ python3 scripts/audit_v0_policy_label_sources.py --no-output
 python3 scripts/plan_v0_policy_label_dry_run.py --no-output
 python3 scripts/extract_v0_policy_label_dataset.py --no-output
 python3 scripts/check_v0_policy_training_preflight.py --no-output
+python3 scripts/train_v0_residual_policy.py --dry-run --no-output
 python3 scripts/plan_v0_robot_adapter_manifest.py \
   --robot-id demo_arm_v0 \
   --robot-family demo_6dof_arm \
@@ -289,6 +290,7 @@ scripts/check_v0_skill_api_contract.py
 scripts/plan_v0_skill_request.py
 scripts/validate_v0_skill_request.py
 scripts/check_v0_skill_readiness.py
+scripts/train_v0_residual_policy.py
 scripts/check_v0_robot_adapter_contract.py
 configs/v0_skill_api_contract.json
 configs/v0_skill_request.example.json
@@ -537,3 +539,10 @@ artifacts/reviews/v0_policy_api/README.md
 Those files are allowed to support residual-policy and skill-API design, but
 they still are not proof of a learned policy, sim-to-real readiness, or direct
 cross-robot portability.
+
+After the residual-label dataset is extracted and
+`scripts/check_v0_policy_training_preflight.py` is READY, use
+`scripts/train_v0_residual_policy.py --dry-run` first. The dry-run writes only a
+training plan and no checkpoint. Real training remains local/PyTorch-only and
+must still be followed by a separate evaluator before any policy-promotion
+claim.
