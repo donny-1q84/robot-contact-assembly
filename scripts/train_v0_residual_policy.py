@@ -361,6 +361,7 @@ def main() -> int:
         label_dataset_manifest_path=label_manifest_path,
         training_script_path=Path(__file__).resolve(),
         require_torch=not args.dry_run,
+        negative_control_id=preflight_gate.DEFAULT_NEGATIVE_CONTROL,
     )
     if preflight.get("status") == "BLOCKED":
         blocked_report = _build_blocked_report(

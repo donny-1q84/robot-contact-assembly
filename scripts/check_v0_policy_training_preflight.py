@@ -26,6 +26,7 @@ DEFAULT_LABEL_DATASET_MANIFEST = REPO_ROOT / "artifacts" / "datasets" / "v0_resi
 DEFAULT_OUTPUT_JSON = REPO_ROOT / "artifacts" / "analysis" / "v0_policy_training_preflight.json"
 DEFAULT_OUTPUT_MD = REPO_ROOT / "artifacts" / "analysis" / "v0_policy_training_preflight.md"
 DEFAULT_TRAINING_SCRIPT = REPO_ROOT / "scripts" / "train_v0_residual_policy.py"
+DEFAULT_NEGATIVE_CONTROL = "socket_x_pos_25mm_negative_control"
 READY_LABEL_DATASET_STATUS = "READY_FOR_LOCAL_POLICY_DATASET_REVIEW"
 READY_STATUS = "READY_FOR_LOCAL_RESIDUAL_POLICY_TRAINING"
 
@@ -114,11 +115,34 @@ def _check_numeric_mapping(mapping: Any, required_keys: list[str], label: str, f
             failures.append(f"{label}.{key} must be a finite number")
 
 
+def _negative_control_failure(prefix: str, evidence: dict[str, Any], *, negative_control_id: str) -> str | None:
+    if not evidence:
+        return f"{prefix} must preserve negative_control_evidence"
+    if evidence.get("case_id") != negative_control_id:
+        return (
+            f"{prefix} negative_control_evidence.case_id must be {negative_control_id}, "
+            f"got {evidence.get('case_id')}"
+        )
+    if evidence.get("expected") != "fail_closed":
+        return f"{prefix} negative_control_evidence.expected must be fail_closed, got {evidence.get('expected')}"
+    if evidence.get("classification") != "fail_closed":
+        return (
+            f"{prefix} negative_control_evidence.classification must be fail_closed, "
+            f"got {evidence.get('classification')}"
+        )
+    if evidence.get("excluded_from_training_cases") is not True:
+        return f"{prefix} negative_control_evidence must preserve excluded_from_training_cases=true"
+    if not isinstance(evidence.get("trace_sha256"), str) or not evidence.get("trace_sha256"):
+        return f"{prefix} negative_control_evidence must preserve trace_sha256"
+    return None
+
+
 def build_preflight(
     *,
     label_dataset_manifest_path: Path,
     training_script_path: Path,
     require_torch: bool,
+    negative_control_id: str,
 ) -> dict[str, Any]:
     failures: list[str] = []
     warnings: list[str] = []
@@ -132,6 +156,7 @@ def build_preflight(
     expected_sample_count = 0
     feature_schema: list[str] = []
     label_names: list[str] = []
+    negative_control_evidence: dict[str, Any] = {}
 
     if manifest:
         if manifest.get("dataset_name") != "v0_residual_policy_label_dataset":
@@ -142,6 +167,16 @@ def build_preflight(
             failures.append("label dataset manifest must keep ready_for_training=false")
         if "socket_x_pos_25mm_negative_control" in set(map(str, manifest.get("source_case_ids", []))):
             failures.append("label dataset must exclude the fail_closed negative control")
+        negative_control_evidence = (
+            manifest.get("negative_control_evidence")
+            if isinstance(manifest.get("negative_control_evidence"), dict)
+            else {}
+        )
+        negative_failure = _negative_control_failure(
+            "label dataset manifest", negative_control_evidence, negative_control_id=negative_control_id
+        )
+        if negative_failure:
+            failures.append(negative_failure)
         expected_sample_count = int(manifest.get("sample_count") or 0)
         if expected_sample_count <= 0:
             failures.append("label dataset sample_count must be positive")
@@ -213,6 +248,7 @@ def build_preflight(
         "jsonl": _rel(jsonl_path) if jsonl_path is not None else None,
         "sample_count": len(samples),
         "manifest_sample_count": expected_sample_count,
+        "negative_control_evidence": negative_control_evidence,
         "feature_schema": feature_schema,
         "label_names": label_names,
         "jsonl_sha256": manifest.get("jsonl_sha256") if manifest else None,
@@ -229,6 +265,7 @@ def build_preflight(
         "required_before_training": [
             "review the dry-run plan from scripts/train_v0_residual_policy.py --dry-run",
             "add an evaluator that checks the same manifest checksum before loading a checkpoint",
+            "keep fail-closed negative-control evidence outside the training JSONL",
             "run training only in an explicit PyTorch/Isaac-compatible environment",
             "do not use Brev or paid GPU until a separate budget and cleanup plan is approved",
         ],
@@ -258,6 +295,13 @@ def _render_markdown(preflight: dict[str, Any]) -> str:
         f"- sample_count: {preflight['sample_count']}",
         f"- torch_available_by_spec: {preflight['torch_available_by_spec']}",
         "",
+        "## Negative Control Evidence",
+        "",
+        f"- case_id: {preflight.get('negative_control_evidence', {}).get('case_id')}",
+        f"- expected: {preflight.get('negative_control_evidence', {}).get('expected')}",
+        f"- classification: {preflight.get('negative_control_evidence', {}).get('classification')}",
+        f"- excluded_from_training_cases: {preflight.get('negative_control_evidence', {}).get('excluded_from_training_cases')}",
+        "",
         "## Training Command Template",
         "",
         "```bash",
@@ -284,6 +328,7 @@ def main() -> int:
     parser.add_argument("--label-dataset-manifest", type=Path, default=DEFAULT_LABEL_DATASET_MANIFEST)
     parser.add_argument("--training-script", type=Path, default=DEFAULT_TRAINING_SCRIPT)
     parser.add_argument("--require-torch", action="store_true")
+    parser.add_argument("--negative-control-id", default=DEFAULT_NEGATIVE_CONTROL)
     parser.add_argument("--output-json", type=Path, default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--output-md", type=Path, default=DEFAULT_OUTPUT_MD)
     parser.add_argument("--no-output", action="store_true")
@@ -294,6 +339,7 @@ def main() -> int:
         label_dataset_manifest_path=_resolve(args.label_dataset_manifest),
         training_script_path=_resolve(args.training_script),
         require_torch=args.require_torch,
+        negative_control_id=args.negative_control_id,
     )
     if not args.no_output:
         output_json = _resolve(args.output_json)

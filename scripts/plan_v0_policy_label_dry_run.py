@@ -26,6 +26,7 @@ DEFAULT_FEATURE_DRY_RUN = REPO_ROOT / "artifacts" / "analysis" / "v0_policy_feat
 DEFAULT_LABEL_SOURCE_AUDIT = REPO_ROOT / "artifacts" / "analysis" / "v0_policy_label_source_audit.json"
 DEFAULT_OUTPUT_JSON = REPO_ROOT / "artifacts" / "analysis" / "v0_policy_label_dry_run.json"
 DEFAULT_OUTPUT_MD = REPO_ROOT / "artifacts" / "analysis" / "v0_policy_label_dry_run.md"
+DEFAULT_NEGATIVE_CONTROL = "socket_x_pos_25mm_negative_control"
 READY_FEATURE_STATUS = "READY_FOR_FEATURE_EXTRACTION_REVIEW"
 READY_LABEL_SOURCE_STATUS = "READY_FOR_LABEL_SOURCE_REVIEW"
 READY_STATUS = "READY_FOR_LABEL_DRY_RUN_REVIEW"
@@ -142,6 +143,33 @@ def _same_repo_path(left: str | None, right: Path) -> bool:
     return _rel(_resolve(Path(left))) == _rel(right)
 
 
+def _negative_control_failure(prefix: str, evidence: dict[str, Any], *, negative_control_id: str) -> str | None:
+    if not evidence:
+        return f"{prefix} must preserve negative_control_evidence"
+    if evidence.get("case_id") != negative_control_id:
+        return (
+            f"{prefix} negative_control_evidence.case_id must be {negative_control_id}, "
+            f"got {evidence.get('case_id')}"
+        )
+    if evidence.get("expected") != "fail_closed":
+        return f"{prefix} negative_control_evidence.expected must be fail_closed, got {evidence.get('expected')}"
+    if evidence.get("classification") != "fail_closed":
+        return (
+            f"{prefix} negative_control_evidence.classification must be fail_closed, "
+            f"got {evidence.get('classification')}"
+        )
+    if evidence.get("excluded_from_training_cases") is not True:
+        return f"{prefix} negative_control_evidence must preserve excluded_from_training_cases=true"
+    if not isinstance(evidence.get("trace_sha256"), str) or not evidence.get("trace_sha256"):
+        return f"{prefix} negative_control_evidence must preserve trace_sha256"
+    return None
+
+
+def _negative_trace_sha(evidence: dict[str, Any]) -> str | None:
+    value = evidence.get("trace_sha256")
+    return value if isinstance(value, str) and value else None
+
+
 def _dataset_cases(dataset: dict[str, Any]) -> list[dict[str, Any]]:
     cases = dataset.get("cases")
     if not isinstance(cases, list):
@@ -230,6 +258,7 @@ def build_dry_run(
     label_source_audit_path: Path,
     min_cases: int,
     max_samples_per_case: int,
+    negative_control_id: str,
 ) -> dict[str, Any]:
     failures: list[str] = []
     warnings: list[str] = []
@@ -239,6 +268,17 @@ def build_dry_run(
 
     cases = _dataset_cases(dataset)
     case_ids = [str(case.get("case_id")) for case in cases]
+    dataset_negative = dataset.get("negative_control_evidence") if isinstance(dataset.get("negative_control_evidence"), dict) else {}
+    feature_negative = (
+        feature_dry_run.get("negative_control_evidence")
+        if isinstance(feature_dry_run.get("negative_control_evidence"), dict)
+        else {}
+    )
+    label_source_negative = (
+        label_source_audit.get("negative_control_evidence")
+        if isinstance(label_source_audit.get("negative_control_evidence"), dict)
+        else {}
+    )
     if dataset and dataset.get("dataset_name") != "v0_scripted_skill_success_variations":
         failures.append(f"dataset_name must be v0_scripted_skill_success_variations, got {dataset.get('dataset_name')}")
     if len(cases) < min_cases:
@@ -247,6 +287,11 @@ def build_dry_run(
         failures.append("dataset must include baseline_replay positive control")
     if "socket_x_pos_25mm_negative_control" in case_ids:
         failures.append("label dry-run must not include the fail_closed negative control")
+    dataset_negative_failure = _negative_control_failure(
+        "dataset", dataset_negative, negative_control_id=negative_control_id
+    )
+    if dataset_negative_failure:
+        failures.append(dataset_negative_failure)
 
     if feature_dry_run:
         if feature_dry_run.get("status") != READY_FEATURE_STATUS:
@@ -255,6 +300,14 @@ def build_dry_run(
             failures.append("feature dry-run must keep ready_for_training=false")
         if feature_dry_run.get("dataset") and not _same_repo_path(str(feature_dry_run.get("dataset")), dataset_path):
             failures.append("feature dry-run points at a different dataset path")
+        feature_negative_failure = _negative_control_failure(
+            "policy feature dry-run", feature_negative, negative_control_id=negative_control_id
+        )
+        if feature_negative_failure:
+            failures.append(feature_negative_failure)
+        if _negative_trace_sha(dataset_negative) and _negative_trace_sha(feature_negative):
+            if _negative_trace_sha(dataset_negative) != _negative_trace_sha(feature_negative):
+                failures.append("policy feature dry-run negative_control_evidence.trace_sha256 must match dataset")
 
     if label_source_audit:
         if label_source_audit.get("status") != READY_LABEL_SOURCE_STATUS:
@@ -267,6 +320,14 @@ def build_dry_run(
             failures.append("label-source audit must be DESIGN_ONLY before the dry-run")
         if label_source_audit.get("dataset") and not _same_repo_path(str(label_source_audit.get("dataset")), dataset_path):
             failures.append("label-source audit points at a different dataset path")
+        label_source_negative_failure = _negative_control_failure(
+            "policy label-source audit", label_source_negative, negative_control_id=negative_control_id
+        )
+        if label_source_negative_failure:
+            failures.append(label_source_negative_failure)
+        if _negative_trace_sha(dataset_negative) and _negative_trace_sha(label_source_negative):
+            if _negative_trace_sha(dataset_negative) != _negative_trace_sha(label_source_negative):
+                failures.append("policy label-source audit negative_control_evidence.trace_sha256 must match dataset")
 
     label_names = [item["name"] for item in LABEL_SCHEMA]
     for name in label_names:
@@ -328,6 +389,7 @@ def build_dry_run(
         "policy_label_source_audit": _rel(label_source_audit_path),
         "dataset_case_count": len(cases),
         "case_ids": case_ids,
+        "negative_control_evidence": dataset_negative or label_source_negative or feature_negative,
         "label_schema": LABEL_SCHEMA,
         "label_names": label_names,
         "candidate_label_window_count": total_candidate_count,
@@ -337,7 +399,7 @@ def build_dry_run(
         "required_before_training": [
             "manual review of label dry-run samples and label magnitudes",
             "full no-GPU label dataset extraction with checksum manifest",
-            "negative-control label-dataset exclusion check",
+            "negative-control fail-closed evidence remains outside label samples",
             "explicit PyTorch environment and budget plan before training",
         ],
         "blockers": failures,
@@ -367,6 +429,13 @@ def _render_markdown(dry_run: dict[str, Any]) -> str:
         f"- candidate_label_window_count: {dry_run['candidate_label_window_count']}",
         f"- sample_preview_count: {dry_run['sample_preview_count']}",
         "",
+        "## Negative Control Evidence",
+        "",
+        f"- case_id: {dry_run.get('negative_control_evidence', {}).get('case_id')}",
+        f"- expected: {dry_run.get('negative_control_evidence', {}).get('expected')}",
+        f"- classification: {dry_run.get('negative_control_evidence', {}).get('classification')}",
+        f"- excluded_from_training_cases: {dry_run.get('negative_control_evidence', {}).get('excluded_from_training_cases')}",
+        "",
         "## Label Schema",
         "",
     ]
@@ -394,6 +463,7 @@ def main() -> int:
     parser.add_argument("--policy-label-source-audit", type=Path, default=DEFAULT_LABEL_SOURCE_AUDIT)
     parser.add_argument("--min-cases", type=int, default=5)
     parser.add_argument("--max-samples-per-case", type=int, default=5)
+    parser.add_argument("--negative-control-id", default=DEFAULT_NEGATIVE_CONTROL)
     parser.add_argument("--output-json", type=Path, default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--output-md", type=Path, default=DEFAULT_OUTPUT_MD)
     parser.add_argument("--no-output", action="store_true")
@@ -406,6 +476,7 @@ def main() -> int:
         label_source_audit_path=_resolve(args.policy_label_source_audit),
         min_cases=max(1, args.min_cases),
         max_samples_per_case=max(1, args.max_samples_per_case),
+        negative_control_id=args.negative_control_id,
     )
     if not args.no_output:
         output_json = _resolve(args.output_json)

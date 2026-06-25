@@ -27,6 +27,7 @@ DEFAULT_OUTPUT_DIR = REPO_ROOT / "artifacts" / "datasets" / "v0_residual_policy_
 DEFAULT_OUTPUT_JSONL = DEFAULT_OUTPUT_DIR / "labels.jsonl"
 DEFAULT_OUTPUT_MANIFEST = DEFAULT_OUTPUT_DIR / "manifest.json"
 DEFAULT_OUTPUT_MD = DEFAULT_OUTPUT_DIR / "README.md"
+DEFAULT_NEGATIVE_CONTROL = "socket_x_pos_25mm_negative_control"
 READY_LABEL_DRY_RUN_STATUS = "READY_FOR_LABEL_DRY_RUN_REVIEW"
 READY_STATUS = "READY_FOR_LOCAL_POLICY_DATASET_REVIEW"
 
@@ -157,6 +158,33 @@ def _same_repo_path(left: str | None, right: Path) -> bool:
     return _rel(_resolve(Path(left))) == _rel(right)
 
 
+def _negative_control_failure(prefix: str, evidence: dict[str, Any], *, negative_control_id: str) -> str | None:
+    if not evidence:
+        return f"{prefix} must preserve negative_control_evidence"
+    if evidence.get("case_id") != negative_control_id:
+        return (
+            f"{prefix} negative_control_evidence.case_id must be {negative_control_id}, "
+            f"got {evidence.get('case_id')}"
+        )
+    if evidence.get("expected") != "fail_closed":
+        return f"{prefix} negative_control_evidence.expected must be fail_closed, got {evidence.get('expected')}"
+    if evidence.get("classification") != "fail_closed":
+        return (
+            f"{prefix} negative_control_evidence.classification must be fail_closed, "
+            f"got {evidence.get('classification')}"
+        )
+    if evidence.get("excluded_from_training_cases") is not True:
+        return f"{prefix} negative_control_evidence must preserve excluded_from_training_cases=true"
+    if not isinstance(evidence.get("trace_sha256"), str) or not evidence.get("trace_sha256"):
+        return f"{prefix} negative_control_evidence must preserve trace_sha256"
+    return None
+
+
+def _negative_trace_sha(evidence: dict[str, Any]) -> str | None:
+    value = evidence.get("trace_sha256")
+    return value if isinstance(value, str) and value else None
+
+
 def _dataset_cases(dataset: dict[str, Any]) -> list[dict[str, Any]]:
     cases = dataset.get("cases")
     if not isinstance(cases, list):
@@ -254,6 +282,7 @@ def build_dataset(
     label_dry_run_path: Path,
     max_samples_per_case: int,
     min_cases: int,
+    negative_control_id: str,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     failures: list[str] = []
     warnings: list[str] = []
@@ -262,6 +291,12 @@ def build_dataset(
 
     cases = _dataset_cases(dataset)
     case_ids = [str(case.get("case_id")) for case in cases]
+    dataset_negative = dataset.get("negative_control_evidence") if isinstance(dataset.get("negative_control_evidence"), dict) else {}
+    label_negative = (
+        label_dry_run.get("negative_control_evidence")
+        if isinstance(label_dry_run.get("negative_control_evidence"), dict)
+        else {}
+    )
     if dataset and dataset.get("dataset_name") != "v0_scripted_skill_success_variations":
         failures.append(f"dataset_name must be v0_scripted_skill_success_variations, got {dataset.get('dataset_name')}")
     if len(cases) < min_cases:
@@ -270,6 +305,11 @@ def build_dataset(
         failures.append("dataset must include baseline_replay positive control")
     if "socket_x_pos_25mm_negative_control" in case_ids:
         failures.append("label dataset must not include the fail_closed negative control")
+    dataset_negative_failure = _negative_control_failure(
+        "dataset", dataset_negative, negative_control_id=negative_control_id
+    )
+    if dataset_negative_failure:
+        failures.append(dataset_negative_failure)
 
     if label_dry_run:
         if label_dry_run.get("status") != READY_LABEL_DRY_RUN_STATUS:
@@ -282,6 +322,14 @@ def build_dataset(
             failures.append("label dry-run must be DRY_RUN_PREVIEW_ONLY before full extraction")
         if label_dry_run.get("dataset") and not _same_repo_path(str(label_dry_run.get("dataset")), dataset_path):
             failures.append("label dry-run points at a different dataset path")
+        label_negative_failure = _negative_control_failure(
+            "policy label dry-run", label_negative, negative_control_id=negative_control_id
+        )
+        if label_negative_failure:
+            failures.append(label_negative_failure)
+        if _negative_trace_sha(dataset_negative) and _negative_trace_sha(label_negative):
+            if _negative_trace_sha(dataset_negative) != _negative_trace_sha(label_negative):
+                failures.append("policy label dry-run negative_control_evidence.trace_sha256 must match dataset")
 
     label_names = [item["name"] for item in LABEL_SCHEMA]
     for name in label_names:
@@ -338,6 +386,7 @@ def build_dataset(
         "policy_label_dry_run": _rel(label_dry_run_path),
         "source_case_count": len(cases),
         "source_case_ids": case_ids,
+        "negative_control_evidence": dataset_negative or label_negative,
         "sample_count": len(samples),
         "feature_schema": FEATURE_SCHEMA,
         "label_schema": LABEL_SCHEMA,
@@ -346,7 +395,7 @@ def build_dataset(
         "required_before_training": [
             "manual review of this manifest and JSONL samples",
             "train/eval script preflight that checks this manifest checksum",
-            "negative-control exclusion remains verified",
+            "negative-control fail-closed evidence remains outside label samples",
             "explicit PyTorch environment selection before training",
         ],
         "blockers": failures,
@@ -373,6 +422,13 @@ def _render_markdown(manifest: dict[str, Any]) -> str:
         f"- source_case_count: {manifest['source_case_count']}",
         f"- dataset: {manifest['dataset']}",
         f"- policy_label_dry_run: {manifest['policy_label_dry_run']}",
+        "",
+        "## Negative Control Evidence",
+        "",
+        f"- case_id: {manifest.get('negative_control_evidence', {}).get('case_id')}",
+        f"- expected: {manifest.get('negative_control_evidence', {}).get('expected')}",
+        f"- classification: {manifest.get('negative_control_evidence', {}).get('classification')}",
+        f"- excluded_from_training_cases: {manifest.get('negative_control_evidence', {}).get('excluded_from_training_cases')}",
         "",
         "## Label Schema",
         "",
@@ -406,6 +462,7 @@ def main() -> int:
     parser.add_argument("--policy-label-dry-run", type=Path, default=DEFAULT_LABEL_DRY_RUN)
     parser.add_argument("--max-samples-per-case", type=int, default=50)
     parser.add_argument("--min-cases", type=int, default=5)
+    parser.add_argument("--negative-control-id", default=DEFAULT_NEGATIVE_CONTROL)
     parser.add_argument("--output-jsonl", type=Path, default=DEFAULT_OUTPUT_JSONL)
     parser.add_argument("--output-manifest", type=Path, default=DEFAULT_OUTPUT_MANIFEST)
     parser.add_argument("--output-md", type=Path, default=DEFAULT_OUTPUT_MD)
@@ -419,6 +476,7 @@ def main() -> int:
         label_dry_run_path=_resolve(args.policy_label_dry_run),
         max_samples_per_case=max(1, args.max_samples_per_case),
         min_cases=max(1, args.min_cases),
+        negative_control_id=args.negative_control_id,
     )
     if manifest["status"] != "BLOCKED" and not args.no_output:
         _write_jsonl(output_jsonl, samples)

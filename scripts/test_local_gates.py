@@ -3416,6 +3416,15 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"label dry-run should find candidate label windows: {policy_label_dry_run}")
         if "residual_socket_offset_x_m" not in policy_label_dry_run["label_names"]:
             raise AssertionError(f"label dry-run missing socket offset label: {policy_label_dry_run}")
+        label_negative_evidence = policy_label_dry_run.get("negative_control_evidence")
+        if not isinstance(label_negative_evidence, dict):
+            raise AssertionError(f"label dry-run should carry negative-control evidence: {policy_label_dry_run}")
+        if label_negative_evidence.get("case_id") != "socket_x_pos_25mm_negative_control":
+            raise AssertionError(f"label dry-run should name negative-control case: {label_negative_evidence}")
+        if label_negative_evidence.get("classification") != "fail_closed":
+            raise AssertionError(f"label dry-run should preserve fail-closed evidence: {label_negative_evidence}")
+        if label_negative_evidence.get("excluded_from_training_cases") is not True:
+            raise AssertionError(f"label dry-run should preserve training exclusion: {label_negative_evidence}")
         label_schema_payload = json.dumps(policy_label_dry_run["label_schema"], sort_keys=True)
         if "raw_joint" in label_schema_payload or "joint_pos" in label_schema_payload:
             raise AssertionError("label dry-run schema must not expose raw joint labels")
@@ -3432,6 +3441,32 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError("label dry-run should record raw_action as present but excluded")
         if "V0 Policy Label Dry Run" not in policy_label_md.read_text(encoding="utf-8"):
             raise AssertionError("label dry-run README should include a clear title")
+        if "Negative Control Evidence" not in policy_label_md.read_text(encoding="utf-8"):
+            raise AssertionError("label dry-run README should surface negative-control evidence")
+        missing_negative_label_source = tmp_dir / "policy_label_source_audit" / "missing_negative.json"
+        broken_label_source = json.loads(policy_label_source_json.read_text(encoding="utf-8"))
+        broken_label_source.pop("negative_control_evidence", None)
+        missing_negative_label_source.write_text(json.dumps(broken_label_source, indent=2, sort_keys=True), encoding="utf-8")
+        result = run(
+            [
+                "python3",
+                "scripts/plan_v0_policy_label_dry_run.py",
+                "--dataset",
+                str(dataset_json),
+                "--policy-feature-dry-run",
+                str(policy_feature_json),
+                "--policy-label-source-audit",
+                str(missing_negative_label_source),
+                "--no-output",
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 1, "V0 policy label dry-run rejects missing negative-control evidence")
+        assert_contains(
+            result,
+            "policy label-source audit must preserve negative_control_evidence",
+            "missing label-source negative evidence failure detail",
+        )
         policy_label_dataset_dir = tmp_dir / "policy_label_dataset"
         policy_label_dataset_jsonl = policy_label_dataset_dir / "labels.jsonl"
         policy_label_dataset_manifest = policy_label_dataset_dir / "manifest.json"
@@ -3466,6 +3501,15 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"label dataset must not mark training ready: {policy_label_dataset}")
         if policy_label_dataset["sample_count"] <= 0:
             raise AssertionError(f"label dataset should contain samples: {policy_label_dataset}")
+        dataset_label_negative_evidence = policy_label_dataset.get("negative_control_evidence")
+        if not isinstance(dataset_label_negative_evidence, dict):
+            raise AssertionError(f"label dataset should carry negative-control evidence: {policy_label_dataset}")
+        if dataset_label_negative_evidence.get("case_id") != "socket_x_pos_25mm_negative_control":
+            raise AssertionError(f"label dataset should name negative-control case: {dataset_label_negative_evidence}")
+        if dataset_label_negative_evidence.get("classification") != "fail_closed":
+            raise AssertionError(f"label dataset should preserve fail-closed evidence: {dataset_label_negative_evidence}")
+        if dataset_label_negative_evidence.get("excluded_from_training_cases") is not True:
+            raise AssertionError(f"label dataset should preserve training exclusion: {dataset_label_negative_evidence}")
         if not policy_label_dataset_jsonl.is_file():
             raise AssertionError("label dataset JSONL should be written on ready extraction")
         if "jsonl_sha256" not in policy_label_dataset:
@@ -3480,6 +3524,33 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError("label dataset samples must not contain raw action or joint target fields")
         if "V0 Residual Policy Label Dataset" not in policy_label_dataset_md.read_text(encoding="utf-8"):
             raise AssertionError("label dataset README should include a clear title")
+        if "Negative Control Evidence" not in policy_label_dataset_md.read_text(encoding="utf-8"):
+            raise AssertionError("label dataset README should surface negative-control evidence")
+        missing_negative_label_dry_run = tmp_dir / "policy_label_dry_run" / "missing_negative.json"
+        broken_label_dry_run = json.loads(policy_label_json.read_text(encoding="utf-8"))
+        broken_label_dry_run.pop("negative_control_evidence", None)
+        missing_negative_label_dry_run.write_text(
+            json.dumps(broken_label_dry_run, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        result = run(
+            [
+                "python3",
+                "scripts/extract_v0_policy_label_dataset.py",
+                "--dataset",
+                str(dataset_json),
+                "--policy-label-dry-run",
+                str(missing_negative_label_dry_run),
+                "--no-output",
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 1, "V0 policy label dataset rejects missing negative-control evidence")
+        assert_contains(
+            result,
+            "policy label dry-run must preserve negative_control_evidence",
+            "missing label dry-run negative evidence failure detail",
+        )
         policy_training_preflight_json = tmp_dir / "policy_training_preflight" / "preflight.json"
         policy_training_preflight_md = tmp_dir / "policy_training_preflight" / "README.md"
         result = run(
@@ -3508,6 +3579,15 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"training preflight should see implemented script: {policy_training_preflight}")
         if policy_training_preflight["sample_count"] != policy_label_dataset["sample_count"]:
             raise AssertionError(f"training preflight sample_count mismatch: {policy_training_preflight}")
+        preflight_negative_evidence = policy_training_preflight.get("negative_control_evidence")
+        if not isinstance(preflight_negative_evidence, dict):
+            raise AssertionError(f"training preflight should carry negative-control evidence: {policy_training_preflight}")
+        if preflight_negative_evidence.get("case_id") != "socket_x_pos_25mm_negative_control":
+            raise AssertionError(f"training preflight should name negative-control case: {preflight_negative_evidence}")
+        if preflight_negative_evidence.get("classification") != "fail_closed":
+            raise AssertionError(f"training preflight should preserve fail-closed evidence: {preflight_negative_evidence}")
+        if preflight_negative_evidence.get("excluded_from_training_cases") is not True:
+            raise AssertionError(f"training preflight should preserve training exclusion: {preflight_negative_evidence}")
         expected_jsonl_sha = hashlib.sha256(policy_label_dataset_jsonl.read_bytes()).hexdigest()
         if policy_training_preflight["jsonl_sha256"] != expected_jsonl_sha:
             raise AssertionError(f"training preflight checksum mismatch: {policy_training_preflight}")
@@ -3515,6 +3595,31 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError("training preflight should preserve raw_action forbidden-token check")
         if "V0 Policy Training Preflight" not in policy_training_preflight_md.read_text(encoding="utf-8"):
             raise AssertionError("training preflight README should include a clear title")
+        if "Negative Control Evidence" not in policy_training_preflight_md.read_text(encoding="utf-8"):
+            raise AssertionError("training preflight README should surface negative-control evidence")
+        missing_negative_label_dataset = policy_label_dataset_dir / "missing_negative_manifest.json"
+        broken_label_dataset = json.loads(policy_label_dataset_manifest.read_text(encoding="utf-8"))
+        broken_label_dataset.pop("negative_control_evidence", None)
+        missing_negative_label_dataset.write_text(
+            json.dumps(broken_label_dataset, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        result = run(
+            [
+                "python3",
+                "scripts/check_v0_policy_training_preflight.py",
+                "--label-dataset-manifest",
+                str(missing_negative_label_dataset),
+                "--no-output",
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 1, "V0 policy training preflight rejects missing negative-control evidence")
+        assert_contains(
+            result,
+            "label dataset manifest must preserve negative_control_evidence",
+            "missing label dataset negative evidence failure detail",
+        )
         training_dry_run_plan = tmp_dir / "policy_training" / "dry_run_plan.json"
         training_checkpoint = tmp_dir / "policy_training" / "model.pt"
         result = run(
