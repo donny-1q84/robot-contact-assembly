@@ -494,8 +494,11 @@ scripts/finalize_success_variation_batch.sh \
 ```
 
 The finalizer runs the post-batch review, the strict result gate, and the V0
-dataset prep in order. It writes a review record even when blocked, and it does
-not create or delete Brev instances. The equivalent lower-level commands are:
+dataset prep in order. The high-level paid lifecycle wrapper then runs
+`scripts/prepare_v0_policy_api_review.py` after finalize succeeds, so a passing
+fixed-budget batch advances directly into the policy/API review packet. It
+writes a review record even when blocked, and it does not create or delete Brev
+instances. The equivalent lower-level commands are:
 
 ```bash
 python3 scripts/review_success_variation_batch.py \
@@ -503,6 +506,8 @@ python3 scripts/review_success_variation_batch.py \
 
 python3 scripts/check_success_variation_batch_results.py \
   artifacts/manifests/success_trace_variations_2026-06-25.json
+python3 scripts/prepare_v0_policy_api_review.py \
+  --manifest artifacts/manifests/success_trace_variations_2026-06-25.json
 python3 scripts/plan_success_variation_recovery_batch.py \
   artifacts/manifests/success_trace_variations_2026-06-25.json
 ```

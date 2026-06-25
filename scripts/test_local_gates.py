@@ -3379,6 +3379,7 @@ def run_success_variation_manifest_tests() -> None:
         assert_contains(result, "DRY_RUN", "paid lifecycle dry-run marker")
         assert_contains(result, "would not create a paid instance", "paid lifecycle dry-run safety detail")
         assert_contains(result, "finalize_success_variation_batch.sh", "paid lifecycle finalizer detail")
+        assert_contains(result, "prepare_v0_policy_api_review.py", "paid lifecycle policy/API review detail")
         assert_contains(result, "plan_success_variation_recovery_batch.py", "paid lifecycle recovery detail")
         custom_lifecycle_config = tmp_dir / "custom_success_variation_batch_run.local.env"
         custom_lifecycle_credit = tmp_dir / "custom_brev_credit_verification.local.json"
@@ -3424,6 +3425,7 @@ def run_success_variation_manifest_tests() -> None:
             "arm_success_variation_paid_env.py",
             "brev_paid_safety_status.sh",
             "finalize_success_variation_batch.sh",
+            "prepare_v0_policy_api_review.py",
             "plan_success_variation_recovery_batch.py",
             "would not create a paid instance",
             "no paid instance was created",

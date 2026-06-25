@@ -100,7 +100,10 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    control labeled `expected=fail_closed` and classified `fail_closed`, and no
    missing planned trace artifacts before learned policy, VLM, ROS, or
    sim-to-real claims. The finalizer does not create or delete Brev instances
-   and must fail closed in the current baseline-only state.
+   and must fail closed in the current baseline-only state. The high-level paid
+   lifecycle wrapper now runs `scripts/prepare_v0_policy_api_review.py` after
+   finalize succeeds, so a passing batch writes the policy/API review packet
+   before reporting lifecycle PASS.
 9. keep the V0 language/skill/robot-adapter boundary checked by
    `configs/v0_skill_api_contract.json` and
    `scripts/check_v0_skill_api_contract.py`, with request-level examples checked
