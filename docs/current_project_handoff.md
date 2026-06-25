@@ -67,10 +67,14 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    reviewed run. Before setting `RCA_BREV_CREDITS_VERIFIED=1`, run
    `scripts/write_brev_credit_evidence.py --balance-eur <current-brev-ui-balance> --budget-eur 6.00 --force`
    to write the git-ignored `configs/brev_credit_verification.local.json` from
-   the current Brev UI org balance and validate it covers the run budget, then
-   run `scripts/arm_success_variation_paid_env.py --i-understand-this-arms-paid-run`
-   to write the one-run paid acknowledgements only after credit evidence and
-   Brev safety checks pass. The armed env records `RCA_PAID_ARMED_AT_UTC` and
+   the current Brev UI org balance and validate it covers the run budget, or
+   use `scripts/prepare_success_variation_paid_batch.py --balance-eur <current-brev-ui-balance> --force-credit --i-understand-this-arms-paid-run`
+   to write credit evidence, arm the local env, and run the read-only
+   `--check-only` gate in one fail-closed sequence. That helper still does not
+   create a paid instance. It disarms automatically if the final check-only gate
+   fails. The underlying arming step writes the one-run paid acknowledgements
+   only after credit evidence and Brev safety checks pass. The armed env records
+   `RCA_PAID_ARMED_AT_UTC` and
    expires by `RCA_PAID_ARMING_MAX_AGE_MINUTES` so stale acknowledgements cannot
    be reused; `scripts/run_success_variation_batch_from_config.sh --run`
    automatically disarms the local env on exit, and

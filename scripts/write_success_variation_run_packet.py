@@ -142,6 +142,11 @@ def _commands(config_path: Path, manifest: Path) -> dict[str, str]:
             "python3 scripts/write_brev_credit_evidence.py "
             "--balance-eur <current-brev-ui-balance> --budget-eur 6.00 --force"
         ),
+        "prepare_paid_env_after_ui_check": (
+            "python3 scripts/prepare_success_variation_paid_batch.py "
+            "--balance-eur <current-brev-ui-balance> --force-credit "
+            "--i-understand-this-arms-paid-run"
+        ),
         "arm_paid_local_env_after_evidence": (
             "python3 scripts/arm_success_variation_paid_env.py "
             "--i-understand-this-arms-paid-run"

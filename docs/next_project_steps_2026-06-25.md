@@ -317,6 +317,20 @@ The config launcher also writes this packet automatically before each
 `--check-only` or `--run`, then writes the read-only `pre-batch` assumption
 audit before the readiness gate and any guarded paid wrapper.
 
+After manually reading the current Brev UI balance, the preferred local prepare
+step is:
+
+```bash
+python3 scripts/prepare_success_variation_paid_batch.py \
+  --balance-eur <current-brev-ui-balance> \
+  --force-credit \
+  --i-understand-this-arms-paid-run
+```
+
+That helper writes the git-ignored credit evidence, arms the git-ignored local
+env, and runs `--check-only`. It still does not create a paid instance, and it
+disarms the local env automatically if `--check-only` is not READY.
+
 Before editing the ignored local env or opening paid compute, run the
 read-only assumption-and-metric audit:
 

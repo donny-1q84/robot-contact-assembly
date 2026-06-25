@@ -1924,6 +1924,9 @@ def run_success_variation_manifest_tests() -> None:
         run_packet_script = (
             REPO_ROOT / "scripts" / "write_success_variation_run_packet.py"
         ).read_text(encoding="utf-8")
+        prepare_paid_script = (
+            REPO_ROOT / "scripts" / "prepare_success_variation_paid_batch.py"
+        ).read_text(encoding="utf-8")
         local_env_script = (
             REPO_ROOT / "scripts" / "prepare_success_variation_local_env.py"
         ).read_text(encoding="utf-8")
@@ -2068,6 +2071,47 @@ def run_success_variation_manifest_tests() -> None:
                 raise AssertionError(f"Brev credit evidence writer missing snippet: {expected_snippet}")
         if "brev create" in credit_writer or '"${BREV_BIN}" create' in credit_writer:
             raise AssertionError("Brev credit evidence writer must not create Brev instances")
+
+        result = run(
+            [
+                "python3",
+                "scripts/prepare_success_variation_paid_batch.py",
+                "--balance-eur",
+                "20.00",
+                "--i-understand-this-arms-paid-run",
+                "--dry-run",
+            ]
+        )
+        assert_status(result, 0, "success variation paid prepare dry-run succeeds")
+        assert_contains(result, "DRY_RUN", "paid prepare dry-run marker")
+        assert_contains(result, "would not create a paid instance", "paid prepare dry-run safety detail")
+        result = run(
+            [
+                "python3",
+                "scripts/prepare_success_variation_paid_batch.py",
+                "--balance-eur",
+                "20.00",
+                "--dry-run",
+            ]
+        )
+        assert_status(result, 1, "success variation paid prepare requires explicit arming acknowledgement")
+        assert_contains(result, "--i-understand-this-arms-paid-run", "paid prepare acknowledgement guidance")
+
+        for expected_snippet in (
+            "Prepare, but do not run, one success-variation paid batch",
+            "write_brev_credit_evidence.py",
+            "arm_success_variation_paid_env.py",
+            "run_success_variation_batch_from_config.sh",
+            "--check-only",
+            "READY_FOR_SINGLE_PAID_RUN",
+            "would not create a paid instance",
+            "disarms the local env",
+            "does not create, start, stop, delete, copy to, or execute on Brev instances",
+        ):
+            if expected_snippet not in prepare_paid_script:
+                raise AssertionError(f"success variation paid prepare helper missing snippet: {expected_snippet}")
+        if "brev create" in prepare_paid_script or '"${BREV_BIN}" create' in prepare_paid_script:
+            raise AssertionError("success variation paid prepare helper must not create Brev instances")
 
         for expected_snippet in (
             "classify_success_variation_results",
@@ -2395,6 +2439,7 @@ def run_success_variation_manifest_tests() -> None:
             "run_success_variation_batch_from_config.sh",
             "finalize_success_variation_batch.sh",
             "write_brev_credit_evidence.py",
+            "prepare_success_variation_paid_batch.py",
             "arm_success_variation_paid_env.py",
             "--disarm",
             "audit_success_variation_assumptions.py",
