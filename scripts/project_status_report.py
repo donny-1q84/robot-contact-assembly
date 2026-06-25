@@ -319,6 +319,44 @@ def v0_language_instruction_suite_status() -> Check:
     return Check("V0 language instruction suite", status, detail)
 
 
+def v0_language_skill_dry_run_status() -> Check:
+    result = run_script(
+        "python3",
+        "scripts/run_v0_language_skill_dry_run.py",
+        "insert the peg into the left socket",
+        "--skip-phase2-contact-gate",
+        "--no-output",
+    )
+    marker = "[v0-language-skill-dry-run] facts="
+    if marker not in result.stdout:
+        return Check(
+            "V0 language skill dry-run",
+            "FAIL",
+            "Could not parse scripts/run_v0_language_skill_dry_run.py output.",
+        )
+    try:
+        facts = _json_prefix(result.stdout.split(marker, 1)[1])
+    except (json.JSONDecodeError, ValueError) as exc:
+        return Check("V0 language skill dry-run", "FAIL", f"Language dry-run JSON parse failed: {exc}")
+
+    raw_status = str(facts.get("status") or "BLOCKED")
+    status = "READY" if raw_status == "READY_FOR_SKILL_EXECUTION_REVIEW" else raw_status
+    blockers = facts.get("blockers") if isinstance(facts.get("blockers"), list) else []
+    surface = facts.get("execution_surface") if isinstance(facts.get("execution_surface"), dict) else {}
+    not_claims = facts.get("not_claims") if isinstance(facts.get("not_claims"), list) else []
+    detail = (
+        f"instruction={facts.get('instruction')!r}; "
+        f"request_planner={facts.get('request_planner_status')}; "
+        f"request_validation={facts.get('request_validation_status')}; "
+        f"execution_plan={facts.get('execution_plan_status')}; "
+        f"ready_for_execution={facts.get('ready_for_execution')}; "
+        f"allowed_command_boundary={surface.get('allowed_command_boundary')}; "
+        f"blockers={len(blockers)}; blocked_next_action={facts.get('blocked_next_action')}; "
+        f"not_cross_robot_ready={'not cross-robot-ready' in not_claims}."
+    )
+    return Check("V0 language skill dry-run", status, detail)
+
+
 def v0_skill_readiness_status() -> Check:
     result = run_script(
         "python3",
@@ -738,6 +776,7 @@ def checks() -> list[Check]:
         success_variation_paid_lifecycle_preflight_status(),
         brev_credit_review_status(),
         v0_language_instruction_suite_status(),
+        v0_language_skill_dry_run_status(),
         v0_skill_readiness_status(),
         v0_policy_api_review_status(),
         v0_policy_training_preflight_status(),

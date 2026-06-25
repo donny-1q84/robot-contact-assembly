@@ -213,7 +213,10 @@ request planner, validates the request against the V0 contract, and connects it
 to the gated execution plan. It is not an LLM/VLM call, Brev/Isaac launcher,
 ROS execution, or hardware command. In the current baseline-only state it should
 accept supported insert instructions but remain blocked on the missing
-success-variation traces and V0 dataset.
+success-variation traces and V0 dataset. `scripts/project_status_report.py`
+surfaces this dry-run as a separate V0 row, so a natural-language instruction
+can be seen reaching the skill boundary without bypassing the downstream
+reproducibility, policy, adapter, or portability gates.
 The readiness gate connects that request to the current project evidence:
 request and contract validation, Phase 2 contact proof, success-variation result
 gate, and the V0 scripted-skill dataset. In the current baseline-only state it

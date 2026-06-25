@@ -5727,6 +5727,15 @@ def main() -> int:
             "not_cross_robot_ready=True",
             "status report V0 language suite portability non-claim detail",
         )
+        assert_contains(result, "V0 language skill dry-run | BLOCKED", "status report V0 language dry-run detail")
+        assert_contains(result, "request_planner=PASS", "status report V0 language dry-run planner detail")
+        assert_contains(result, "request_validation=PASS", "status report V0 language dry-run validation detail")
+        assert_contains(result, "execution_plan=BLOCKED", "status report V0 language dry-run execution detail")
+        assert_contains(
+            result,
+            "allowed_command_boundary=task_parameters_to_skill_controller",
+            "status report V0 language dry-run command-boundary detail",
+        )
         assert_contains(result, "V0 skill readiness | BLOCKED", "status report V0 readiness detail")
         assert_contains(result, "V0 policy/API review packet | BLOCKED", "status report V0 policy/API review detail")
         assert_contains(result, "V0 policy training preflight | BLOCKED", "status report V0 training preflight detail")

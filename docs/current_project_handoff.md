@@ -129,7 +129,10 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    validates the request, and connects it to the gated execution plan without
    calling an LLM/VLM, Brev, Isaac, ROS, or hardware. In the current state it
    should accept supported insert instructions but stay `BLOCKED` on V0
-   readiness until the success-variation batch and dataset exist.
+   readiness until the success-variation batch and dataset exist, and
+   `scripts/project_status_report.py` surfaces this dry-run as its own V0 row
+   so the instruction-to-skill boundary is visible before downstream policy or
+   adapter claims.
    `scripts/prepare_v0_policy_api_review.py` writes the post-readiness
    policy/API review packet only after those gates and the dataset are ready.
    The future external-robot adapter shape is checked separately by
@@ -167,7 +170,7 @@ success_variation_recovery: scripts/plan_success_variation_recovery_batch.py ski
 skill_request_contract: configs/v0_skill_request.example.json passes local request check
 skill_request_planner: scripts/plan_v0_skill_request.py maps supported insert instructions only
 language_instruction_suite: configs/v0_language_instruction_suite.json and scripts/check_v0_language_instruction_suite.py cover supported left/right/center insert instructions plus rejected low-level/ambiguous instructions and are surfaced in scripts/project_status_report.py before downstream V0 readiness
-language_skill_dry_run: scripts/run_v0_language_skill_dry_run.py chains instruction parsing, request validation, and gated execution planning while forbidding raw joint/force commands
+language_skill_dry_run: scripts/run_v0_language_skill_dry_run.py chains instruction parsing, request validation, and gated execution planning while forbidding raw joint/force commands; scripts/project_status_report.py surfaces the current blocked dry-run row before downstream policy or adapter claims
 skill_execution_plan: scripts/plan_v0_skill_execution.py stays blocked until V0 readiness is READY and never emits raw joint/force commands
 skill_readiness: scripts/check_v0_skill_readiness.py is blocked until variation traces and dataset exist
 policy_api_review_packet: scripts/prepare_v0_policy_api_review.py is blocked until skill readiness is READY
