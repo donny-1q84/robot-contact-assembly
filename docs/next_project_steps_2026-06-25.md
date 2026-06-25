@@ -244,6 +244,7 @@ scripts/prepare_success_variation_dataset.py
 scripts/finalize_success_variation_batch.sh
 scripts/write_success_variation_run_packet.py
 scripts/audit_success_variation_assumptions.py
+scripts/check_brev_credit_evidence.py
 scripts/check_v0_skill_api_contract.py
 scripts/plan_v0_skill_request.py
 scripts/validate_v0_skill_request.py
@@ -252,6 +253,7 @@ scripts/check_v0_robot_adapter_contract.py
 configs/v0_skill_api_contract.json
 configs/v0_skill_request.example.json
 configs/v0_external_robot_adapter.template.json
+configs/brev_credit_verification.template.json
 configs/success_variation_batch_run.env.example
 tests in scripts/test_local_gates.py for the variation manifest / classifier
 artifacts/manifests/success_trace_variations_2026-06-25.json
@@ -342,6 +344,21 @@ This writes `configs/success_variation_batch_run.local.env` with
 deliberate reviewed run after current Brev credits and deletion safety are
 confirmed.
 
+Before setting `RCA_BREV_CREDITS_VERIFIED=1`, copy the credit-evidence template
+to the ignored local path and record the current Brev UI org balance:
+
+```bash
+cp configs/brev_credit_verification.template.json \
+  configs/brev_credit_verification.local.json
+# edit verified_at_utc, balance_eur, budget_eur after checking the Brev UI
+python3 scripts/check_brev_credit_evidence.py \
+  --evidence configs/brev_credit_verification.local.json \
+  --required-budget-eur 6.00
+```
+
+The readiness gate only treats `RCA_BREV_CREDITS_VERIFIED=1` as valid when this
+git-ignored evidence file passes freshness, org, source, and budget checks.
+
 ```bash
 scripts/run_success_variation_batch_from_config.sh \
   configs/success_variation_batch_run.local.env \
@@ -354,7 +371,7 @@ scripts/run_success_variation_batch_from_config.sh \
 
 Before creation, `scripts/check_success_variation_batch_readiness.py` checks
 the manifest/positive-control/negative-control contract, Phase 2 gate, explicit
-budget/hourly estimate/TTL, current-credit verification marker, lifecycle-risk
+budget/hourly estimate/TTL, current-credit evidence, lifecycle-risk
 acknowledgement, `SAFE_NO_VISIBLE_PAID_INSTANCE`, and the current Brev search
 price/availability for the selected instance type. The wrapper then reuses the
 existing `paid_compute_preflight.sh`,

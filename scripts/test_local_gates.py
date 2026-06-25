@@ -8,6 +8,7 @@ the network. A tiny fake Brev CLI is used to exercise paid preflight behavior.
 from __future__ import annotations
 
 import ast
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -1891,6 +1892,9 @@ def run_success_variation_manifest_tests() -> None:
         local_env_script = (
             REPO_ROOT / "scripts" / "prepare_success_variation_local_env.py"
         ).read_text(encoding="utf-8")
+        credit_template_path = REPO_ROOT / "configs" / "brev_credit_verification.template.json"
+        credit_checker_path = REPO_ROOT / "scripts" / "check_brev_credit_evidence.py"
+        credit_checker = credit_checker_path.read_text(encoding="utf-8")
         gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
 
         for expected_snippet in (
@@ -1959,6 +1963,8 @@ def run_success_variation_manifest_tests() -> None:
             "RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES=75",
             "RCA_PAID_BUDGET_EUR=6.00",
             "RCA_PAID_ESTIMATED_EUR_PER_HOUR=4.50",
+            "RCA_BREV_CREDIT_EVIDENCE_JSON=configs/brev_credit_verification.local.json",
+            "RCA_BREV_CREDIT_EVIDENCE_MAX_AGE_MINUTES=60",
             "RCA_ALLOW_PAID_BREV_CREATE=0",
             "RCA_BREV_CREDITS_VERIFIED=0",
             "RCA_ACK_BREV_LIFECYCLE_RISK=0",
@@ -1967,6 +1973,30 @@ def run_success_variation_manifest_tests() -> None:
                 raise AssertionError(f"success variation config example missing snippet: {expected_snippet}")
         if "configs/*.local.env" not in gitignore:
             raise AssertionError(".gitignore must exclude private success-variation local env configs")
+        if "configs/brev_credit_verification.local.json" not in gitignore:
+            raise AssertionError(".gitignore must exclude private Brev credit verification evidence")
+
+        for expected_snippet in (
+            "brev_credit_balance_verification",
+            "Brev UI organization credits page",
+            "org-3BaYGdtoRGmgc77Z7NHHhPSD254",
+        ):
+            if expected_snippet not in credit_template_path.read_text(encoding="utf-8"):
+                raise AssertionError(f"Brev credit evidence template missing snippet: {expected_snippet}")
+
+        for expected_snippet in (
+            "Brev CLI does not expose a read-only credit-balance command",
+            "configs/brev_credit_verification.local.json",
+            "Brev credit evidence is too old",
+            "Brev credit balance",
+            "source must explicitly mention Brev UI",
+            "[brev-credit-evidence] PASS",
+            "[brev-credit-evidence] BLOCKED",
+        ):
+            if expected_snippet not in credit_checker:
+                raise AssertionError(f"Brev credit evidence checker missing snippet: {expected_snippet}")
+        if "brev create" in credit_checker or '"${BREV_BIN}" create' in credit_checker:
+            raise AssertionError("Brev credit evidence checker must not create Brev instances")
 
         for expected_snippet in (
             "classify_success_variation_results",
@@ -1979,6 +2009,10 @@ def run_success_variation_manifest_tests() -> None:
             "RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES",
             "RCA_PAID_BUDGET_EUR",
             "RCA_PAID_ESTIMATED_EUR_PER_HOUR",
+            "RCA_BREV_CREDIT_EVIDENCE_JSON",
+            "RCA_BREV_CREDIT_EVIDENCE_MAX_AGE_MINUTES",
+            "check_brev_credit_evidence",
+            "RCA_BREV_CREDITS_VERIFIED=1 requires passing current Brev UI credit evidence",
             "Brev instance price search",
             "instance_price",
             "selected instance type is not currently visible",
@@ -2256,6 +2290,7 @@ def run_success_variation_manifest_tests() -> None:
             "audit_success_variation_assumptions.py",
             "--phase pre-batch",
             "RCA_BREV_CREDITS_VERIFIED",
+            "Brev UI credit evidence JSON",
             "does not create or delete Brev instances",
             "--readiness-output",
             "Current Blockers",
@@ -2264,6 +2299,52 @@ def run_success_variation_manifest_tests() -> None:
                 raise AssertionError(f"success variation run packet script missing snippet: {expected_snippet}")
         if "brev create" in run_packet_script or '"${BREV_BIN}" create' in run_packet_script:
             raise AssertionError("success variation run packet must not create Brev instances")
+
+        credit_evidence_path = tmp_dir / "brev_credit_verification.local.json"
+        fresh_credit_evidence = {
+            "evidence_name": "brev_credit_balance_verification",
+            "verified_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "source": "Brev UI organization credits page",
+            "organization_name": "NCA-57cf-29515",
+            "organization_id": "org-3BaYGdtoRGmgc77Z7NHHhPSD254",
+            "balance_eur": 20.0,
+            "budget_eur": 6.0,
+            "checked_instance_type": "g6e.xlarge",
+            "checked_by": "test",
+        }
+        credit_evidence_path.write_text(json.dumps(fresh_credit_evidence), encoding="utf-8")
+        result = run(
+            [
+                "python3",
+                "scripts/check_brev_credit_evidence.py",
+                "--evidence",
+                str(credit_evidence_path),
+                "--required-budget-eur",
+                "6.0",
+                "--max-age-minutes",
+                "60",
+            ]
+        )
+        assert_status(result, 0, "Brev credit evidence checker accepts fresh sufficient UI evidence")
+        assert_contains(result, "[brev-credit-evidence] PASS", "fresh Brev credit evidence detail")
+
+        low_credit_evidence = dict(fresh_credit_evidence)
+        low_credit_evidence["balance_eur"] = 1.0
+        low_credit_path = tmp_dir / "brev_credit_low.local.json"
+        low_credit_path.write_text(json.dumps(low_credit_evidence), encoding="utf-8")
+        result = run(
+            [
+                "python3",
+                "scripts/check_brev_credit_evidence.py",
+                "--evidence",
+                str(low_credit_path),
+                "--required-budget-eur",
+                "6.0",
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 1, "Brev credit evidence checker rejects insufficient balance")
+        assert_contains(result, "below required budget", "insufficient Brev credit evidence detail")
 
         local_env_path = tmp_dir / "success_variation_batch_run.local.env"
         result = run(

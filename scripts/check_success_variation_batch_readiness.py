@@ -24,10 +24,12 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import classify_success_variation_results as classifier  # noqa: E402
+import check_brev_credit_evidence as credit_gate  # noqa: E402
 
 
 DEFAULT_MANIFEST = REPO_ROOT / "artifacts" / "manifests" / "success_trace_variations_2026-06-25.json"
 LIFECYCLE_HOLD_FILE = REPO_ROOT / "docs" / "brev_launchable_lifecycle_hold.md"
+DEFAULT_CREDIT_EVIDENCE = REPO_ROOT / "configs" / "brev_credit_verification.local.json"
 
 
 def _rel(path: Path) -> str:
@@ -53,6 +55,21 @@ def _parse_float_env(name: str, blockers: list[str]) -> float | None:
         parsed = float(value)
     except ValueError:
         blockers.append(f"{name} must be numeric, got {value!r}")
+        return None
+    if parsed <= 0:
+        blockers.append(f"{name} must be positive, got {value!r}")
+        return None
+    return parsed
+
+
+def _parse_positive_int_env(name: str, default: int, blockers: list[str]) -> int | None:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        blockers.append(f"{name} must be an integer, got {value!r}")
         return None
     if parsed <= 0:
         blockers.append(f"{name} must be positive, got {value!r}")
@@ -249,7 +266,8 @@ def _check_manifest_contract(manifest_path: Path, blockers: list[str], facts: di
 def _check_paid_env(blockers: list[str], facts: dict[str, Any]) -> None:
     if os.environ.get("RCA_ALLOW_PAID_BREV_CREATE") != "1":
         blockers.append("set RCA_ALLOW_PAID_BREV_CREATE=1 only for the deliberate paid batch run")
-    if os.environ.get("RCA_BREV_CREDITS_VERIFIED") != "1":
+    credits_verified = os.environ.get("RCA_BREV_CREDITS_VERIFIED") == "1"
+    if not credits_verified:
         blockers.append(
             "set RCA_BREV_CREDITS_VERIFIED=1 only after the current Brev UI/org credit balance covers this budget"
         )
@@ -261,9 +279,31 @@ def _check_paid_env(blockers: list[str], facts: dict[str, Any]) -> None:
     ttl_minutes = _parse_ttl_minutes(blockers)
     budget = _parse_float_env("RCA_PAID_BUDGET_EUR", blockers)
     hourly = _parse_float_env("RCA_PAID_ESTIMATED_EUR_PER_HOUR", blockers)
+    credit_evidence_path = Path(os.environ.get("RCA_BREV_CREDIT_EVIDENCE_JSON", str(DEFAULT_CREDIT_EVIDENCE)))
+    if not credit_evidence_path.is_absolute():
+        credit_evidence_path = REPO_ROOT / credit_evidence_path
+    credit_max_age = _parse_positive_int_env("RCA_BREV_CREDIT_EVIDENCE_MAX_AGE_MINUTES", 60, blockers)
     facts["ttl_minutes"] = ttl_minutes
     facts["budget_eur"] = budget
     facts["estimated_eur_per_hour"] = hourly
+    facts["credit_evidence_path"] = _rel(credit_evidence_path)
+    facts["credit_evidence_max_age_minutes"] = credit_max_age
+    if budget is not None and credit_max_age is not None and credits_verified:
+        credit_report = credit_gate.build_report(
+            evidence_path=credit_evidence_path,
+            required_budget_eur=budget,
+            max_age_minutes=credit_max_age,
+        )
+        facts["credit_evidence"] = credit_report
+        if credit_report.get("status") != "PASS":
+            blockers.append(
+                "RCA_BREV_CREDITS_VERIFIED=1 requires passing current Brev UI credit evidence"
+            )
+    elif not credits_verified:
+        facts["credit_evidence"] = {
+            "status": "NOT_CHECKED",
+            "reason": "RCA_BREV_CREDITS_VERIFIED is not 1",
+        }
     if ttl_minutes is not None and budget is not None and hourly is not None:
         estimated_max = hourly * ttl_minutes / 60.0
         facts["estimated_max_cost_eur"] = round(estimated_max, 4)

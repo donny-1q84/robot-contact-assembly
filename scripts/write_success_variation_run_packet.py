@@ -157,6 +157,8 @@ def _local_env_template(config: dict[str, str]) -> str:
         "RCA_SUCCESS_VARIATION_TRACE_TIMEOUT_KILL_SECONDS": "60",
         "RCA_PAID_BUDGET_EUR": "6.00",
         "RCA_PAID_ESTIMATED_EUR_PER_HOUR": "4.50",
+        "RCA_BREV_CREDIT_EVIDENCE_JSON": "configs/brev_credit_verification.local.json",
+        "RCA_BREV_CREDIT_EVIDENCE_MAX_AGE_MINUTES": "60",
         "RCA_ALLOW_PAID_BREV_CREATE": "0",
         "RCA_BREV_CREDITS_VERIFIED": "0",
         "RCA_ACK_BREV_LIFECYCLE_RISK": "0",
@@ -185,6 +187,8 @@ def _local_env_template(config: dict[str, str]) -> str:
         "RCA_SUCCESS_VARIATION_TRACE_TIMEOUT_KILL_SECONDS",
         "RCA_PAID_BUDGET_EUR",
         "RCA_PAID_ESTIMATED_EUR_PER_HOUR",
+        "RCA_BREV_CREDIT_EVIDENCE_JSON",
+        "RCA_BREV_CREDIT_EVIDENCE_MAX_AGE_MINUTES",
         "RCA_ALLOW_PAID_BREV_CREATE",
         "RCA_BREV_CREDITS_VERIFIED",
         "RCA_ACK_BREV_LIFECYCLE_RISK",
@@ -219,7 +223,7 @@ def _build_packet(
         "safety_notes": [
             "This packet is read-only and does not create or delete Brev instances.",
             "Do not set RCA_ALLOW_PAID_BREV_CREATE=1 until running one deliberate paid batch.",
-            "Do not set RCA_BREV_CREDITS_VERIFIED=1 without current Brev UI/org credit balance evidence.",
+            "Do not set RCA_BREV_CREDITS_VERIFIED=1 without a passing git-ignored Brev UI credit evidence JSON.",
             "Do not set RCA_ACK_BREV_LIFECYCLE_RISK=1 unless accepting one retry while lifecycle hold is active.",
             "After the run, use the finalizer before dataset, residual policy, VLM, ROS, or sim-to-real claims.",
         ],
@@ -229,6 +233,7 @@ def _build_packet(
 def _render_markdown(packet: dict[str, Any]) -> str:
     readiness = packet["readiness"]
     facts = readiness.get("facts") if isinstance(readiness.get("facts"), dict) else {}
+    credit_evidence = facts.get("credit_evidence") if isinstance(facts.get("credit_evidence"), dict) else {}
     rows = [
         "# Success Variation Paid Batch Run Packet",
         "",
@@ -239,6 +244,7 @@ def _render_markdown(packet: dict[str, Any]) -> str:
         f"- ttl_minutes: {packet['estimated_cost'].get('ttl_minutes')}",
         f"- brev_safety_status: {facts.get('brev_safety_status')}",
         f"- phase2_contact_gate: {facts.get('phase2_contact_gate')}",
+        f"- credit_evidence_status: {credit_evidence.get('status')}",
         "",
         "## Current Blockers",
         "",

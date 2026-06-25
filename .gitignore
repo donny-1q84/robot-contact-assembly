@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 .pytest_cache/
 configs/*.local.env
+configs/brev_credit_verification.local.json
 artifacts/
 checkpoints/
 videos/
