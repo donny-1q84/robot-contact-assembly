@@ -1342,6 +1342,7 @@ def run_v0_skill_api_contract_tests() -> None:
     readiness_checker_path = REPO_ROOT / "scripts" / "check_v0_skill_readiness.py"
     robot_adapter_path = REPO_ROOT / "configs" / "v0_external_robot_adapter.template.json"
     robot_adapter_checker_path = REPO_ROOT / "scripts" / "check_v0_robot_adapter_contract.py"
+    robot_adapter_planner_path = REPO_ROOT / "scripts" / "plan_v0_robot_adapter_manifest.py"
 
     result = run(["python3", str(checker_path), str(contract_path)])
     assert_status(result, 0, "V0 skill API contract validator accepts committed contract")
@@ -1363,6 +1364,7 @@ def run_v0_skill_api_contract_tests() -> None:
     planner = planner_path.read_text(encoding="utf-8")
     readiness_checker = readiness_checker_path.read_text(encoding="utf-8")
     robot_adapter_checker = robot_adapter_checker_path.read_text(encoding="utf-8")
+    robot_adapter_planner = robot_adapter_planner_path.read_text(encoding="utf-8")
     for expected_snippet in (
         "raw_joint_targets",
         "not direct drop-in precision on another robot arm",
@@ -1420,6 +1422,17 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"V0 robot adapter checker missing snippet: {expected_snippet}")
     if "brev create" in robot_adapter_checker or '"${BREV_BIN}" create' in robot_adapter_checker:
         raise AssertionError("V0 robot adapter checker must be offline and must not create Brev instances")
+    for expected_snippet in (
+        "PASS_SAFE_BLOCKED",
+        "placeholders are not accepted",
+        "not ready for hardware execution",
+        "not direct drop-in precision on another robot arm",
+        "It does not call Brev, Isaac, ROS, a",
+    ):
+        if expected_snippet not in robot_adapter_planner:
+            raise AssertionError(f"V0 robot adapter planner missing snippet: {expected_snippet}")
+    if "brev create" in robot_adapter_planner or '"${BREV_BIN}" create' in robot_adapter_planner:
+        raise AssertionError("V0 robot adapter planner must be offline and must not create Brev instances")
 
     contract = json.loads(contract_path.read_text(encoding="utf-8"))
     if "raw_joint_targets" not in contract["language_layer"]["forbidden_outputs"]:
@@ -1463,6 +1476,63 @@ def run_v0_skill_api_contract_tests() -> None:
         assert_status(result, 1, "V0 robot adapter checker rejects premature ready claim")
         assert_contains(result, "ready_for_external_robot cannot be true", "premature adapter ready failure detail")
         assert_contains(result, "not direct drop-in precision", "premature adapter non-claim failure detail")
+
+        planned_adapter_path = tmp_dir / "planned_external_robot_adapter.json"
+        result = run(
+            [
+                "python3",
+                str(robot_adapter_planner_path),
+                "--robot-id",
+                "demo_arm_v0",
+                "--robot-family",
+                "demo_6dof_arm",
+                "--control-stack",
+                "ros2_control_joint_trajectory",
+                "--end-effector",
+                "parallel_gripper_with_peg_fixture",
+                "--joint-trajectory-action",
+                "/demo_arm/joint_trajectory_controller/follow_joint_trajectory",
+                "--joint-state-feedback",
+                "/joint_states",
+                "--skill-status",
+                "/rca/skill_status",
+                "--output-json",
+                str(planned_adapter_path),
+            ]
+        )
+        assert_status(result, 0, "V0 robot adapter planner writes safe blocked manifest")
+        assert_contains(result, "PASS_SAFE_BLOCKED", "V0 robot adapter planner safe-blocked detail")
+        planned_adapter = json.loads(planned_adapter_path.read_text(encoding="utf-8"))
+        if planned_adapter["target_robot"]["robot_id"] != "demo_arm_v0":
+            raise AssertionError(f"planned adapter has wrong robot id: {planned_adapter['target_robot']}")
+        if planned_adapter["ready_for_external_robot"] is not False:
+            raise AssertionError("planned adapter must not claim hardware readiness")
+        if planned_adapter["ros2_interfaces"]["joint_trajectory_action"]["validated"] is not False:
+            raise AssertionError("planned adapter must leave ROS 2 interface validation blocked")
+        result = run(["python3", str(robot_adapter_checker_path), str(planned_adapter_path)])
+        assert_status(result, 0, "V0 robot adapter checker accepts planned manifest as blocked")
+        assert_contains(result, "[v0-robot-adapter] BLOCKED", "planned V0 robot adapter blocked detail")
+        assert_contains(result, "low_speed_hardware_contact_trial", "planned adapter revalidation blocker detail")
+
+        placeholder_adapter_path = tmp_dir / "placeholder_external_robot_adapter.json"
+        result = run(
+            [
+                "python3",
+                str(robot_adapter_planner_path),
+                "--robot-id",
+                "replace_with_robot_id",
+                "--robot-family",
+                "demo_6dof_arm",
+                "--end-effector",
+                "parallel_gripper",
+                "--output-json",
+                str(placeholder_adapter_path),
+            ]
+        )
+        assert_status(result, 1, "V0 robot adapter planner rejects placeholder robot id")
+        assert_contains(result, "placeholders are not accepted", "V0 adapter planner placeholder detail")
+        if placeholder_adapter_path.exists():
+            raise AssertionError("V0 adapter planner must not write a manifest for placeholder robot id")
 
         planned_request_path = tmp_dir / "planned_v0_skill_request.json"
         result = run(

@@ -111,12 +111,15 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    current Phase 2, variation-result, and dataset evidence. The future
    external-robot adapter shape is checked separately by
    `configs/v0_external_robot_adapter.template.json` and
-   `scripts/check_v0_robot_adapter_contract.py`, which must remain blocked
-   until a named robot has model, calibration, safety, ROS 2 interface, and
-   revalidation evidence. This contract keeps language at task-parameter and
-   skill-selection level, forbids raw joint/force commands from language
-   requests, and requires robot-specific model, calibration, safety, ROS 2
-   interface, and revalidation gates before any external-arm portability claim.
+   `scripts/plan_v0_robot_adapter_manifest.py` plus
+   `scripts/check_v0_robot_adapter_contract.py`, which must remain blocked until
+   a named robot has model, calibration, safety, ROS 2 interface, and
+   revalidation evidence. The planner can fill target-robot identity and known
+   ROS 2 interface names, but it still emits a not-ready adapter manifest. This
+   contract keeps language at task-parameter and skill-selection level, forbids
+   raw joint/force commands from language requests, and requires robot-specific
+   model, calibration, safety, ROS 2 interface, and revalidation gates before
+   any external-arm portability claim.
 
 The first local variation contract is:
 
@@ -137,6 +140,7 @@ skill_api_promotion_coverage: requires strict-success seed/reset plus socket X/Y
 skill_request_contract: configs/v0_skill_request.example.json passes local request check
 skill_request_planner: scripts/plan_v0_skill_request.py maps supported insert instructions only
 skill_readiness: scripts/check_v0_skill_readiness.py is blocked until variation traces and dataset exist
+external_robot_adapter_planner: scripts/plan_v0_robot_adapter_manifest.py writes named-arm manifests that remain safely blocked
 external_robot_adapter: configs/v0_external_robot_adapter.template.json is safely blocked by scripts/check_v0_robot_adapter_contract.py
 dataset_preparation: blocked until the result gate passes
 ```

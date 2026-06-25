@@ -176,6 +176,7 @@ scripts/plan_v0_skill_request.py
 scripts/validate_v0_skill_request.py
 scripts/check_v0_skill_readiness.py
 configs/v0_external_robot_adapter.template.json
+scripts/plan_v0_robot_adapter_manifest.py
 scripts/check_v0_robot_adapter_contract.py
 ```
 
@@ -200,6 +201,10 @@ the committed template is `BLOCKED`, not `READY`, and a future named arm must
 supply concrete URDF/USD or equivalent model sources, TCP/base/fixture
 calibration, safety gates, ROS 2 interface validation, low-speed contact
 validation, and variation-style revalidation before any hardware-use claim.
+`scripts/plan_v0_robot_adapter_manifest.py` turns a named target arm and any
+known ROS 2 interface names into a machine-readable adapter manifest, but still
+leaves it safely blocked until the checker sees robot-specific model,
+calibration, safety, interface-validation, and revalidation evidence.
 
 ## Do Not Do Next
 
@@ -220,6 +225,13 @@ python3 scripts/check_v0_skill_api_contract.py
 python3 scripts/plan_v0_skill_request.py "insert the peg into the left socket"
 python3 scripts/validate_v0_skill_request.py
 python3 scripts/check_v0_skill_readiness.py --skip-phase2-contact-gate
+python3 scripts/plan_v0_robot_adapter_manifest.py \
+  --robot-id demo_arm_v0 \
+  --robot-family demo_6dof_arm \
+  --end-effector parallel_gripper_with_peg_fixture \
+  --joint-trajectory-action /demo_arm/joint_trajectory_controller/follow_joint_trajectory \
+  --joint-state-feedback /joint_states \
+  --skill-status /rca/skill_status
 python3 scripts/check_v0_robot_adapter_contract.py
 python3 scripts/check_success_variation_batch_plan.py artifacts/manifests/success_trace_variations_2026-06-25.json
 python3 scripts/check_peg_in_hole_video_candidate.py artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json
