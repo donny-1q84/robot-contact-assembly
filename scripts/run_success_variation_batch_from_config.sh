@@ -92,6 +92,8 @@ COMPOSE_ROOT="${RCA_SUCCESS_VARIATION_COMPOSE_ROOT:-/home/ubuntu/isaac-compose}"
 TASK_NAME="${RCA_SUCCESS_VARIATION_TASK:-RCA-PegInHole-Franka-JointPos-Contact-Play-v0}"
 STEPS="${RCA_SUCCESS_VARIATION_STEPS:-220}"
 SEED="${RCA_SUCCESS_VARIATION_SEED:-42}"
+RUN_PACKET_JSON="${RCA_SUCCESS_VARIATION_RUN_PACKET_JSON:-${REPO_ROOT}/artifacts/analysis/success_variation_run_packet_2026-06-25.json}"
+RUN_PACKET_MD="${RCA_SUCCESS_VARIATION_RUN_PACKET_MD:-${REPO_ROOT}/artifacts/analysis/success_variation_run_packet_2026-06-25.md}"
 
 echo "[success-variation-config] config=${CONFIG_PATH}"
 echo "[success-variation-config] mode=${MODE}"
@@ -101,6 +103,13 @@ echo "[success-variation-config] steps=${STEPS}"
 echo "[success-variation-config] ttl=${RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES:-${RCA_FINAL_CONTACT_WATCHDOG_MAX_MINUTES:-${RCA_PAID_MAX_MINUTES:-<unset>}}}"
 echo "[success-variation-config] budget_eur=${RCA_PAID_BUDGET_EUR:-<unset>}"
 echo "[success-variation-config] estimated_eur_per_hour=${RCA_PAID_ESTIMATED_EUR_PER_HOUR:-<unset>}"
+
+echo "[success-variation-config] writing read-only run packet"
+python3 "${SCRIPT_DIR}/write_success_variation_run_packet.py" \
+  --config "${CONFIG_PATH}" \
+  --manifest "${MANIFEST}" \
+  --output-json "${RUN_PACKET_JSON}" \
+  --output-md "${RUN_PACKET_MD}"
 
 "${SCRIPT_DIR}/check_success_variation_batch_readiness.py" "${MANIFEST}"
 

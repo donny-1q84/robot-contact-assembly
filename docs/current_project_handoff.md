@@ -51,7 +51,8 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    `scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --check-only` before
    `scripts/recreate_brev_and_run_success_variation_batch.sh`, which delegates
    paid preflight, watchdog, artifact pull, deletion, and empty-org confirmation
-   to the existing lifecycle wrapper;
+   to the existing lifecycle wrapper. The config launcher now also writes the
+   read-only run packet automatically before each check/run;
 8. after the pulled artifacts are classified, use
    `scripts/finalize_success_variation_batch.sh` to write the review record,
    enforce the strict result gate, and prepare the V0 scripted-skill dataset

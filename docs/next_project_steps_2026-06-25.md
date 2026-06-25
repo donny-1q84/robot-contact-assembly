@@ -252,6 +252,8 @@ python3 scripts/write_success_variation_run_packet.py \
 This writes the current readiness facts, blockers, estimated cost, one-run env
 template, and exact check/run/finalize commands under `artifacts/analysis/`.
 It does not create, delete, copy to, or execute on Brev instances.
+The config launcher also writes this packet automatically before each
+`--check-only` or `--run`.
 
 ```bash
 scripts/run_success_variation_batch_from_config.sh \
