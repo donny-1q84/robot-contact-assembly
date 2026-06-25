@@ -1461,6 +1461,48 @@ def run_success_variation_manifest_tests() -> None:
             if expected_snippet not in rendered_plan:
                 raise AssertionError(f"rendered batch plan missing snippet: {expected_snippet}")
 
+        batch_runner = (REPO_ROOT / "scripts" / "run_remote_success_variation_batch.sh").read_text(
+            encoding="utf-8"
+        )
+        adapter_runner = (
+            REPO_ROOT / "scripts" / "run_remote_success_variation_batch_as_trace_runner.sh"
+        ).read_text(encoding="utf-8")
+        paid_wrapper = (
+            REPO_ROOT / "scripts" / "recreate_brev_and_run_success_variation_batch.sh"
+        ).read_text(encoding="utf-8")
+
+        for expected_snippet in (
+            'TASK_NAME="${RCA_SUCCESS_VARIATION_TASK:-}"',
+            'PLANNER_ARGS+=(--task "${TASK_NAME}")',
+            'plan_success_variation_batch.py" "${PLANNER_ARGS[@]}"',
+            "this script uses an existing remote environment; it does not create or delete Brev instances",
+        ):
+            if expected_snippet not in batch_runner:
+                raise AssertionError(f"success variation batch runner missing snippet: {expected_snippet}")
+
+        for expected_snippet in (
+            'MANIFEST="${RCA_SUCCESS_VARIATION_MANIFEST:-',
+            'RCA_SUCCESS_VARIATION_TASK="${TASK_NAME}"',
+            'RCA_SUCCESS_VARIATION_STEPS="${STEPS}"',
+            "run_remote_success_variation_batch.sh",
+            "manifest case seeds are authoritative",
+        ):
+            if expected_snippet not in adapter_runner:
+                raise AssertionError(f"success variation trace-runner adapter missing snippet: {expected_snippet}")
+
+        for expected_snippet in (
+            "recreate_brev_and_run_final_contact_servo_trace.sh",
+            'RCA_FINAL_CONTACT_TRACE_RUNNER="${SCRIPT_DIR}/run_remote_success_variation_batch_as_trace_runner.sh"',
+            "RCA_FINAL_CONTACT_VALIDATE_PEG_VIDEO_CANDIDATE=0",
+            'RCA_SUCCESS_VARIATION_MANIFEST="${MANIFEST}"',
+            'RCA_FINAL_CONTACT_WATCHDOG_MAX_MINUTES="${RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES:-',
+            "delegates create, preflight, watchdog, artifact pull",
+        ):
+            if expected_snippet not in paid_wrapper:
+                raise AssertionError(f"success variation paid wrapper missing snippet: {expected_snippet}")
+        if "brev create" in paid_wrapper or '"${BREV_BIN}" create' in paid_wrapper:
+            raise AssertionError("success variation paid wrapper must not duplicate Brev create logic")
+
 
 def write_action_response_trace(
     path: Path,
