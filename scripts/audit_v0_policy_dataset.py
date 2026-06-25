@@ -242,6 +242,26 @@ def build_audit(
         review_case_ids = review_dataset.get("case_ids")
         if isinstance(review_case_ids, list) and sorted(map(str, review_case_ids)) != sorted(case_ids):
             failures.append("policy/API review case_ids do not match dataset case_ids")
+        review_negative = (
+            review_dataset.get("negative_control_evidence")
+            if isinstance(review_dataset.get("negative_control_evidence"), dict)
+            else {}
+        )
+        if not review_negative:
+            failures.append("policy/API review must preserve negative_control_evidence")
+        else:
+            if review_negative.get("case_id") != negative_control_id:
+                failures.append(
+                    "policy/API review negative_control_evidence.case_id must match "
+                    f"{negative_control_id}, got {review_negative.get('case_id')}"
+                )
+            if review_negative.get("classification") != "fail_closed":
+                failures.append(
+                    "policy/API review negative_control_evidence.classification must be fail_closed, "
+                    f"got {review_negative.get('classification')}"
+                )
+            if review_negative.get("excluded_from_training_cases") is not True:
+                failures.append("policy/API review must preserve negative control training exclusion")
         forbidden = set(review.get("proposed_api_boundary", {}).get("forbidden_outputs", []))
         if not {"raw_joint_targets", "direct_cartesian_servo_commands", "direct_force_commands"}.issubset(forbidden):
             failures.append("policy/API review must preserve raw joint, Cartesian servo, and force command bans")

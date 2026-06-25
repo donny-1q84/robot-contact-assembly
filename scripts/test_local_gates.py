@@ -3084,6 +3084,15 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"policy/API review packet should be ready: {policy_review}")
         if policy_review["dataset"]["case_count"] != len(dataset["cases"]):
             raise AssertionError(f"policy/API review should summarize dataset cases: {policy_review['dataset']}")
+        review_negative_evidence = policy_review["dataset"].get("negative_control_evidence")
+        if not isinstance(review_negative_evidence, dict):
+            raise AssertionError(f"policy/API review should preserve negative-control evidence: {policy_review['dataset']}")
+        if review_negative_evidence.get("case_id") != "socket_x_pos_25mm_negative_control":
+            raise AssertionError(f"policy/API review should name the negative-control case: {review_negative_evidence}")
+        if review_negative_evidence.get("classification") != "fail_closed":
+            raise AssertionError(f"policy/API review should preserve fail-closed classification: {review_negative_evidence}")
+        if review_negative_evidence.get("excluded_from_training_cases") is not True:
+            raise AssertionError(f"policy/API review should preserve training exclusion: {review_negative_evidence}")
         if "direct_force_commands" not in policy_review["proposed_api_boundary"]["forbidden_outputs"]:
             raise AssertionError("policy/API review must preserve direct force-command ban")
         if "not sim-to-real" not in policy_review["not_claims"]:
@@ -3104,6 +3113,8 @@ def run_success_variation_manifest_tests() -> None:
                 raise AssertionError(f"policy/API review side effect must be false for {key}: {policy_review}")
         if "V0 Policy/API Review Packet" not in policy_review_md.read_text(encoding="utf-8"):
             raise AssertionError("policy/API review README should include a clear title")
+        if "Negative Control Evidence" not in policy_review_md.read_text(encoding="utf-8"):
+            raise AssertionError("policy/API review README should surface negative-control evidence")
         dataset_audit_json = tmp_dir / "policy_dataset_audit" / "audit.json"
         dataset_audit_md = tmp_dir / "policy_dataset_audit" / "README.md"
         result = run(
@@ -3131,6 +3142,28 @@ def run_success_variation_manifest_tests() -> None:
                 raise AssertionError(f"dataset audit missing coverage group {group}: {dataset_audit}")
         if "socket_x_pos_25mm_negative_control" in dataset_audit["dataset_case_ids"]:
             raise AssertionError("dataset audit must confirm negative-control exclusion")
+        broken_review = json.loads(policy_review_json.read_text(encoding="utf-8"))
+        broken_review["dataset"].pop("negative_control_evidence", None)
+        broken_review_json = tmp_dir / "policy_dataset_audit" / "broken_review_missing_negative_evidence.json"
+        broken_review_json.write_text(json.dumps(broken_review), encoding="utf-8")
+        result = run(
+            [
+                "python3",
+                "scripts/audit_v0_policy_dataset.py",
+                "--review-packet",
+                str(broken_review_json),
+                "--dataset",
+                str(dataset_json),
+                "--no-output",
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 1, "V0 policy dataset audit rejects review packet missing negative-control evidence")
+        assert_contains(
+            result,
+            "policy/API review must preserve negative_control_evidence",
+            "missing review negative evidence failure detail",
+        )
         broken_dataset = json.loads(dataset_json.read_text(encoding="utf-8"))
         broken_dataset.pop("negative_control_evidence", None)
         broken_dataset_json = tmp_dir / "policy_dataset_audit" / "broken_missing_negative_evidence.json"

@@ -73,12 +73,16 @@ def _load_json(path: Path) -> dict[str, Any]:
 def _dataset_summary(dataset_path: Path) -> dict[str, Any]:
     dataset = _load_json(dataset_path)
     cases = dataset.get("cases") if isinstance(dataset.get("cases"), list) else []
+    excluded_cases = dataset.get("excluded_cases") if isinstance(dataset.get("excluded_cases"), list) else []
     return {
         "dataset": _rel(dataset_path),
         "dataset_name": dataset.get("dataset_name"),
         "dataset_version": dataset.get("dataset_version"),
         "case_count": len(cases),
         "case_ids": [case.get("case_id") for case in cases if isinstance(case, dict)],
+        "excluded_case_count": len(excluded_cases),
+        "excluded_case_ids": [case.get("case_id") for case in excluded_cases if isinstance(case, dict)],
+        "negative_control_evidence": dataset.get("negative_control_evidence"),
         "source_manifest": dataset.get("source_manifest"),
         "selection_policy": dataset.get("selection_policy"),
         "not_claims": dataset.get("not_claims"),
@@ -198,6 +202,24 @@ def _render_markdown(packet: dict[str, Any]) -> str:
     ]
     for key, value in packet["required_gate_summary"].items():
         rows.append(f"- {key}: {value}")
+    negative = (
+        packet["dataset"].get("negative_control_evidence")
+        if isinstance(packet.get("dataset"), dict)
+        else None
+    )
+    if isinstance(negative, dict):
+        rows.extend(
+            [
+                "",
+                "## Negative Control Evidence",
+                "",
+                f"- case_id: {negative.get('case_id')}",
+                f"- expected: {negative.get('expected')}",
+                f"- classification: {negative.get('classification')}",
+                f"- excluded_from_training_cases: {negative.get('excluded_from_training_cases')}",
+                f"- trace_json: {negative.get('trace_json')}",
+            ]
+        )
     rows.extend(["", "## API Boundary", ""])
     rows.append("- allowed_inputs: " + ", ".join(packet["proposed_api_boundary"]["allowed_inputs"]))
     rows.append("- allowed_outputs: " + ", ".join(packet["proposed_api_boundary"]["allowed_outputs"]))
