@@ -2640,6 +2640,8 @@ def run_success_variation_manifest_tests() -> None:
         prepare_paid_script = (
             REPO_ROOT / "scripts" / "prepare_success_variation_paid_batch.py"
         ).read_text(encoding="utf-8")
+        paid_preflight_path = REPO_ROOT / "scripts" / "check_success_variation_paid_lifecycle_preflight.py"
+        paid_preflight_script = paid_preflight_path.read_text(encoding="utf-8")
         lifecycle_script = (
             REPO_ROOT / "scripts" / "run_success_variation_paid_lifecycle.py"
         ).read_text(encoding="utf-8")
@@ -2828,6 +2830,30 @@ def run_success_variation_manifest_tests() -> None:
                 raise AssertionError(f"success variation paid prepare helper missing snippet: {expected_snippet}")
         if "brev create" in prepare_paid_script or '"${BREV_BIN}" create' in prepare_paid_script:
             raise AssertionError("success variation paid prepare helper must not create Brev instances")
+
+        result = run(["python3", str(paid_preflight_path), "--no-output"])
+        assert_status(result, 0, "success variation paid lifecycle preflight reports blocked current state")
+        assert_contains(result, "[success-variation-paid-preflight] status=BLOCKED", "paid lifecycle preflight blocked marker")
+        assert_contains(result, "Brev credit evidence file is missing", "paid lifecycle preflight credit blocker detail")
+        assert_contains(result, "no paid instance was created", "paid lifecycle preflight safety detail")
+        result = run(["python3", str(paid_preflight_path), "--no-output", "--fail-on-blocked"])
+        assert_status(result, 1, "success variation paid lifecycle preflight can fail closed")
+
+        for expected_snippet in (
+            "success_variation_paid_lifecycle_preflight",
+            "credit evidence, Brev empty-org safety",
+            "check_success_variation_batch_plan.py",
+            "arm_success_variation_paid_env",
+            "not a paid run",
+            "not armed local env",
+            "writes_local_env",
+            "creates_paid_instance",
+            "no paid instance was created",
+        ):
+            if expected_snippet not in paid_preflight_script:
+                raise AssertionError(f"success variation paid lifecycle preflight missing snippet: {expected_snippet}")
+        if "brev create" in paid_preflight_script or '"${BREV_BIN}" create' in paid_preflight_script:
+            raise AssertionError("success variation paid lifecycle preflight must not create Brev instances")
 
         result = run(
             [

@@ -278,6 +278,7 @@ scripts/audit_success_variation_assumptions.py
 scripts/check_brev_credit_evidence.py
 scripts/write_brev_credit_evidence.py
 scripts/arm_success_variation_paid_env.py
+scripts/check_success_variation_paid_lifecycle_preflight.py
 scripts/check_v0_skill_api_contract.py
 scripts/plan_v0_skill_request.py
 scripts/validate_v0_skill_request.py
@@ -345,6 +346,16 @@ instances.
 The config launcher also writes this packet automatically before each
 `--check-only` or `--run`, then writes the read-only `pre-batch` assumption
 audit before the readiness gate and any guarded paid wrapper.
+
+Before writing any one-run local evidence, the read-only aggregate preflight is:
+
+```bash
+python3 scripts/check_success_variation_paid_lifecycle_preflight.py --no-output
+```
+
+It summarizes Brev UI credit evidence, `SAFE_NO_VISIBLE_PAID_INSTANCE`, local
+env armability, and batch-plan readiness. It does not arm the env or create a
+paid instance.
 
 After manually reading the current Brev UI balance, the preferred local prepare
 step is:
