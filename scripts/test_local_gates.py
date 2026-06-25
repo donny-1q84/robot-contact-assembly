@@ -3492,6 +3492,7 @@ def run_success_variation_manifest_tests() -> None:
             "Prepare the Brev UI credit review before a paid success-variation run",
             "NEEDS_BREV_UI_CREDIT_EVIDENCE",
             "READY_FOR_PAID_LIFECYCLE",
+            "--source-status-output",
             "write_brev_credit_evidence.py",
             "check_success_variation_paid_lifecycle_preflight.py",
             "run_success_variation_paid_lifecycle.py",
@@ -3537,6 +3538,32 @@ def run_success_variation_manifest_tests() -> None:
         ready_config_path.write_text(ready_config_text, encoding="utf-8")
         fake_safe_brev = tmp_dir / "paid_lifecycle_preflight_ready" / "brev_safety_safe.txt"
         fake_safe_brev.write_text("[brev-safety] status=SAFE_NO_VISIBLE_PAID_INSTANCE\n", encoding="utf-8")
+        fake_clean_source = tmp_dir / "paid_lifecycle_preflight_ready" / "project_status_clean.txt"
+        fake_clean_source.write_text(
+            "\n".join(
+                [
+                    "| Check | Status | Detail |",
+                    "| --- | --- | --- |",
+                    "| Git worktree | CLEAN | No uncommitted changes. |",
+                    "| Contact-smoke bundle | READY | Latest bundle matches current runtime payload scope/hash. |",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        fake_dirty_source = tmp_dir / "paid_lifecycle_preflight_ready" / "project_status_dirty.txt"
+        fake_dirty_source.write_text(
+            "\n".join(
+                [
+                    "| Check | Status | Detail |",
+                    "| --- | --- | --- |",
+                    "| Git worktree | DIRTY | synthetic dirty source state |",
+                    "| Contact-smoke bundle | READY | Latest bundle matches current runtime payload scope/hash. |",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         ready_preflight_json = tmp_dir / "paid_lifecycle_preflight_ready" / "preflight.json"
         ready_preflight_md = tmp_dir / "paid_lifecycle_preflight_ready" / "README.md"
         result = run(
@@ -3547,6 +3574,8 @@ def run_success_variation_manifest_tests() -> None:
                 str(ready_config_path),
                 "--brev-safety-output",
                 str(fake_safe_brev),
+                "--source-status-output",
+                str(fake_clean_source),
                 "--output-json",
                 str(ready_preflight_json),
                 "--output-md",
@@ -3567,10 +3596,30 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"paid lifecycle preflight should accept valid credit evidence: {ready_preflight}")
         if ready_preflight["armability"]["status"] != "PASS":
             raise AssertionError(f"paid lifecycle preflight should accept safe armability fixture: {ready_preflight}")
+        if ready_preflight["source_state"]["git_worktree"]["status"] != "CLEAN":
+            raise AssertionError(f"paid lifecycle preflight should record clean source state: {ready_preflight}")
+        if ready_preflight["source_state"]["contact_smoke_bundle"]["status"] != "READY":
+            raise AssertionError(f"paid lifecycle preflight should record READY contact bundle: {ready_preflight}")
         if any(ready_preflight["side_effects"].values()):
             raise AssertionError(f"paid lifecycle preflight must remain side-effect free: {ready_preflight}")
         if "Success Variation Paid Lifecycle Preflight" not in ready_preflight_md.read_text(encoding="utf-8"):
             raise AssertionError("paid lifecycle preflight README should include a clear title")
+        result = run(
+            [
+                "python3",
+                str(paid_preflight_path),
+                "--config",
+                str(ready_config_path),
+                "--brev-safety-output",
+                str(fake_safe_brev),
+                "--source-status-output",
+                str(fake_dirty_source),
+                "--no-output",
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 1, "success variation paid lifecycle preflight rejects dirty source state")
+        assert_contains(result, "Git worktree must be CLEAN", "paid lifecycle preflight dirty source detail")
         ready_credit_review_json = tmp_dir / "paid_lifecycle_preflight_ready" / "credit_review.json"
         ready_credit_review_md = tmp_dir / "paid_lifecycle_preflight_ready" / "credit_review.md"
         result = run(
@@ -3581,6 +3630,8 @@ def run_success_variation_manifest_tests() -> None:
                 str(ready_config_path),
                 "--brev-safety-output",
                 str(fake_safe_brev),
+                "--source-status-output",
+                str(fake_clean_source),
                 "--output-json",
                 str(ready_credit_review_json),
                 "--output-md",
@@ -3600,8 +3651,12 @@ def run_success_variation_manifest_tests() -> None:
 
         for expected_snippet in (
             "success_variation_paid_lifecycle_preflight",
-            "credit evidence, Brev empty-org safety",
+            "clean source state, current contact-smoke bundle, credit evidence",
             "--brev-safety-output",
+            "--source-status-output",
+            "source_state",
+            "Git worktree must be CLEAN",
+            "current contact-smoke bundle must be READY",
             "check_success_variation_batch_plan.py",
             "arm_success_variation_paid_env",
             "READY_FOR_SINGLE_PAID_LIFECYCLE",

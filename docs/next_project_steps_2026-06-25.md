@@ -391,9 +391,9 @@ Before writing any one-run local evidence, the read-only aggregate preflight is:
 python3 scripts/check_success_variation_paid_lifecycle_preflight.py --no-output
 ```
 
-It summarizes Brev UI credit evidence, `SAFE_NO_VISIBLE_PAID_INSTANCE`, local
-env armability, and batch-plan readiness. It does not arm the env or create a
-paid instance.
+It summarizes clean source state, current contact-smoke bundle readiness, Brev
+UI credit evidence, `SAFE_NO_VISIBLE_PAID_INSTANCE`, local env armability, and
+batch-plan readiness. It does not arm the env or create a paid instance.
 
 After manually reading the current Brev UI balance, the preferred local prepare
 step is:

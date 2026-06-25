@@ -73,6 +73,7 @@ def build_packet(
     manifest_path: Path,
     command_timeout_seconds: int,
     brev_safety_output: Path | None,
+    source_status_output: Path | None,
     open_requested: bool,
 ) -> dict[str, Any]:
     preflight = paid_preflight.build_report(
@@ -80,6 +81,7 @@ def build_packet(
         manifest_path=manifest_path,
         command_timeout_seconds=command_timeout_seconds,
         brev_safety_output=brev_safety_output,
+        source_status_output=source_status_output,
     )
     budget = float(preflight.get("budget_eur") or 6.0)
     max_age = int(preflight.get("credit_max_age_minutes") or credit_gate.DEFAULT_MAX_AGE_MINUTES)
@@ -199,6 +201,7 @@ def main() -> int:
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--command-timeout-seconds", type=int, default=120)
     parser.add_argument("--brev-safety-output", type=Path)
+    parser.add_argument("--source-status-output", type=Path)
     parser.add_argument("--output-json", type=Path, default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--output-md", type=Path, default=DEFAULT_OUTPUT_MD)
     parser.add_argument("--open-dashboard", action="store_true")
@@ -214,11 +217,13 @@ def main() -> int:
     config_path = _resolve(args.config)
     manifest_path = _resolve(args.manifest)
     safety_output = _resolve(args.brev_safety_output) if args.brev_safety_output is not None else None
+    source_status_output = _resolve(args.source_status_output) if args.source_status_output is not None else None
     packet = build_packet(
         config_path=config_path,
         manifest_path=manifest_path,
         command_timeout_seconds=args.command_timeout_seconds,
         brev_safety_output=safety_output,
+        source_status_output=source_status_output,
         open_requested=args.open_dashboard,
     )
 

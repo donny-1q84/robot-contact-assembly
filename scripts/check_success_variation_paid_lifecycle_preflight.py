@@ -2,9 +2,10 @@
 """Check the success-variation paid lifecycle preflight without arming or running.
 
 This aggregates the local evidence needed before the one-shot paid lifecycle:
-credit evidence, Brev empty-org safety, local env armability, and the
-success-variation batch plan. It does not write the local env, create a Brev
-instance, run the batch, copy artifacts, start Isaac, or execute remote code.
+clean source state, current contact-smoke bundle, credit evidence, Brev
+empty-org safety, local env armability, and the success-variation batch plan.
+It does not write the local env, create a Brev instance, run the batch, copy
+artifacts, start Isaac, or execute remote code.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 import arm_success_variation_paid_env as arm_gate  # noqa: E402
 import check_brev_credit_evidence as credit_gate  # noqa: E402
+import project_status_report as project_status  # noqa: E402
 
 
 DEFAULT_CONFIG = REPO_ROOT / "configs" / "success_variation_batch_run.local.env"
@@ -117,12 +119,44 @@ def _run_capture(args: list[str], timeout_seconds: int) -> dict[str, Any]:
     }
 
 
+def _status_from_saved_project_report(text: str, check_name: str) -> tuple[str | None, str]:
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped.startswith("|"):
+            continue
+        parts = [part.strip() for part in stripped.strip("|").split("|")]
+        if len(parts) >= 3 and parts[0] == check_name:
+            return parts[1], parts[2]
+    return None, f"{check_name} status is missing from saved project status output"
+
+
+def _source_state(saved_output: Path | None = None) -> dict[str, Any]:
+    if saved_output is not None:
+        text = _resolve(saved_output).read_text(encoding="utf-8")
+        git_status, git_detail = _status_from_saved_project_report(text, "Git worktree")
+        bundle_status, bundle_detail = _status_from_saved_project_report(text, "Contact-smoke bundle")
+        return {
+            "source": "saved_project_status_output",
+            "git_worktree": {"status": git_status, "detail": git_detail},
+            "contact_smoke_bundle": {"status": bundle_status, "detail": bundle_detail},
+        }
+
+    git_check = project_status.dirty_tree_status()
+    bundle_check = project_status.latest_contact_smoke_bundle_status()
+    return {
+        "source": "live_local_project_status",
+        "git_worktree": {"status": git_check.status, "detail": git_check.detail},
+        "contact_smoke_bundle": {"status": bundle_check.status, "detail": bundle_check.detail},
+    }
+
+
 def build_report(
     *,
     config_path: Path,
     manifest_path: Path,
     command_timeout_seconds: int,
     brev_safety_output: Path | None = None,
+    source_status_output: Path | None = None,
 ) -> dict[str, Any]:
     config_path = _resolve(config_path)
     manifest_path = _resolve(manifest_path)
@@ -140,6 +174,12 @@ def build_report(
 
     if not manifest_path.is_file():
         blockers.append(f"success-variation manifest is missing: {_rel(manifest_path)}")
+
+    source_state = _source_state(source_status_output)
+    if source_state["git_worktree"].get("status") != "CLEAN":
+        blockers.append("Git worktree must be CLEAN before the paid lifecycle can be armed")
+    if source_state["contact_smoke_bundle"].get("status") != "READY":
+        blockers.append("current contact-smoke bundle must be READY before the paid lifecycle can be armed")
 
     budget = _float_env(values, "RCA_PAID_BUDGET_EUR", blockers) if values else None
     credit_max_age = _int_env(values, "RCA_BREV_CREDIT_EVIDENCE_MAX_AGE_MINUTES", 60, blockers) if values else None
@@ -192,6 +232,7 @@ def build_report(
         "config": _rel(config_path),
         "manifest": _rel(manifest_path),
         "credit_evidence_path": _rel(credit_path),
+        "source_state": source_state,
         "budget_eur": budget,
         "credit_max_age_minutes": credit_max_age,
         "credit_evidence": credit_report,
@@ -211,6 +252,7 @@ def build_report(
         "not_claims": [
             "not a paid run",
             "not armed local env",
+            "not clean/current source unless source_state checks are CLEAN/READY",
             "not fresh credit evidence unless credit_evidence.status is PASS",
             "not success-variation result evidence",
         ],
@@ -225,6 +267,8 @@ def _render_markdown(report: dict[str, Any]) -> str:
         f"- config: {report['config']}",
         f"- manifest: {report['manifest']}",
         f"- credit_evidence_path: {report['credit_evidence_path']}",
+        f"- git_worktree: {report['source_state']['git_worktree']['status']}",
+        f"- contact_smoke_bundle: {report['source_state']['contact_smoke_bundle']['status']}",
         f"- budget_eur: {report['budget_eur']}",
         f"- next_action: {report['next_action']}",
         "",
@@ -262,6 +306,11 @@ def main() -> int:
         type=Path,
         help="Use saved brev_paid_safety_status.sh output for offline tests; default runs the live safety check.",
     )
+    parser.add_argument(
+        "--source-status-output",
+        type=Path,
+        help="Use saved project_status_report.py output for offline tests; default checks live local source state.",
+    )
     parser.add_argument("--output-json", type=Path, default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--output-md", type=Path, default=DEFAULT_OUTPUT_MD)
     parser.add_argument("--no-output", action="store_true")
@@ -278,6 +327,7 @@ def main() -> int:
         manifest_path=args.manifest,
         command_timeout_seconds=args.command_timeout_seconds,
         brev_safety_output=args.brev_safety_output,
+        source_status_output=args.source_status_output,
     )
     if not args.no_output:
         output_json = _resolve(args.output_json)
