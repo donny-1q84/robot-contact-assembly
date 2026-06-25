@@ -552,3 +552,9 @@ claim.
 metadata, checkpoint checksum, label manifest checksum, and JSONL checksum
 without importing PyTorch. Its real evaluation path is still only supervised
 residual-label evaluation, not Isaac closed-loop success evidence.
+`scripts/check_v0_policy_promotion_gate.py` is the next fail-closed layer after
+that evaluator: it requires V0 skill readiness, a supervised eval summary, and
+an Isaac closed-loop policy summary that uses the same checkpoint checksum,
+preserves the fail-closed negative control, and compares against the scripted
+baseline. Passing it means only `READY_FOR_POLICY_PROMOTION_REVIEW`; it still
+does not mean sim-to-real, external robot, or arbitrary-arm drop-in readiness.

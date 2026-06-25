@@ -325,6 +325,40 @@ def v0_residual_policy_eval_status() -> Check:
     return Check("V0 residual policy eval", "READY" if status != "BLOCKED" else "BLOCKED", detail)
 
 
+def v0_policy_promotion_gate_status() -> Check:
+    result = run_script(
+        "python3",
+        "scripts/check_v0_policy_promotion_gate.py",
+        "--skip-phase2-contact-gate",
+        "--no-output",
+    )
+    marker = "[v0-policy-promotion-gate] facts="
+    if marker not in result.stdout:
+        return Check(
+            "V0 policy promotion gate",
+            "FAIL",
+            "Could not parse scripts/check_v0_policy_promotion_gate.py output.",
+        )
+    try:
+        facts = _json_prefix(result.stdout.split(marker, 1)[1])
+    except (json.JSONDecodeError, ValueError) as exc:
+        return Check("V0 policy promotion gate", "FAIL", f"Policy promotion JSON parse failed: {exc}")
+
+    status = str(facts.get("status") or "BLOCKED")
+    blockers = facts.get("blockers") if isinstance(facts.get("blockers"), list) else []
+    supervised = facts.get("supervised_eval") if isinstance(facts.get("supervised_eval"), dict) else {}
+    isaac_eval = facts.get("isaac_closed_loop_eval") if isinstance(facts.get("isaac_closed_loop_eval"), dict) else {}
+    detail = (
+        f"skill_readiness={facts.get('skill_readiness_status')}; "
+        f"supervised_eval={supervised.get('status')}; "
+        f"isaac_closed_loop_eval={isaac_eval.get('status')}; "
+        f"ready_for_policy_promotion_review={facts.get('ready_for_policy_promotion_review')}; "
+        f"ready_for_external_robot={facts.get('ready_for_external_robot')}; "
+        f"blockers={len(blockers)}; next_action={facts.get('next_action')}."
+    )
+    return Check("V0 policy promotion gate", "READY" if status != "BLOCKED" else "BLOCKED", detail)
+
+
 def external_robot_adapter_status() -> Check:
     result = run_script("python3", "scripts/check_v0_robot_adapter_contract.py")
     marker = "[v0-robot-adapter] facts="
@@ -568,6 +602,7 @@ def checks() -> list[Check]:
         v0_policy_api_review_status(),
         v0_policy_training_preflight_status(),
         v0_residual_policy_eval_status(),
+        v0_policy_promotion_gate_status(),
         external_robot_adapter_status(),
         cross_robot_portability_status(),
         action_semantics_probe_status(),
@@ -797,6 +832,7 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "python3 scripts/check_v0_policy_training_preflight.py --no-output",
             "python3 scripts/train_v0_residual_policy.py --dry-run --no-output",
             "python3 scripts/evaluate_v0_residual_policy.py --dry-run --no-output",
+            "python3 scripts/check_v0_policy_promotion_gate.py --skip-phase2-contact-gate --no-output",
             "python3 scripts/check_v0_robot_adapter_contract.py",
             "python3 scripts/plan_v0_robot_adapter_manifest.py --robot-id demo_arm_v0 --robot-family demo_6dof_arm --end-effector parallel_gripper --no-output",
             "python3 scripts/check_v0_portability_boundary.py --skip-phase2-contact-gate",

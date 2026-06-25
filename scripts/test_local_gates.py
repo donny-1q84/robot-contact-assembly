@@ -1351,6 +1351,7 @@ def run_v0_skill_api_contract_tests() -> None:
     policy_training_preflight_path = REPO_ROOT / "scripts" / "check_v0_policy_training_preflight.py"
     policy_training_script_path = REPO_ROOT / "scripts" / "train_v0_residual_policy.py"
     policy_eval_script_path = REPO_ROOT / "scripts" / "evaluate_v0_residual_policy.py"
+    policy_promotion_gate_path = REPO_ROOT / "scripts" / "check_v0_policy_promotion_gate.py"
     robot_adapter_path = REPO_ROOT / "configs" / "v0_external_robot_adapter.template.json"
     robot_adapter_checker_path = REPO_ROOT / "scripts" / "check_v0_robot_adapter_contract.py"
     robot_adapter_planner_path = REPO_ROOT / "scripts" / "plan_v0_robot_adapter_manifest.py"
@@ -1433,6 +1434,19 @@ def run_v0_skill_api_contract_tests() -> None:
     assert_contains(result, "[v0-residual-policy-eval] BLOCKED", "V0 residual eval blocked detail")
     result = run(["python3", str(policy_eval_script_path), "--dry-run", "--no-output", "--fail-on-blocked"])
     assert_status(result, 1, "V0 residual policy eval can fail closed before checkpoint metadata exists")
+    result = run(["python3", str(policy_promotion_gate_path), "--skip-phase2-contact-gate", "--no-output"])
+    assert_status(result, 0, "V0 policy promotion gate reports blocked current state without failing by default")
+    assert_contains(result, "[v0-policy-promotion-gate] BLOCKED", "V0 policy promotion gate blocked detail")
+    result = run(
+        [
+            "python3",
+            str(policy_promotion_gate_path),
+            "--skip-phase2-contact-gate",
+            "--no-output",
+            "--fail-on-blocked",
+        ]
+    )
+    assert_status(result, 1, "V0 policy promotion gate can fail closed before closed-loop policy evidence exists")
 
     checker = checker_path.read_text(encoding="utf-8")
     request_checker = request_checker_path.read_text(encoding="utf-8")
@@ -1449,6 +1463,7 @@ def run_v0_skill_api_contract_tests() -> None:
     policy_training_preflight = policy_training_preflight_path.read_text(encoding="utf-8")
     policy_training_script = policy_training_script_path.read_text(encoding="utf-8")
     policy_eval_script = policy_eval_script_path.read_text(encoding="utf-8")
+    policy_promotion_gate = policy_promotion_gate_path.read_text(encoding="utf-8")
     robot_adapter_checker = robot_adapter_checker_path.read_text(encoding="utf-8")
     robot_adapter_planner = robot_adapter_planner_path.read_text(encoding="utf-8")
     portability_checker = portability_checker_path.read_text(encoding="utf-8")
@@ -1642,6 +1657,20 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"V0 residual policy evaluator missing snippet: {expected_snippet}")
     if "brev create" in policy_eval_script or '"${BREV_BIN}" create' in policy_eval_script:
         raise AssertionError("V0 residual policy evaluator must be offline and must not create Brev instances")
+    for expected_snippet in (
+        "Check whether a V0 residual policy may move to promotion review",
+        "READY_FOR_POLICY_PROMOTION_REVIEW",
+        "v0_residual_policy_promotion_gate",
+        "Isaac closed-loop policy evaluation",
+        "same checkpoint checksum",
+        "scripted-baseline comparison",
+        "not direct drop-in precision on another robot arm",
+        "It does not call Brev, start Isaac, ROS",
+    ):
+        if expected_snippet not in policy_promotion_gate:
+            raise AssertionError(f"V0 policy promotion gate missing snippet: {expected_snippet}")
+    if "brev create" in policy_promotion_gate or '"${BREV_BIN}" create' in policy_promotion_gate:
+        raise AssertionError("V0 policy promotion gate must be offline and must not create Brev instances")
     for expected_snippet in (
         "external-arm portability",
         "ready_for_external_robot cannot be true while adapter evidence blockers remain",
@@ -2779,6 +2808,92 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"eval dry-run should preserve sample count: {eval_dry_run}")
         if "not Isaac closed-loop evaluation" not in eval_dry_run["not_claims"]:
             raise AssertionError(f"eval dry-run must preserve Isaac non-claim: {eval_dry_run}")
+        supervised_eval_json = tmp_dir / "policy_eval" / "supervised_summary.json"
+        fake_checkpoint_sha = hashlib.sha256(fake_checkpoint.read_bytes()).hexdigest()
+        supervised_eval_payload = {
+            "eval_name": "v0_residual_policy_supervised_eval",
+            "status": "SUPERVISED_EVAL_NEEDS_ISAAC_POLICY_GATE",
+            "metadata": str(fake_metadata),
+            "checkpoint": str(fake_checkpoint),
+            "label_dataset_manifest": str(policy_label_dataset_manifest),
+            "jsonl": str(policy_label_dataset_jsonl),
+            "sample_count": policy_label_dataset["sample_count"],
+            "mse": 0.0001,
+            "max_abs_error": 0.001,
+            "required_before_policy_promotion": [
+                "run an Isaac closed-loop policy gate with the same checkpoint checksum",
+                "compare against scripted baseline and negative controls",
+            ],
+            "not_claims": [
+                "not Isaac closed-loop evaluation",
+                "not sim-to-real",
+                "not cross-robot-ready",
+                "not direct drop-in precision on another robot arm",
+                "not a Brev or Isaac launcher",
+            ],
+        }
+        supervised_eval_json.write_text(json.dumps(supervised_eval_payload), encoding="utf-8")
+        isaac_policy_eval_json = tmp_dir / "policy_eval" / "isaac_closed_loop_summary.json"
+        isaac_policy_eval_payload = {
+            "eval_name": "v0_residual_policy_isaac_closed_loop",
+            "status": "PASS",
+            "policy_checkpoint_sha256": fake_checkpoint_sha,
+            "supervised_eval": str(supervised_eval_json),
+            "strict_trials": 5,
+            "strict_successes": 5,
+            "strict_success_rate": 1.0,
+            "negative_control": {
+                "id": "socket_x_pos_25mm_negative_control",
+                "result": "fail_closed",
+                "strict_success": False,
+            },
+            "scripted_baseline_comparison": {
+                "policy_not_worse_than_scripted_baseline": True,
+                "regression": False,
+                "scripted_baseline_strict_success_rate": 1.0,
+                "policy_strict_success_rate": 1.0,
+            },
+            "not_claims": [
+                "not sim-to-real",
+                "not cross-robot-ready",
+                "not external robot ready",
+                "not direct drop-in precision on another robot arm",
+                "not a Brev or Isaac launcher",
+            ],
+        }
+        isaac_policy_eval_json.write_text(json.dumps(isaac_policy_eval_payload), encoding="utf-8")
+        policy_promotion_json = tmp_dir / "policy_eval" / "promotion_gate.json"
+        result = run(
+            [
+                "python3",
+                "scripts/check_v0_policy_promotion_gate.py",
+                "--manifest",
+                str(pass_manifest_path),
+                "--dataset",
+                str(dataset_json),
+                "--supervised-eval",
+                str(supervised_eval_json),
+                "--isaac-eval",
+                str(isaac_policy_eval_json),
+                "--skip-phase2-contact-gate",
+                "--output-json",
+                str(policy_promotion_json),
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 0, "V0 policy promotion gate accepts supervised plus Isaac closed-loop evidence")
+        assert_contains(
+            result,
+            "READY_FOR_POLICY_PROMOTION_REVIEW",
+            "V0 policy promotion gate ready detail",
+        )
+        policy_promotion = json.loads(policy_promotion_json.read_text(encoding="utf-8"))
+        if policy_promotion["ready_for_policy_promotion_review"] is not True:
+            raise AssertionError(f"promotion gate should be ready for review: {policy_promotion}")
+        if policy_promotion["ready_for_external_robot"] is not False:
+            raise AssertionError(f"promotion gate must not imply external robot readiness: {policy_promotion}")
+        if policy_promotion["isaac_closed_loop_eval"]["checkpoint_sha256"] != fake_checkpoint_sha:
+            raise AssertionError(f"promotion gate should preserve checkpoint checksum: {policy_promotion}")
         result = run(
             [
                 "python3",
@@ -4963,6 +5078,7 @@ def main() -> int:
         assert_contains(result, "V0 policy training preflight | BLOCKED", "status report V0 training preflight detail")
         assert_contains(result, "training_script_status=IMPLEMENTED", "status report V0 training script detail")
         assert_contains(result, "V0 residual policy eval | BLOCKED", "status report V0 residual eval detail")
+        assert_contains(result, "V0 policy promotion gate | BLOCKED", "status report V0 policy promotion detail")
         assert_contains(result, "External robot adapter | BLOCKED", "status report external adapter detail")
         assert_contains(result, "Cross-robot portability | BLOCKED", "status report portability boundary detail")
         assert_contains(result, "universal_drop_in_ready=False", "status report portability non-claim detail")
@@ -4990,6 +5106,11 @@ def main() -> int:
             result,
             "python3 scripts/evaluate_v0_residual_policy.py --dry-run --no-output",
             "status report V0 residual eval dry-run command detail",
+        )
+        assert_contains(
+            result,
+            "python3 scripts/check_v0_policy_promotion_gate.py --skip-phase2-contact-gate --no-output",
+            "status report V0 policy promotion command detail",
         )
 
         stale_scope_bundle = REPO_ROOT / "artifacts" / "launchable" / "robot-contact-assembly-contact-smoke-manual-preauth-9998-stale-scope-test.tar.gz"
