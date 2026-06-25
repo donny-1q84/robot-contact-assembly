@@ -1399,6 +1399,21 @@ def run_v0_skill_api_contract_tests() -> None:
         "target_adapter_preview_status=NOT_PROVIDED",
         "V0 portability review default target-preview detail",
     )
+    assert_contains(result, "adapter_workplan", "V0 portability review workplan detail")
+    assert_contains(result, "minimum_ordered_steps", "V0 portability review ordered adapter steps detail")
+    assert_contains(result, "required_evidence_groups", "V0 portability review evidence groups detail")
+    portability_review_default, _ = json.JSONDecoder().raw_decode(
+        result.stdout.split("[v0-portability-review] facts=", 1)[1].lstrip()
+    )
+    default_workplan = portability_review_default["adapter_workplan"]
+    if default_workplan["direct_drop_in_answer"] != "NO_DIRECT_DROP_IN":
+        raise AssertionError(f"portability workplan must reject direct drop-in: {default_workplan}")
+    if "model_sources" not in default_workplan["required_evidence_groups"]:
+        raise AssertionError(f"portability workplan must expose model-source evidence: {default_workplan}")
+    if "low_speed_contact_validation" not in default_workplan["required_evidence_groups"]["safety_evidence"]:
+        raise AssertionError(f"portability workplan must expose low-speed safety evidence: {default_workplan}")
+    if default_workplan["minimum_ordered_steps"][-1] != "perform_manual_low_speed_named_robot_review_only_after_all_gates_are_ready":
+        raise AssertionError(f"portability workplan final review step changed: {default_workplan}")
     result = run(
         [
             "python3",
@@ -1425,6 +1440,16 @@ def run_v0_skill_api_contract_tests() -> None:
         "command_contract.command_frame",
         "V0 portability review named adapter blocker detail",
     )
+    named_portability_review, _ = json.JSONDecoder().raw_decode(
+        result.stdout.split("[v0-portability-review] facts=", 1)[1].lstrip()
+    )
+    named_workplan = named_portability_review["adapter_workplan"]
+    if named_workplan["target_robot"]["robot_id"] != "demo_arm_v0":
+        raise AssertionError(f"named portability workplan should preserve target robot: {named_workplan}")
+    if named_workplan["current_adapter_blocker_count"] <= 0:
+        raise AssertionError(f"named portability workplan should remain blocked on adapter evidence: {named_workplan}")
+    if any("replace_with_robot_id" in blocker for blocker in named_workplan["top_adapter_blockers"]):
+        raise AssertionError(f"named portability workplan should use preview blockers, not template blockers: {named_workplan}")
     result = run(["python3", str(portability_review_path), "--skip-phase2-contact-gate", "--no-output", "--fail-on-blocked"])
     assert_status(result, 1, "V0 portability review can fail closed while blocked")
     result = run(["python3", str(execution_planner_path), "--skip-phase2-contact-gate", "--no-output"])
@@ -1877,6 +1902,10 @@ def run_v0_skill_api_contract_tests() -> None:
         "NO_DIRECT_DROP_IN",
         "universal_drop_in_ready",
         "target_adapter_preview",
+        "adapter_workplan",
+        "required_evidence_groups",
+        "minimum_ordered_steps",
+        "not a universal robot-arm policy",
         "PASS_SAFE_BLOCKED",
         "writes_target_adapter_manifest",
         "named external-robot adapter contract",
@@ -2611,8 +2640,14 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"portability review must never claim arbitrary-arm readiness: {portability_review_packet}")
         if portability_review_packet["named_robot_ready"] is not True:
             raise AssertionError(f"portability review should allow named ready adapter review: {portability_review_packet}")
+        if portability_review_packet["adapter_workplan"]["status"] != "READY_FOR_NAMED_ROBOT_LOW_SPEED_REVIEW":
+            raise AssertionError(f"ready portability workplan should be ready only for named low-speed review: {portability_review_packet}")
+        if portability_review_packet["adapter_workplan"]["direct_drop_in_answer"] != "NO_DIRECT_DROP_IN":
+            raise AssertionError(f"ready portability workplan must still reject direct drop-in: {portability_review_packet}")
         if "V0 Cross-Robot Portability Review" not in portability_review_md.read_text(encoding="utf-8"):
             raise AssertionError("portability review README should include a clear title")
+        if "Adapter Workplan" not in portability_review_md.read_text(encoding="utf-8"):
+            raise AssertionError("portability review README should include adapter workplan")
         execution_plan_json = tmp_dir / "v0_skill_execution" / "plan.json"
         result = run(
             [

@@ -253,7 +253,12 @@ low-speed review.
 `scripts/prepare_v0_portability_review.py` is the human-facing review packet for
 that boundary. It writes JSON/Markdown with the exact `NO_DIRECT_DROP_IN`
 answer, reusable layers, robot-specific layers, current blockers, and next
-commands without calling Brev, Isaac, ROS, a vendor SDK, or hardware. It can
+commands without calling Brev, Isaac, ROS, a vendor SDK, or hardware. It also
+emits an `adapter_workplan` section that turns the non-drop-in answer into
+machine-readable ordered steps, required evidence groups, reusable layers, and
+robot-specific blockers. This is the audit artifact for the question "can this
+be used directly on another arm?": the answer stays no until a named adapter and
+its revalidation evidence are ready. It can
 also accept `--target-robot-id`, `--target-robot-family`, and `--end-effector`
 to preview a named target-arm adapter inside the same packet; that preview is
 expected to be `PASS_SAFE_BLOCKED`, not hardware-ready, until the target robot's

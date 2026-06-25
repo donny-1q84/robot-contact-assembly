@@ -47,6 +47,16 @@ TARGET_PREVIEW_NOT_CLAIMS = [
     "not sim-to-real",
     "not direct drop-in precision on another robot arm",
 ]
+ADAPTER_WORKPLAN_STEPS = [
+    "name_target_robot_and_write_adapter_manifest",
+    "fill_robot_model_joint_limits_tool_tcp_and_controller_sources",
+    "fill_base_tool_socket_calibration_evidence",
+    "fill_safety_timeout_workspace_collision_and_low_speed_contact_evidence",
+    "validate_ros2_or_vendor_bridge_interfaces",
+    "complete_v0_success_variation_batch_before_policy_or_external_robot_claims",
+    "rerun_adapter_contract_and_portability_boundary_gates",
+    "perform_manual_low_speed_named_robot_review_only_after_all_gates_are_ready",
+]
 
 
 def _rel(path: Path) -> str:
@@ -230,6 +240,71 @@ def _target_adapter_preview(
     }
 
 
+def _adapter_workplan(boundary: dict[str, Any], target_preview: dict[str, Any]) -> dict[str, Any]:
+    boundary_adapter_blockers = [
+        str(item).removeprefix("robot_adapter: ")
+        for item in boundary.get("blockers", [])
+        if str(item).startswith("robot_adapter:")
+    ]
+    preview_top_blockers = (
+        target_preview.get("top_blockers")
+        if isinstance(target_preview.get("top_blockers"), list)
+        else []
+    )
+    use_preview_blockers = bool(target_preview.get("provided")) and bool(preview_top_blockers)
+    adapter_blocker_count = (
+        int(target_preview.get("blocker_count"))
+        if use_preview_blockers and isinstance(target_preview.get("blocker_count"), int)
+        else len(boundary_adapter_blockers)
+    )
+    adapter_top_blockers = (
+        [str(item) for item in preview_top_blockers[:12]]
+        if use_preview_blockers
+        else boundary_adapter_blockers[:12]
+    )
+    skill_blockers = [
+        str(item).removeprefix("v0_skill_readiness: ")
+        for item in boundary.get("blockers", [])
+        if str(item).startswith("v0_skill_readiness:")
+    ]
+    evidence_groups = {
+        "model_sources": sorted(portability_gate.adapter_gate.REQUIRED_MODEL_SOURCES),
+        "calibration_evidence": sorted(portability_gate.adapter_gate.REQUIRED_CALIBRATION),
+        "safety_evidence": sorted(portability_gate.adapter_gate.REQUIRED_SAFETY),
+        "ros2_interfaces": sorted(portability_gate.adapter_gate.REQUIRED_ROS2),
+        "command_contract": sorted(portability_gate.adapter_gate.REQUIRED_COMMAND_CONTRACT),
+        "frame_contract": sorted(portability_gate.adapter_gate.REQUIRED_FRAME_CONTRACT),
+        "runtime_guards": sorted(portability_gate.adapter_gate.REQUIRED_RUNTIME_GUARDS),
+        "revalidation_evidence": sorted(portability_gate.adapter_gate.REQUIRED_REVALIDATION),
+    }
+    return {
+        "status": (
+            "READY_FOR_NAMED_ROBOT_LOW_SPEED_REVIEW"
+            if boundary.get("status") == "READY"
+            else "BLOCKED_NOT_DROP_IN"
+        ),
+        "direct_drop_in_answer": "NO_DIRECT_DROP_IN",
+        "execution_boundary": boundary["portability_boundary"],
+        "target_preview_status": target_preview.get("status"),
+        "target_robot": target_preview.get("target_robot"),
+        "reusable_without_robot_rewrite": boundary["reusable_layers"],
+        "must_be_robot_specific": boundary["robot_specific_layers"],
+        "required_evidence_groups": evidence_groups,
+        "minimum_ordered_steps": ADAPTER_WORKPLAN_STEPS,
+        "current_skill_blocker_count": len(skill_blockers),
+        "current_adapter_blocker_count": adapter_blocker_count,
+        "top_skill_blockers": skill_blockers[:8],
+        "top_adapter_blockers": adapter_top_blockers,
+        "next_action": boundary["next_action"],
+        "not_claims": [
+            "not a universal robot-arm policy",
+            "not direct drop-in precision on another robot arm",
+            "not ready without named robot calibration and revalidation",
+            "not hardware execution approval",
+        ],
+    }
+
+
 def build_packet(
     *,
     request_path: Path,
@@ -291,6 +366,7 @@ def build_packet(
             "next_action": boundary["next_action"],
         },
         "target_adapter_preview": target_preview,
+        "adapter_workplan": _adapter_workplan(boundary, target_preview),
         "reusable_layers": boundary["reusable_layers"],
         "robot_specific_layers": boundary["robot_specific_layers"],
         "current_blockers": boundary["blockers"],
@@ -357,6 +433,30 @@ def _render_markdown(packet: dict[str, Any]) -> str:
     if top_blockers:
         lines.extend(["", "Top adapter blockers:"])
         lines.extend(f"- {item}" for item in top_blockers)
+    workplan = packet.get("adapter_workplan") if isinstance(packet.get("adapter_workplan"), dict) else {}
+    lines.extend(
+        [
+            "",
+            "## Adapter Workplan",
+            "",
+            f"- status: {workplan.get('status')}",
+            f"- direct_drop_in_answer: {workplan.get('direct_drop_in_answer')}",
+            f"- execution_boundary: {workplan.get('execution_boundary')}",
+            "",
+            "Minimum ordered steps:",
+        ]
+    )
+    steps = workplan.get("minimum_ordered_steps") if isinstance(workplan.get("minimum_ordered_steps"), list) else []
+    lines.extend(f"- {item}" for item in steps)
+    evidence_groups = (
+        workplan.get("required_evidence_groups")
+        if isinstance(workplan.get("required_evidence_groups"), dict)
+        else {}
+    )
+    if evidence_groups:
+        lines.extend(["", "Required evidence groups:"])
+        for group_name, fields in evidence_groups.items():
+            lines.append(f"- {group_name}: {', '.join(fields)}")
     lines.extend(["", "## Current Blockers", ""])
     if packet["current_blockers"]:
         lines.extend(f"- {item}" for item in packet["current_blockers"])

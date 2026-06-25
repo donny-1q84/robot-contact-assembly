@@ -199,7 +199,7 @@ policy_promotion_gate: scripts/check_v0_policy_promotion_gate.py stays blocked u
 external_robot_adapter_planner: scripts/plan_v0_robot_adapter_manifest.py writes named-arm manifests that remain safely blocked
 external_robot_adapter: configs/v0_external_robot_adapter.template.json is safely blocked by scripts/check_v0_robot_adapter_contract.py; docs/v0_robot_adapter_contract.md defines command/frame/runtime guards so portability is adapter-specific, not drop-in
 portability_boundary: scripts/check_v0_portability_boundary.py combines V0 skill readiness with the named adapter contract and keeps universal_drop_in_ready=false
-portability_review_packet: scripts/prepare_v0_portability_review.py packages the portability boundary, reusable layers, robot-specific layers, current blockers, exact non-drop-in answer, and optional target_adapter_preview into JSON/Markdown without touching Brev, Isaac, ROS, or hardware
+portability_review_packet: scripts/prepare_v0_portability_review.py packages the portability boundary, reusable layers, robot-specific layers, current blockers, exact non-drop-in answer, adapter_workplan, and optional target_adapter_preview into JSON/Markdown without touching Brev, Isaac, ROS, or hardware
 dataset_preparation: blocked until the result gate passes
 ```
 
