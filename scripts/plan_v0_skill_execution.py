@@ -33,6 +33,16 @@ DEFAULT_DATASET = REPO_ROOT / "artifacts" / "datasets" / "v0_scripted_skill_succ
 DEFAULT_OUTPUT = REPO_ROOT / "artifacts" / "plans" / "v0_skill_execution_plan.json"
 
 
+def _side_effects(*, writes_execution_plan: bool) -> dict[str, bool]:
+    return {
+        "writes_execution_plan": writes_execution_plan,
+        "creates_paid_instance": False,
+        "runs_remote_code": False,
+        "starts_isaac": False,
+        "calls_ros_or_robot": False,
+    }
+
+
 def _rel(path: Path) -> str:
     try:
         return str(path.resolve().relative_to(REPO_ROOT))
@@ -128,6 +138,7 @@ def build_plan(
         },
         "blocked_next_action": None if status == "READY" else _blocked_action(readiness),
         "blockers": unique_blockers,
+        "side_effects": _side_effects(writes_execution_plan=False),
         "not_claims": [
             "not learned policy",
             "not sim-to-real",
@@ -164,6 +175,7 @@ def main() -> int:
     )
 
     if not args.no_output:
+        plan["side_effects"] = _side_effects(writes_execution_plan=True)
         output_json = _resolve(args.output_json)
         output_json.parent.mkdir(parents=True, exist_ok=True)
         output_json.write_text(json.dumps(plan, indent=2, sort_keys=True), encoding="utf-8")

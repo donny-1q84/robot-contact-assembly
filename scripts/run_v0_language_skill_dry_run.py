@@ -40,6 +40,22 @@ DEFAULT_OUTPUT_JSON = REPO_ROOT / "artifacts" / "plans" / "v0_language_skill_dry
 DEFAULT_OUTPUT_MD = REPO_ROOT / "artifacts" / "plans" / "v0_language_skill_dry_run.md"
 
 
+def _side_effects(
+    *,
+    writes_request_artifact: bool,
+    writes_dry_run_report: bool,
+) -> dict[str, bool]:
+    return {
+        "writes_request_artifact": writes_request_artifact,
+        "writes_dry_run_report": writes_dry_run_report,
+        "creates_paid_instance": False,
+        "runs_remote_code": False,
+        "starts_isaac": False,
+        "calls_llm_or_vlm": False,
+        "calls_ros_or_robot": False,
+    }
+
+
 def _rel(path: Path) -> str:
     try:
         return str(path.resolve().relative_to(REPO_ROOT))
@@ -142,6 +158,10 @@ def _build_report(
         "blockers": unique_blockers,
         "request_preview": request_report.get("request") if request_pass else None,
         "execution_surface": execution_plan.get("execution_surface") if execution_plan else None,
+        "side_effects": _side_effects(
+            writes_request_artifact=bool(request_pass and write_request),
+            writes_dry_run_report=False,
+        ),
         "not_claims": [
             "not learned policy",
             "not sim-to-real",
@@ -214,6 +234,7 @@ def main() -> int:
     )
 
     if not args.no_output:
+        report["side_effects"]["writes_dry_run_report"] = True
         output_json = _resolve(args.output_json)
         _write_json(output_json, report)
         output_md = _resolve(args.output_md)

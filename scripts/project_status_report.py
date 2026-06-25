@@ -441,9 +441,13 @@ def v0_language_instruction_suite_status() -> Check:
     accepted_cases = sum(1 for case in cases if case.get("expected_status") == "PASS")
     rejected_cases = sum(1 for case in cases if case.get("expected_status") == "FAIL")
     not_claims = facts.get("not_claims") if isinstance(facts.get("not_claims"), list) else []
+    side_effects = facts.get("side_effects") if isinstance(facts.get("side_effects"), dict) else {}
     detail = (
         f"suite={facts.get('suite')}; cases={facts.get('pass_count')}/{facts.get('case_count')}; "
         f"accepted_cases={accepted_cases}; rejected_cases={rejected_cases}; "
+        f"writes_suite_report={side_effects.get('writes_suite_report')}; "
+        f"calls_llm_or_vlm={side_effects.get('calls_llm_or_vlm')}; "
+        f"calls_ros_or_robot={side_effects.get('calls_ros_or_robot')}; "
         f"not_cross_robot_ready={'not cross-robot-ready' in not_claims}."
     )
     return Check("V0 language instruction suite", status, detail)
@@ -474,6 +478,7 @@ def v0_language_skill_dry_run_status() -> Check:
     blockers = facts.get("blockers") if isinstance(facts.get("blockers"), list) else []
     surface = facts.get("execution_surface") if isinstance(facts.get("execution_surface"), dict) else {}
     not_claims = facts.get("not_claims") if isinstance(facts.get("not_claims"), list) else []
+    side_effects = facts.get("side_effects") if isinstance(facts.get("side_effects"), dict) else {}
     detail = (
         f"instruction={facts.get('instruction')!r}; "
         f"request_planner={facts.get('request_planner_status')}; "
@@ -482,6 +487,11 @@ def v0_language_skill_dry_run_status() -> Check:
         f"ready_for_execution={facts.get('ready_for_execution')}; "
         f"allowed_command_boundary={surface.get('allowed_command_boundary')}; "
         f"blockers={len(blockers)}; blocked_next_action={facts.get('blocked_next_action')}; "
+        f"writes_request_artifact={side_effects.get('writes_request_artifact')}; "
+        f"writes_dry_run_report={side_effects.get('writes_dry_run_report')}; "
+        f"calls_llm_or_vlm={side_effects.get('calls_llm_or_vlm')}; "
+        f"calls_ros_or_robot={side_effects.get('calls_ros_or_robot')}; "
+        f"creates_paid_instance={side_effects.get('creates_paid_instance')}; "
         f"not_cross_robot_ready={'not cross-robot-ready' in not_claims}."
     )
     return Check("V0 language skill dry-run", status, detail)

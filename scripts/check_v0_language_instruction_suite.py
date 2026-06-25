@@ -33,6 +33,17 @@ DEFAULT_OUTPUT_JSON = REPO_ROOT / "artifacts" / "analysis" / "v0_language_instru
 DEFAULT_OUTPUT_MD = REPO_ROOT / "artifacts" / "analysis" / "v0_language_instruction_suite.md"
 
 
+def _side_effects(*, writes_suite_report: bool) -> dict[str, bool]:
+    return {
+        "writes_suite_report": writes_suite_report,
+        "creates_paid_instance": False,
+        "runs_remote_code": False,
+        "starts_isaac": False,
+        "calls_llm_or_vlm": False,
+        "calls_ros_or_robot": False,
+    }
+
+
 def _rel(path: Path) -> str:
     try:
         return str(path.resolve().relative_to(REPO_ROOT))
@@ -156,6 +167,7 @@ def build_report(suite_path: Path) -> dict[str, Any]:
         "pass_count": sum(1 for case in case_reports if case["case_status"] == "PASS"),
         "failures": failures,
         "cases": case_reports,
+        "side_effects": _side_effects(writes_suite_report=False),
         "not_claims": suite.get(
             "not_claims",
             [
@@ -201,6 +213,7 @@ def main() -> int:
 
     report = build_report(_resolve(args.suite))
     if not args.no_output:
+        report["side_effects"] = _side_effects(writes_suite_report=True)
         output_json = _resolve(args.output_json)
         output_json.parent.mkdir(parents=True, exist_ok=True)
         output_json.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")

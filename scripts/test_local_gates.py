@@ -1375,6 +1375,20 @@ def run_v0_skill_api_contract_tests() -> None:
     assert_contains(result, "[v0-language-suite] status=PASS", "V0 language suite PASS detail")
     assert_contains(result, "insert_center_socket", "V0 language suite includes center socket case")
     assert_contains(result, "reject_low_level_joint_command", "V0 language suite includes low-level rejection")
+    language_suite_report, _ = json.JSONDecoder().raw_decode(
+        result.stdout.split("[v0-language-suite] facts=", 1)[1].lstrip()
+    )
+    language_suite_effects = language_suite_report["side_effects"]
+    for key in (
+        "writes_suite_report",
+        "creates_paid_instance",
+        "runs_remote_code",
+        "starts_isaac",
+        "calls_llm_or_vlm",
+        "calls_ros_or_robot",
+    ):
+        if language_suite_effects[key] is not False:
+            raise AssertionError(f"language suite --no-output side effect must be false for {key}: {language_suite_report}")
     result = run(["python3", str(robot_adapter_checker_path), str(robot_adapter_path)])
     assert_status(result, 0, "V0 external robot adapter template is a safe blocked contract")
     assert_contains(result, "[v0-robot-adapter] BLOCKED", "V0 robot adapter template BLOCKED detail")
@@ -1488,6 +1502,13 @@ def run_v0_skill_api_contract_tests() -> None:
     assert_status(result, 0, "V0 skill execution planner writes blocked plan without failing by default")
     assert_contains(result, "[v0-skill-execution-plan] status=BLOCKED", "V0 execution planner blocked detail")
     assert_contains(result, "ready_for_execution", "V0 execution planner readiness field")
+    blocked_execution_plan, _ = json.JSONDecoder().raw_decode(
+        result.stdout.split("[v0-skill-execution-plan] facts=", 1)[1].lstrip()
+    )
+    blocked_execution_effects = blocked_execution_plan["side_effects"]
+    for key in ("writes_execution_plan", "creates_paid_instance", "runs_remote_code", "starts_isaac", "calls_ros_or_robot"):
+        if blocked_execution_effects[key] is not False:
+            raise AssertionError(f"execution planner --no-output side effect must be false for {key}: {blocked_execution_plan}")
     result = run(
         [
             "python3",
@@ -1501,6 +1522,21 @@ def run_v0_skill_api_contract_tests() -> None:
     assert_contains(result, "[v0-language-skill-dry-run] status=BLOCKED", "V0 language dry-run blocked marker")
     assert_contains(result, "request_planner_status", "V0 language dry-run request-planner field")
     assert_contains(result, "allowed_command_boundary", "V0 language dry-run execution-surface field")
+    blocked_language_report, _ = json.JSONDecoder().raw_decode(
+        result.stdout.split("[v0-language-skill-dry-run] facts=", 1)[1].lstrip()
+    )
+    blocked_language_effects = blocked_language_report["side_effects"]
+    for key in (
+        "writes_request_artifact",
+        "writes_dry_run_report",
+        "creates_paid_instance",
+        "runs_remote_code",
+        "starts_isaac",
+        "calls_llm_or_vlm",
+        "calls_ros_or_robot",
+    ):
+        if blocked_language_effects[key] is not False:
+            raise AssertionError(f"language dry-run --no-output side effect must be false for {key}: {blocked_language_report}")
     result = run(
         [
             "python3",
@@ -2907,6 +2943,11 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"execution planner should preserve skill boundary: {execution_plan['execution_surface']}")
         if "raw_joint_targets" not in execution_plan["execution_surface"]["forbidden_command_boundary"]:
             raise AssertionError("execution planner must preserve raw joint command ban")
+        if execution_plan["side_effects"]["writes_execution_plan"] is not True:
+            raise AssertionError(f"execution planner should disclose local plan write: {execution_plan}")
+        for key in ("creates_paid_instance", "runs_remote_code", "starts_isaac", "calls_ros_or_robot"):
+            if execution_plan["side_effects"][key] is not False:
+                raise AssertionError(f"ready execution planner side effect must be false for {key}: {execution_plan}")
         language_dry_run_json = tmp_dir / "v0_language_skill_dry_run" / "report.json"
         language_dry_run_md = tmp_dir / "v0_language_skill_dry_run" / "README.md"
         language_request_json = tmp_dir / "v0_language_skill_dry_run" / "request.json"
@@ -2944,6 +2985,13 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"language dry-run should preserve skill boundary: {language_report}")
         if "raw_joint_targets" not in language_report["execution_surface"]["forbidden_command_boundary"]:
             raise AssertionError("language dry-run must preserve raw-joint command ban")
+        if language_report["side_effects"]["writes_request_artifact"] is not True:
+            raise AssertionError(f"language dry-run should disclose request artifact write: {language_report}")
+        if language_report["side_effects"]["writes_dry_run_report"] is not True:
+            raise AssertionError(f"language dry-run should disclose report writes: {language_report}")
+        for key in ("creates_paid_instance", "runs_remote_code", "starts_isaac", "calls_llm_or_vlm", "calls_ros_or_robot"):
+            if language_report["side_effects"][key] is not False:
+                raise AssertionError(f"ready language dry-run side effect must be false for {key}: {language_report}")
         if not language_request_json.is_file():
             raise AssertionError("language dry-run should write the planned request artifact when ready")
         if "V0 Language Skill Dry Run" not in language_dry_run_md.read_text(encoding="utf-8"):
@@ -6296,6 +6344,16 @@ def main() -> int:
         assert_contains(result, "cases=6/6", "status report V0 language suite case count detail")
         assert_contains(
             result,
+            "writes_suite_report=False",
+            "status report V0 language suite no-write detail",
+        )
+        assert_contains(
+            result,
+            "calls_llm_or_vlm=False",
+            "status report V0 language suite no-LLM detail",
+        )
+        assert_contains(
+            result,
             "not_cross_robot_ready=True",
             "status report V0 language suite portability non-claim detail",
         )
@@ -6307,6 +6365,21 @@ def main() -> int:
             result,
             "allowed_command_boundary=task_parameters_to_skill_controller",
             "status report V0 language dry-run command-boundary detail",
+        )
+        assert_contains(
+            result,
+            "writes_request_artifact=False",
+            "status report V0 language dry-run no-request-write detail",
+        )
+        assert_contains(
+            result,
+            "writes_dry_run_report=False",
+            "status report V0 language dry-run no-report-write detail",
+        )
+        assert_contains(
+            result,
+            "creates_paid_instance=False",
+            "status report V0 language dry-run no-paid-instance detail",
         )
         assert_contains(result, "V0 skill readiness | BLOCKED", "status report V0 readiness detail")
         assert_contains(result, "V0 policy/API review packet | BLOCKED", "status report V0 policy/API review detail")
