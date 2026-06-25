@@ -200,6 +200,7 @@ scripts/review_success_variation_batch.py
 scripts/prepare_success_variation_dataset.py
 scripts/finalize_success_variation_batch.sh
 scripts/write_success_variation_run_packet.py
+scripts/audit_success_variation_assumptions.py
 configs/success_variation_batch_run.env.example
 tests in scripts/test_local_gates.py for the variation manifest / classifier
 artifacts/manifests/success_trace_variations_2026-06-25.json
@@ -254,6 +255,23 @@ template, and exact check/run/finalize commands under `artifacts/analysis/`.
 It does not create, delete, copy to, or execute on Brev instances.
 The config launcher also writes this packet automatically before each
 `--check-only` or `--run`.
+
+Before editing the ignored local env or opening paid compute, run the
+read-only assumption-and-metric audit:
+
+```bash
+python3 scripts/audit_success_variation_assumptions.py \
+  artifacts/manifests/success_trace_variations_2026-06-25.json \
+  --run-packet artifacts/analysis/success_variation_run_packet_2026-06-25.json \
+  --fail-on-blocked
+```
+
+This traces `strict_success`, the deliberate negative control, planned
+variation coverage, paid-run budget/cleanup, and dataset-promotion policy back
+to concrete code/data sources. It is expected to fail in the current
+baseline-only state because planned variation traces are missing and the
+one-run paid acknowledgements remain fail-closed. It does not create, delete,
+copy to, or execute on Brev instances.
 
 Prepare the ignored local env file in a fail-closed state with:
 

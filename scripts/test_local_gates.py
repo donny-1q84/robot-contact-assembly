@@ -1651,6 +1651,9 @@ def run_success_variation_manifest_tests() -> None:
         finalizer_script = (
             REPO_ROOT / "scripts" / "finalize_success_variation_batch.sh"
         ).read_text(encoding="utf-8")
+        audit_script = (
+            REPO_ROOT / "scripts" / "audit_success_variation_assumptions.py"
+        ).read_text(encoding="utf-8")
         run_packet_script = (
             REPO_ROOT / "scripts" / "write_success_variation_run_packet.py"
         ).read_text(encoding="utf-8")
@@ -1820,6 +1823,23 @@ def run_success_variation_manifest_tests() -> None:
         if "brev create" in finalizer_script or '"${BREV_BIN}" create' in finalizer_script:
             raise AssertionError("success variation finalizer must not create Brev instances")
 
+        for expected_snippet in (
+            "strict_success",
+            "negative_control_fail_closed",
+            "planned_variation_coverage",
+            "paid_run_budget_and_cleanup",
+            "promotion_to_dataset_policy",
+            "not learned policy",
+            "not sim-to-real",
+            "does not create, delete, copy to, or execute on Brev instances",
+            "Metric Sources",
+            "--fail-on-blocked",
+        ):
+            if expected_snippet not in audit_script:
+                raise AssertionError(f"success variation assumption audit missing snippet: {expected_snippet}")
+        if "brev create" in audit_script or '"${BREV_BIN}" create' in audit_script:
+            raise AssertionError("success variation assumption audit must be read-only and must not create Brev instances")
+
         fake_readiness_output = tmp_dir / "fake_readiness_output.txt"
         fake_readiness_output.write_text(
             "\n".join(
@@ -1871,6 +1891,62 @@ def run_success_variation_manifest_tests() -> None:
         run_packet_md_text = run_packet_md.read_text(encoding="utf-8")
         if "Current Blockers" not in run_packet_md_text or "Brev UI/org credit balance" not in run_packet_md_text:
             raise AssertionError("run packet markdown should include blocker details")
+
+        audit_json = tmp_dir / "assumption_audit.json"
+        audit_md = tmp_dir / "assumption_audit.md"
+        result = run(
+            [
+                "python3",
+                "scripts/audit_success_variation_assumptions.py",
+                str(manifest_path),
+                "--run-packet",
+                str(run_packet_json),
+                "--output-json",
+                str(audit_json),
+                "--output-md",
+                str(audit_md),
+            ]
+        )
+        assert_status(result, 0, "success variation assumption audit writes blocked report")
+        assert_contains(result, "status=BLOCKED", "assumption audit blocked status detail")
+        audit = json.loads(audit_json.read_text(encoding="utf-8"))
+        if audit["audit_status"] != "BLOCKED":
+            raise AssertionError(f"assumption audit should be blocked for incomplete manifest: {audit['audit_status']}")
+        if audit["source_trace"]["status"] != "pass":
+            raise AssertionError(f"assumption audit should verify source trace checksum: {audit['source_trace']}")
+        audit_blockers = "\n".join(audit["blockers"])
+        if "missing planned trace artifacts" not in audit_blockers:
+            raise AssertionError(f"assumption audit should include missing planned artifacts: {audit['blockers']}")
+        if "RCA_BREV_CREDITS_VERIFIED" not in audit_blockers:
+            raise AssertionError(f"assumption audit should include paid-run credit blocker: {audit['blockers']}")
+        metric_names = {item["metric"] for item in audit["metric_sources"]}
+        expected_metrics = {
+            "strict_success",
+            "negative_control_fail_closed",
+            "planned_variation_coverage",
+            "paid_run_budget_and_cleanup",
+            "promotion_to_dataset_policy",
+        }
+        if metric_names != expected_metrics:
+            raise AssertionError(f"assumption audit metric set changed: {metric_names}")
+        audit_md_text = audit_md.read_text(encoding="utf-8")
+        if "Metric Sources" not in audit_md_text or "not sim-to-real" not in audit_md_text:
+            raise AssertionError("assumption audit markdown should include sources and non-claims")
+        result = run(
+            [
+                "python3",
+                "scripts/audit_success_variation_assumptions.py",
+                str(manifest_path),
+                "--run-packet",
+                str(run_packet_json),
+                "--output-json",
+                str(tmp_dir / "assumption_audit_fail.json"),
+                "--output-md",
+                str(tmp_dir / "assumption_audit_fail.md"),
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 1, "success variation assumption audit fail-on-blocked rejects incomplete batch")
 
         for expected_snippet in (
             "check_success_variation_batch_readiness.py",

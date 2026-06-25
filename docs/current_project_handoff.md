@@ -47,7 +47,10 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    the fail-closed `configs/success_variation_batch_run.env.example` as the
    reviewed template, put real one-run values in the git-ignored
    `configs/success_variation_batch_run.local.env`, generate the current
-   read-only packet with `scripts/write_success_variation_run_packet.py`, and run
+   read-only packet with `scripts/write_success_variation_run_packet.py`, run
+   `scripts/audit_success_variation_assumptions.py` to trace every critical
+   success/negative-control/budget/promotion metric back to concrete sources,
+   and only then run
    `scripts/prepare_success_variation_local_env.py` if the local env file needs
    to be created in its default fail-closed state before editing for a single
    reviewed run. Then run
@@ -77,6 +80,7 @@ batch_plan_sh: artifacts/analysis/success_trace_variation_batch_plan_2026-06-25.
 result: 1 strict_success positive control, 8 missing planned cases
 negative_control: socket_x_pos_25mm_negative_control expected fail_closed
 paid_compute_allowed: false
+assumption_audit: blocked until planned traces and one-run paid acknowledgements exist
 dataset_preparation: blocked until the result gate passes
 ```
 
@@ -94,6 +98,12 @@ this project can move from scripted reproducibility into dataset/policy work.
 The dataset-prep gate then freezes only strict-success non-negative traces and
 keeps explicit non-claims: not learned policy, not sim-to-real, and not
 cross-robot-ready.
+
+The portability boundary is also explicit: the current artifacts can support a
+future ROS 2 / external robot adapter contract, but they do not prove direct
+drop-in precision on another robot arm. A new arm will need its own model,
+TCP/tool calibration, controller adapter, limits/gains, sensing setup, and
+validation gates before any precise contact-rich insertion claim.
 
 Detailed plan:
 
