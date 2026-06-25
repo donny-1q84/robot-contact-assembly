@@ -137,6 +137,7 @@ paid_compute_allowed: false
 credit_evidence: configs/brev_credit_verification.local.json is ignored and must pass scripts/check_brev_credit_evidence.py; use scripts/write_brev_credit_evidence.py and scripts/arm_success_variation_paid_env.py after checking the Brev UI balance before RCA_BREV_CREDITS_VERIFIED=1
 pre_batch_assumption_audit: blocked until one-run paid acknowledgements exist; planned traces may still be missing
 post_batch_assumption_audit: blocked until planned traces and negative control results exist
+paid_success_variation_lifecycle: scripts/run_success_variation_paid_lifecycle.py is the one-shot paid entrypoint after current UI balance evidence; it disarms, safety-checks, and finalizes or writes a recovery plan
 skill_api_contract: configs/v0_skill_api_contract.json passes local contract check
 skill_api_promotion_coverage: requires strict-success seed/reset plus socket X/Y/Z variation coverage before policy/API promotion
 success_variation_recovery: scripts/plan_success_variation_recovery_batch.py skips already satisfied traces and plans only unresolved reruns after a partial batch

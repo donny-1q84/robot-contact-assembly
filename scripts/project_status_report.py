@@ -676,6 +676,7 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --check-only",
             "python3 scripts/write_brev_credit_evidence.py --balance-eur <current-brev-ui-balance> --budget-eur 6.00 --force",
             "python3 scripts/arm_success_variation_paid_env.py --i-understand-this-arms-paid-run",
+            "python3 scripts/run_success_variation_paid_lifecycle.py --balance-eur <current-brev-ui-balance> --run --i-understand-this-can-create-paid-instance",
             "scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --run",
             "scripts/finalize_success_variation_batch.sh artifacts/manifests/success_trace_variations_2026-06-25.json",
             "python3 scripts/prepare_v0_policy_api_review.py",

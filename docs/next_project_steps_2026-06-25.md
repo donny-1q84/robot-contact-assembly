@@ -349,6 +349,21 @@ That helper writes the git-ignored credit evidence, arms the git-ignored local
 env, and runs `--check-only`. It still does not create a paid instance, and it
 disarms the local env automatically if `--check-only` is not READY.
 
+For the actual one-shot paid lifecycle, prefer the higher-level wrapper after
+the prepare check-only path is READY:
+
+```bash
+python3 scripts/run_success_variation_paid_lifecycle.py \
+  --balance-eur <current-brev-ui-balance> \
+  --run \
+  --i-understand-this-can-create-paid-instance
+```
+
+That wrapper still requires fresh Brev UI balance evidence. It delegates to the
+prepare helper and guarded config runner, then always disarms the local env,
+runs Brev safety, and either finalizes the dataset gate or writes the recovery
+rerun plan.
+
 Before editing the ignored local env or opening paid compute, run the
 read-only assumption-and-metric audit:
 

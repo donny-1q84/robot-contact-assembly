@@ -2140,6 +2140,9 @@ def run_success_variation_manifest_tests() -> None:
         prepare_paid_script = (
             REPO_ROOT / "scripts" / "prepare_success_variation_paid_batch.py"
         ).read_text(encoding="utf-8")
+        lifecycle_script = (
+            REPO_ROOT / "scripts" / "run_success_variation_paid_lifecycle.py"
+        ).read_text(encoding="utf-8")
         local_env_script = (
             REPO_ROOT / "scripts" / "prepare_success_variation_local_env.py"
         ).read_text(encoding="utf-8")
@@ -2325,6 +2328,46 @@ def run_success_variation_manifest_tests() -> None:
                 raise AssertionError(f"success variation paid prepare helper missing snippet: {expected_snippet}")
         if "brev create" in prepare_paid_script or '"${BREV_BIN}" create' in prepare_paid_script:
             raise AssertionError("success variation paid prepare helper must not create Brev instances")
+
+        result = run(
+            [
+                "python3",
+                "scripts/run_success_variation_paid_lifecycle.py",
+                "--balance-eur",
+                "20.00",
+                "--i-understand-this-can-create-paid-instance",
+                "--dry-run",
+            ]
+        )
+        assert_status(result, 0, "success variation paid lifecycle dry-run succeeds")
+        assert_contains(result, "DRY_RUN", "paid lifecycle dry-run marker")
+        assert_contains(result, "would not create a paid instance", "paid lifecycle dry-run safety detail")
+        assert_contains(result, "finalize_success_variation_batch.sh", "paid lifecycle finalizer detail")
+        assert_contains(result, "plan_success_variation_recovery_batch.py", "paid lifecycle recovery detail")
+        result = run(["python3", "scripts/run_success_variation_paid_lifecycle.py"])
+        assert_status(result, 1, "success variation paid lifecycle blocks without explicit run inputs")
+        assert_contains(result, "BLOCKED", "paid lifecycle blocked marker")
+        assert_contains(result, "--balance-eur", "paid lifecycle balance guidance")
+        assert_contains(result, "no paid instance was created", "paid lifecycle blocked safety detail")
+
+        for expected_snippet in (
+            "highest-level paid entrypoint",
+            "--i-understand-this-can-create-paid-instance",
+            "prepare_success_variation_paid_batch.py",
+            "run_success_variation_batch_from_config.sh",
+            "arm_success_variation_paid_env.py",
+            "brev_paid_safety_status.sh",
+            "finalize_success_variation_batch.sh",
+            "plan_success_variation_recovery_batch.py",
+            "would not create a paid instance",
+            "no paid instance was created",
+            "disarms the local env",
+            "checks Brev safety",
+        ):
+            if expected_snippet not in lifecycle_script:
+                raise AssertionError(f"success variation paid lifecycle missing snippet: {expected_snippet}")
+        if "brev create" in lifecycle_script or '"${BREV_BIN}" create' in lifecycle_script:
+            raise AssertionError("success variation paid lifecycle must delegate paid creation to the guarded wrapper")
 
         for expected_snippet in (
             "classify_success_variation_results",
