@@ -3584,7 +3584,9 @@ def run_success_variation_manifest_tests() -> None:
         assert_status(result, 0, "Brev credit review packet reports current blocked state")
         assert_contains(result, "NEEDS_BREV_UI_CREDIT_EVIDENCE", "Brev credit review missing evidence detail")
         assert_contains(result, "dashboard_url=https://brev.nvidia.com/org/", "Brev credit review dashboard detail")
+        assert_contains(result, "preview_credit_evidence=", "Brev credit review preview evidence command detail")
         assert_contains(result, "write_credit_evidence=", "Brev credit review follow-up command detail")
+        assert_contains(result, "preview_prepare_paid_batch=", "Brev credit review preview prepare command detail")
         assert_contains(result, "prepare_success_variation_paid_batch.py", "Brev credit review prepare helper command")
         result = run(["python3", str(credit_review_path), "--no-output", "--fail-on-blocked"])
         assert_status(result, 1, "Brev credit review can fail closed while UI evidence is missing")
@@ -3611,7 +3613,9 @@ def run_success_variation_manifest_tests() -> None:
             "NEEDS_BREV_UI_CREDIT_EVIDENCE",
             "READY_FOR_PAID_LIFECYCLE",
             "--source-status-output",
+            "preview_credit_evidence",
             "write_brev_credit_evidence.py",
+            "preview_prepare_paid_batch",
             "prepare_success_variation_paid_batch.py",
             "prepare_paid_batch",
             "check_success_variation_paid_lifecycle_preflight.py",
@@ -5763,8 +5767,23 @@ def main() -> int:
         )
         assert_contains(
             result,
+            "preview_credit_command=python3 scripts/write_brev_credit_evidence.py",
+            "status report preview credit command detail",
+        )
+        assert_contains(
+            result,
+            "--dry-run",
+            "status report includes paid preview dry-run commands",
+        )
+        assert_contains(
+            result,
             "write_command=python3 scripts/write_brev_credit_evidence.py",
             "status report write credit command detail",
+        )
+        assert_contains(
+            result,
+            "preview_prepare_command=python3 scripts/prepare_success_variation_paid_batch.py",
+            "status report preview prepare command detail",
         )
         assert_contains(
             result,
@@ -5807,6 +5826,16 @@ def main() -> int:
             result,
             "python3 scripts/prepare_brev_credit_review.py --no-output",
             "status report Brev credit review command detail",
+        )
+        assert_contains(
+            result,
+            "python3 scripts/write_brev_credit_evidence.py --balance-eur <current-brev-ui-balance> --budget-eur 6.00 --dry-run",
+            "status report credit dry-run command detail",
+        )
+        assert_contains(
+            result,
+            "python3 scripts/prepare_success_variation_paid_batch.py --balance-eur <current-brev-ui-balance> --force-credit --i-understand-this-arms-paid-run --dry-run",
+            "status report paid prepare dry-run command detail",
         )
         assert_contains(
             result,

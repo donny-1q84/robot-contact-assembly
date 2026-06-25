@@ -409,10 +409,12 @@ UI credit evidence, `SAFE_NO_VISIBLE_PAID_INSTANCE`, local env armability, and
 batch-plan readiness. It does not arm the env or create a paid instance.
 `scripts/prepare_brev_credit_review.py --no-output` is the read-only bridge for
 the remaining external blocker: it prints the Brev organization dashboard URL,
-the missing credit-evidence status, the exact `write_brev_credit_evidence.py`
-command, the rerun-preflight command, and the one-shot paid lifecycle command.
-It does not open paid compute, write credit evidence, or arm the local env unless
-the explicit follow-up commands are run separately.
+the missing credit-evidence status, preview and real
+`write_brev_credit_evidence.py` commands, preview and real
+`prepare_success_variation_paid_batch.py` commands, the rerun-preflight command,
+and the one-shot paid lifecycle command. It does not open paid compute, write
+credit evidence, or arm the local env unless the explicit follow-up commands are
+run separately.
 
 To preview the credit evidence payload after reading the current UI balance,
 without writing the ignored JSON file, use:

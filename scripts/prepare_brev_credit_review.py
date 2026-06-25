@@ -3,8 +3,8 @@
 
 This is a read-only bridge between the blocked paid lifecycle preflight and the
 manual Brev UI balance check. It prints the current blocker state, the Brev org
-dashboard URL to review, and the exact follow-up commands for writing fresh
-credit evidence and rerunning the paid lifecycle preflight.
+dashboard URL to review, and the exact follow-up commands for previewing and
+writing fresh credit evidence and rerunning the paid lifecycle preflight.
 
 By default it does not open a browser, write credit evidence, arm the local env,
 create a paid instance, run remote code, start Isaac, or copy artifacts. Passing
@@ -102,6 +102,7 @@ def build_packet(
         str(max_age),
         "--force",
     ]
+    preview_credit_command = [*write_credit_command, "--dry-run"]
     rerun_preflight_command = [
         "python3",
         "scripts/check_success_variation_paid_lifecycle_preflight.py",
@@ -125,6 +126,7 @@ def build_packet(
         "--force-credit",
         "--i-understand-this-arms-paid-run",
     ]
+    preview_prepare_paid_batch_command = [*prepare_paid_batch_command, "--dry-run"]
     return {
         "packet_name": "brev_credit_review_packet",
         "status": _status_from_preflight(preflight),
@@ -137,7 +139,9 @@ def build_packet(
         "credit_max_age_minutes": max_age,
         "paid_lifecycle_preflight": preflight,
         "next_commands": {
+            "preview_credit_evidence": preview_credit_command,
             "write_credit_evidence": write_credit_command,
+            "preview_prepare_paid_batch": preview_prepare_paid_batch_command,
             "prepare_paid_batch": prepare_paid_batch_command,
             "rerun_paid_lifecycle_preflight": rerun_preflight_command,
             "run_paid_lifecycle": lifecycle_command,
@@ -145,7 +149,8 @@ def build_packet(
         "instructions": [
             "Log in to Brev/NVIDIA in the browser if required.",
             "Open the organization dashboard and read the current organization credit balance from the Brev UI.",
-            "Use the current UI balance in the write_credit_evidence command; do not reuse an old email or memory value.",
+            "Use the current UI balance in the preview_credit_evidence command first; do not reuse an old email or memory value.",
+            "If the preview is correct, use the same current UI balance in the write_credit_evidence or preview_prepare_paid_batch command.",
             "Prefer the prepare_paid_batch command to write credit evidence, arm the local env, refresh the run packet, and rerun the aggregate preflight in one fail-closed step.",
             "Rerun the paid lifecycle preflight before any paid create.",
         ],
@@ -188,7 +193,9 @@ def _render_markdown(packet: dict[str, Any]) -> str:
             "## Commands",
             "",
             "```bash",
+            _command_text(commands["preview_credit_evidence"]),
             _command_text(commands["write_credit_evidence"]),
+            _command_text(commands["preview_prepare_paid_batch"]),
             _command_text(commands["prepare_paid_batch"]),
             _command_text(commands["rerun_paid_lifecycle_preflight"]),
             _command_text(commands["run_paid_lifecycle"]),
@@ -266,7 +273,9 @@ def main() -> int:
     print("[brev-credit-review] facts=" + json.dumps(packet, indent=2, sort_keys=True))
     print("[brev-credit-review] status=" + packet["status"])
     print("[brev-credit-review] dashboard_url=" + packet["dashboard_url"])
+    print("[brev-credit-review] preview_credit_evidence=" + _command_text(packet["next_commands"]["preview_credit_evidence"]))
     print("[brev-credit-review] write_credit_evidence=" + _command_text(packet["next_commands"]["write_credit_evidence"]))
+    print("[brev-credit-review] preview_prepare_paid_batch=" + _command_text(packet["next_commands"]["preview_prepare_paid_batch"]))
     if packet["status"] == "FAIL":
         return 1
     if packet["status"] != "READY_FOR_PAID_LIFECYCLE" and args.fail_on_blocked:

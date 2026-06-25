@@ -277,7 +277,9 @@ def brev_credit_review_status() -> Check:
     preflight = facts.get("paid_lifecycle_preflight") if isinstance(facts.get("paid_lifecycle_preflight"), dict) else {}
     credit = preflight.get("credit_evidence") if isinstance(preflight.get("credit_evidence"), dict) else {}
     commands = facts.get("next_commands") if isinstance(facts.get("next_commands"), dict) else {}
+    preview_credit_command = commands.get("preview_credit_evidence")
     write_command = commands.get("write_credit_evidence")
+    preview_prepare_command = commands.get("preview_prepare_paid_batch")
     prepare_command = commands.get("prepare_paid_batch")
     detail = (
         f"packet_status={packet_status}; dashboard_url={facts.get('dashboard_url')}; "
@@ -285,7 +287,9 @@ def brev_credit_review_status() -> Check:
         f"credit_status={credit.get('status')}; budget_eur={facts.get('budget_eur')}; "
         f"writes_credit_evidence={side_effects.get('writes_credit_evidence')}; "
         f"creates_paid_instance={side_effects.get('creates_paid_instance')}; "
+        f"preview_credit_command={' '.join(preview_credit_command) if isinstance(preview_credit_command, list) else '<missing>'}; "
         f"write_command={' '.join(write_command) if isinstance(write_command, list) else '<missing>'}; "
+        f"preview_prepare_command={' '.join(preview_prepare_command) if isinstance(preview_prepare_command, list) else '<missing>'}; "
         f"prepare_command={' '.join(prepare_command) if isinstance(prepare_command, list) else '<missing>'}."
     )
     status = "READY" if packet_status == "READY_FOR_PAID_LIFECYCLE" else "BLOCKED"
@@ -1002,6 +1006,8 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "python3 scripts/audit_success_variation_assumptions.py artifacts/manifests/success_trace_variations_2026-06-25.json --phase pre-batch --run-packet artifacts/analysis/success_variation_run_packet_2026-06-25.json --no-output",
             "python3 scripts/plan_success_variation_recovery_batch.py artifacts/manifests/success_trace_variations_2026-06-25.json",
             "python3 scripts/prepare_brev_credit_review.py --no-output",
+            "python3 scripts/write_brev_credit_evidence.py --balance-eur <current-brev-ui-balance> --budget-eur 6.00 --dry-run",
+            "python3 scripts/prepare_success_variation_paid_batch.py --balance-eur <current-brev-ui-balance> --force-credit --i-understand-this-arms-paid-run --dry-run",
             "python3 scripts/prepare_success_variation_paid_batch.py --balance-eur <current-brev-ui-balance> --force-credit --i-understand-this-arms-paid-run",
             "python3 scripts/check_v0_language_instruction_suite.py --no-output",
             "python3 scripts/check_v0_skill_readiness.py --skip-phase2-contact-gate",
