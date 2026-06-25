@@ -72,7 +72,10 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    to write credit evidence, arm the local env, refresh the run packet through
    the read-only `--check-only` gate, and rerun the aggregate paid lifecycle
    preflight in one fail-closed sequence. That helper still does not create a
-   paid instance. It disarms automatically if either local readiness gate fails.
+   paid instance. Its `--dry-run` mode emits machine-readable facts showing the
+   exact write-credit, arm, check-only, and aggregate-preflight steps while
+   confirming it will not write evidence, arm the env, or create a paid instance.
+   It disarms automatically if either local readiness gate fails.
    The underlying arming step writes the one-run paid acknowledgements
    only after credit evidence and Brev safety checks pass. The armed env records
    `RCA_PAID_ARMED_AT_UTC` and
@@ -160,7 +163,7 @@ negative_control: socket_x_pos_25mm_negative_control expected fail_closed
 paid_compute_allowed: false
 credit_evidence: configs/brev_credit_verification.local.json is ignored and must pass scripts/check_brev_credit_evidence.py; use scripts/write_brev_credit_evidence.py and scripts/arm_success_variation_paid_env.py after checking the Brev UI balance before RCA_BREV_CREDITS_VERIFIED=1
 paid_success_variation_preflight: scripts/check_success_variation_paid_lifecycle_preflight.py summarizes clean source state, current contact-smoke bundle, credit evidence, Brev safety, local-env armability, batch-plan readiness, and the pre-batch assumption audit without arming or creating a paid instance
-brev_credit_review_packet: scripts/prepare_brev_credit_review.py exposes the Brev org dashboard URL, current credit-evidence blocker, exact write-credit command, fail-closed prepare_success_variation_paid_batch.py command, rerun-preflight command, and paid lifecycle command without opening paid compute by default
+brev_credit_review_packet: scripts/prepare_brev_credit_review.py exposes the Brev org dashboard URL, current credit-evidence blocker, exact write-credit command, fail-closed prepare_success_variation_paid_batch.py command, rerun-preflight command, and paid lifecycle command without opening paid compute by default; prepare_success_variation_paid_batch.py --dry-run now emits parseable facts with no write/arm/create side effects
 pre_batch_assumption_audit: scripts/audit_success_variation_assumptions.py --phase pre-batch --no-output is surfaced in scripts/project_status_report.py; blocked until one-run paid acknowledgements exist, while planned traces may still be missing
 post_batch_assumption_audit: blocked until planned traces and negative control results exist
 paid_success_variation_lifecycle: scripts/run_success_variation_paid_lifecycle.py is the one-shot paid entrypoint after current UI balance evidence; it prepares/arms local evidence, reruns the aggregate paid lifecycle preflight with fail-on-blocked before the guarded paid runner, then disarms/safety-checks before finalizing/running the offline policy-readiness pipeline or writing a recovery plan; preflight failure, preflight interrupt, run/finalize failures, and KeyboardInterrupt are covered by local cleanup-path tests

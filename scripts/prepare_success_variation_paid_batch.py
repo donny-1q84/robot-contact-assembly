@@ -14,6 +14,7 @@ the local env.
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -83,6 +84,58 @@ def _disarm(config: Path) -> None:
             "--disarm",
         ]
     )
+
+
+def _dry_run_report(
+    *,
+    balance_eur: float,
+    budget_eur: float,
+    config: Path,
+    credit_output: Path,
+    run_packet: Path,
+    credit_cmd: list[str],
+    arm_cmd: list[str],
+    check_cmd: list[str],
+    preflight_cmd: list[str],
+) -> dict:
+    return {
+        "status": "DRY_RUN",
+        "balance_eur": round(balance_eur, 2),
+        "budget_eur": round(budget_eur, 2),
+        "config": _rel(config),
+        "credit_evidence": _rel(credit_output),
+        "run_packet": _rel(run_packet),
+        "side_effects": {
+            "writes_credit_evidence": False,
+            "arms_local_env": False,
+            "runs_check_only": False,
+            "runs_aggregate_preflight": False,
+            "creates_paid_instance": False,
+            "runs_remote_code": False,
+        },
+        "steps": [
+            {"step": "write_credit_evidence", "command": credit_cmd},
+            {"step": "arm_local_env", "command": arm_cmd},
+            {"step": "check_only", "command": check_cmd},
+            {"step": "aggregate_preflight", "command": preflight_cmd},
+        ],
+        "next_command_after_review": [
+            "python3",
+            "scripts/prepare_success_variation_paid_batch.py",
+            "--balance-eur",
+            f"{balance_eur:.2f}",
+            "--budget-eur",
+            f"{budget_eur:.2f}",
+            "--force-credit",
+            "--i-understand-this-arms-paid-run",
+        ],
+        "not_claims": [
+            "not fresh Brev UI credit evidence",
+            "not an armed local env",
+            "not a paid run",
+            "not success-variation result evidence",
+        ],
+    }
 
 
 def main() -> int:
@@ -167,12 +220,24 @@ def main() -> int:
     ]
 
     if args.dry_run:
+        report = _dry_run_report(
+            balance_eur=args.balance_eur,
+            budget_eur=args.budget_eur,
+            config=config,
+            credit_output=credit_output,
+            run_packet=run_packet,
+            credit_cmd=credit_cmd,
+            arm_cmd=arm_cmd,
+            check_cmd=check_cmd,
+            preflight_cmd=preflight_cmd,
+        )
         print("[success-variation-paid-prepare] DRY_RUN")
         print("- credit_evidence: " + " ".join(credit_cmd))
         print("- arm_local_env: " + " ".join(arm_cmd))
         print("- check_only: " + " ".join(check_cmd))
         print("- aggregate_preflight: " + " ".join(preflight_cmd))
         print("[success-variation-paid-prepare] would not create a paid instance")
+        print("[success-variation-paid-prepare] facts=" + json.dumps(report, indent=2, sort_keys=True))
         return 0
 
     print(

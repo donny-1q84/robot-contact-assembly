@@ -426,7 +426,10 @@ python3 scripts/prepare_success_variation_paid_batch.py \
 
 That helper writes the git-ignored credit evidence, arms the git-ignored local
 env, and runs `--check-only`. It still does not create a paid instance, and it
-disarms the local env automatically if `--check-only` is not READY.
+disarms the local env automatically if `--check-only` is not READY. To review the
+same sequence without writing credit evidence, arming the env, or running local
+checks, add `--dry-run`; it emits a parseable facts block with the exact
+write-credit, arm, check-only, and aggregate-preflight commands.
 
 For the actual one-shot paid lifecycle, prefer the higher-level wrapper after
 the prepare check-only path is READY:

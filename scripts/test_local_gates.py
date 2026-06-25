@@ -3499,6 +3499,26 @@ def run_success_variation_manifest_tests() -> None:
             "check_success_variation_paid_lifecycle_preflight.py",
             "paid prepare aggregate preflight command",
         )
+        paid_prepare_marker = "[success-variation-paid-prepare] facts="
+        assert_contains(result, paid_prepare_marker, "paid prepare dry-run facts marker")
+        paid_prepare_facts, _ = json.JSONDecoder().raw_decode(
+            result.stdout.split(paid_prepare_marker, 1)[1].lstrip()
+        )
+        if paid_prepare_facts["status"] != "DRY_RUN":
+            raise AssertionError(f"paid prepare dry-run facts should report DRY_RUN: {paid_prepare_facts}")
+        if paid_prepare_facts["side_effects"]["creates_paid_instance"] is not False:
+            raise AssertionError(f"paid prepare dry-run must not create paid instances: {paid_prepare_facts}")
+        if paid_prepare_facts["side_effects"]["writes_credit_evidence"] is not False:
+            raise AssertionError(f"paid prepare dry-run must not write credit evidence: {paid_prepare_facts}")
+        if paid_prepare_facts["side_effects"]["arms_local_env"] is not False:
+            raise AssertionError(f"paid prepare dry-run must not arm local env: {paid_prepare_facts}")
+        if [step["step"] for step in paid_prepare_facts["steps"]] != [
+            "write_credit_evidence",
+            "arm_local_env",
+            "check_only",
+            "aggregate_preflight",
+        ]:
+            raise AssertionError(f"paid prepare dry-run step order changed: {paid_prepare_facts}")
         result = run(
             [
                 "python3",
