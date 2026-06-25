@@ -1335,6 +1335,7 @@ def run_v0_skill_api_contract_tests() -> None:
     request_path = REPO_ROOT / "configs" / "v0_skill_request.example.json"
     request_checker_path = REPO_ROOT / "scripts" / "validate_v0_skill_request.py"
     planner_path = REPO_ROOT / "scripts" / "plan_v0_skill_request.py"
+    readiness_checker_path = REPO_ROOT / "scripts" / "check_v0_skill_readiness.py"
 
     result = run(["python3", str(checker_path), str(contract_path)])
     assert_status(result, 0, "V0 skill API contract validator accepts committed contract")
@@ -1346,6 +1347,7 @@ def run_v0_skill_api_contract_tests() -> None:
     checker = checker_path.read_text(encoding="utf-8")
     request_checker = request_checker_path.read_text(encoding="utf-8")
     planner = planner_path.read_text(encoding="utf-8")
+    readiness_checker = readiness_checker_path.read_text(encoding="utf-8")
     for expected_snippet in (
         "raw_joint_targets",
         "not direct drop-in precision on another robot arm",
@@ -1380,6 +1382,18 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"V0 skill request planner missing snippet: {expected_snippet}")
     if "brev create" in planner or '"${BREV_BIN}" create' in planner:
         raise AssertionError("V0 skill request planner must be offline and must not create Brev instances")
+    for expected_snippet in (
+        "v0_skill_request_readiness",
+        "run_fixed_budget_success_variation_batch_after_paid_ack",
+        "run_success_variation_finalizer_to_prepare_dataset",
+        "It does not call Brev, Isaac, ROS, or any robot",
+        "success variation:",
+        "dataset:",
+    ):
+        if expected_snippet not in readiness_checker:
+            raise AssertionError(f"V0 skill readiness checker missing snippet: {expected_snippet}")
+    if "brev create" in readiness_checker or '"${BREV_BIN}" create' in readiness_checker:
+        raise AssertionError("V0 skill readiness checker must be offline and must not create Brev instances")
 
     contract = json.loads(contract_path.read_text(encoding="utf-8"))
     if "raw_joint_targets" not in contract["language_layer"]["forbidden_outputs"]:
@@ -1445,6 +1459,49 @@ def run_v0_skill_api_contract_tests() -> None:
         assert_contains(result, "must request the high-level insert skill", "V0 planner low-level rejection detail")
         if blocked_request_path.exists():
             raise AssertionError("V0 planner must not write a request artifact after a rejected instruction")
+
+        substring_request_path = tmp_dir / "substring_v0_skill_request.json"
+        result = run(
+            [
+                "python3",
+                str(planner_path),
+                "insert the peg into the bright socket",
+                "--output-json",
+                str(substring_request_path),
+            ]
+        )
+        assert_status(result, 1, "V0 skill request planner rejects substring socket aliases")
+        assert_contains(
+            result,
+            "must specify a supported socket target",
+            "V0 planner substring socket rejection detail",
+        )
+        if substring_request_path.exists():
+            raise AssertionError("V0 planner must not write a request artifact for substring socket aliases")
+
+        current_readiness_json = tmp_dir / "current_v0_skill_readiness.json"
+        result = run(
+            [
+                "python3",
+                str(readiness_checker_path),
+                str(request_path),
+                "--skip-phase2-contact-gate",
+                "--output-json",
+                str(current_readiness_json),
+            ]
+        )
+        assert_status(result, 0, "V0 skill readiness checker reports current blocked state without failing by default")
+        assert_contains(result, "[v0-skill-readiness] BLOCKED", "current V0 readiness blocked detail")
+        assert_contains(
+            result,
+            "next_action=run_fixed_budget_success_variation_batch_after_paid_ack",
+            "current V0 readiness next action detail",
+        )
+        current_readiness = json.loads(current_readiness_json.read_text(encoding="utf-8"))
+        if current_readiness["status"] != "BLOCKED":
+            raise AssertionError(f"current V0 readiness should be blocked before variation batch: {current_readiness}")
+        if current_readiness["next_action"] != "run_fixed_budget_success_variation_batch_after_paid_ack":
+            raise AssertionError(f"current V0 readiness should point to variation batch: {current_readiness}")
 
 
 def run_success_variation_manifest_tests() -> None:
@@ -1688,6 +1745,27 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"dataset prep must carry explicit non-claims: {dataset['not_claims']}")
         if "V0 Scripted Skill Success Variations Dataset" not in dataset_md.read_text(encoding="utf-8"):
             raise AssertionError("dataset prep README should include a clear title")
+        ready_skill_json = tmp_dir / "ready_v0_skill_readiness.json"
+        result = run(
+            [
+                "python3",
+                "scripts/check_v0_skill_readiness.py",
+                "configs/v0_skill_request.example.json",
+                "--manifest",
+                str(pass_manifest_path),
+                "--dataset",
+                str(dataset_json),
+                "--skip-phase2-contact-gate",
+                "--output-json",
+                str(ready_skill_json),
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 0, "V0 skill readiness checker accepts promotable manifest plus dataset")
+        assert_contains(result, "[v0-skill-readiness] READY", "ready V0 skill readiness detail")
+        ready_skill = json.loads(ready_skill_json.read_text(encoding="utf-8"))
+        if ready_skill["next_action"] != "ready_for_policy_api_review":
+            raise AssertionError(f"ready V0 skill should point to policy/API review: {ready_skill}")
         result = run(
             [
                 "python3",

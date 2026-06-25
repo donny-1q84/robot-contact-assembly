@@ -74,11 +74,13 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    `scripts/check_v0_skill_api_contract.py`, with request-level examples checked
    by `configs/v0_skill_request.example.json` and
    `scripts/validate_v0_skill_request.py`; `scripts/plan_v0_skill_request.py`
-   provides the narrow deterministic language-to-skill shim. This contract
-   keeps language at task-parameter and skill-selection level, forbids raw
-   joint/force commands from language requests, and requires robot-specific
-   model, calibration, safety, ROS 2 interface, and revalidation gates before
-   any external-arm portability claim.
+   provides the narrow deterministic language-to-skill shim, and
+   `scripts/check_v0_skill_readiness.py` connects a validated request to the
+   current Phase 2, variation-result, and dataset evidence. This contract keeps
+   language at task-parameter and skill-selection level, forbids raw joint/force
+   commands from language requests, and requires robot-specific model,
+   calibration, safety, ROS 2 interface, and revalidation gates before any
+   external-arm portability claim.
 
 The first local variation contract is:
 
@@ -96,6 +98,7 @@ post_batch_assumption_audit: blocked until planned traces and negative control r
 skill_api_contract: configs/v0_skill_api_contract.json passes local contract check
 skill_request_contract: configs/v0_skill_request.example.json passes local request check
 skill_request_planner: scripts/plan_v0_skill_request.py maps supported insert instructions only
+skill_readiness: scripts/check_v0_skill_readiness.py is blocked until variation traces and dataset exist
 dataset_preparation: blocked until the result gate passes
 ```
 

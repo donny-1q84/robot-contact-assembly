@@ -53,11 +53,6 @@ def _socket_from_instruction(normalized: str) -> str | None:
     for token in tokens:
         if token in SOCKET_ALIASES:
             return SOCKET_ALIASES[token]
-
-    joined = "_".join(tokens)
-    for alias, socket_id in SOCKET_ALIASES.items():
-        if alias in joined:
-            return socket_id
     return None
 
 

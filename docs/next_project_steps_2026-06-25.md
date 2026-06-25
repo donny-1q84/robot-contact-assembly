@@ -171,6 +171,7 @@ scripts/check_v0_skill_api_contract.py
 configs/v0_skill_request.example.json
 scripts/plan_v0_skill_request.py
 scripts/validate_v0_skill_request.py
+scripts/check_v0_skill_readiness.py
 ```
 
 It keeps language/VLM behavior at the task-parameter and skill-selection layer,
@@ -184,6 +185,11 @@ joint targets, direct force commands, or VLM-to-raw-control modes fail closed.
 The planner is deliberately narrow and deterministic: supported insert
 instructions become a normalized request; ambiguous or low-level instructions
 do not write a request artifact.
+The readiness gate connects that request to the current project evidence:
+request and contract validation, Phase 2 contact proof, success-variation result
+gate, and the V0 scripted-skill dataset. In the current baseline-only state it
+must remain blocked and point to the fixed-budget variation batch as the next
+physical step.
 
 ## Do Not Do Next
 
@@ -203,6 +209,7 @@ No paid compute:
 python3 scripts/check_v0_skill_api_contract.py
 python3 scripts/plan_v0_skill_request.py "insert the peg into the left socket"
 python3 scripts/validate_v0_skill_request.py
+python3 scripts/check_v0_skill_readiness.py --skip-phase2-contact-gate
 python3 scripts/check_peg_in_hole_video_candidate.py artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json
 python3 scripts/check_final_contact_boundary_diagnostic.py artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json
 python3 scripts/audit_trace_frame_alignment.py artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json
@@ -229,6 +236,7 @@ scripts/audit_success_variation_assumptions.py
 scripts/check_v0_skill_api_contract.py
 scripts/plan_v0_skill_request.py
 scripts/validate_v0_skill_request.py
+scripts/check_v0_skill_readiness.py
 configs/v0_skill_api_contract.json
 configs/v0_skill_request.example.json
 configs/success_variation_batch_run.env.example
