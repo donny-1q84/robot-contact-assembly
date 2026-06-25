@@ -4161,6 +4161,27 @@ def run_success_variation_manifest_tests() -> None:
         )
         assert_status(result, 1, "post-batch assumption audit fail-on-blocked rejects incomplete batch")
 
+        no_output_json = tmp_dir / "assumption_audit_no_output.json"
+        no_output_md = tmp_dir / "assumption_audit_no_output.md"
+        result = run(
+            [
+                "python3",
+                "scripts/audit_success_variation_assumptions.py",
+                str(manifest_path),
+                "--run-packet",
+                str(run_packet_json),
+                "--output-json",
+                str(no_output_json),
+                "--output-md",
+                str(no_output_md),
+                "--no-output",
+            ]
+        )
+        assert_status(result, 0, "assumption audit no-output remains a read-only report")
+        assert_contains(result, "[success-variation-assumption-audit] facts=", "assumption audit no-output facts")
+        if no_output_json.exists() or no_output_md.exists():
+            raise AssertionError("assumption audit --no-output must not write JSON/Markdown artifacts")
+
         pre_batch_blocked_json = tmp_dir / "pre_batch_assumption_audit_blocked.json"
         pre_batch_blocked_md = tmp_dir / "pre_batch_assumption_audit_blocked.md"
         result = run(
@@ -5629,6 +5650,12 @@ def main() -> int:
             "Success variation paid lifecycle preflight | BLOCKED",
             "status report paid lifecycle preflight detail",
         )
+        assert_contains(
+            result,
+            "Success variation pre-batch assumption audit | BLOCKED",
+            "status report pre-batch assumption audit detail",
+        )
+        assert_contains(result, "audit_status=BLOCKED; phase=pre-batch", "status report audit status detail")
         assert_contains(result, "Brev UI credit review | BLOCKED", "status report Brev credit review detail")
         assert_contains(
             result,
@@ -5665,6 +5692,11 @@ def main() -> int:
             result,
             "python3 scripts/prepare_brev_credit_review.py --no-output",
             "status report Brev credit review command detail",
+        )
+        assert_contains(
+            result,
+            "python3 scripts/audit_success_variation_assumptions.py artifacts/manifests/success_trace_variations_2026-06-25.json --phase pre-batch --run-packet artifacts/analysis/success_variation_run_packet_2026-06-25.json --no-output",
+            "status report pre-batch assumption audit command detail",
         )
         assert_contains(
             result,

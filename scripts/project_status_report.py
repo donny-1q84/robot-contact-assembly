@@ -216,6 +216,48 @@ def success_variation_paid_lifecycle_preflight_status() -> Check:
     return Check("Success variation paid lifecycle preflight", status, detail)
 
 
+def success_variation_pre_batch_assumption_audit_status() -> Check:
+    result = run_script(
+        "python3",
+        "scripts/audit_success_variation_assumptions.py",
+        str(SUCCESS_VARIATION_MANIFEST),
+        "--phase",
+        "pre-batch",
+        "--run-packet",
+        "artifacts/analysis/success_variation_run_packet_2026-06-25.json",
+        "--no-output",
+    )
+    marker = "[success-variation-assumption-audit] facts="
+    if marker not in result.stdout:
+        return Check(
+            "Success variation pre-batch assumption audit",
+            "FAIL",
+            "Could not parse scripts/audit_success_variation_assumptions.py output.",
+        )
+    try:
+        facts = _json_prefix(result.stdout.split(marker, 1)[1])
+    except (json.JSONDecodeError, ValueError) as exc:
+        return Check(
+            "Success variation pre-batch assumption audit",
+            "FAIL",
+            f"Assumption audit JSON parse failed: {exc}",
+        )
+
+    audit_status = str(facts.get("audit_status") or "BLOCKED")
+    blockers = facts.get("blockers") if isinstance(facts.get("blockers"), list) else []
+    warnings = facts.get("warnings") if isinstance(facts.get("warnings"), list) else []
+    source_trace = facts.get("source_trace") if isinstance(facts.get("source_trace"), dict) else {}
+    classification = facts.get("classification_summary") if isinstance(facts.get("classification_summary"), dict) else {}
+    detail = (
+        f"audit_status={audit_status}; phase={facts.get('phase')}; "
+        f"source_trace_status={source_trace.get('status')}; "
+        f"missing={classification.get('missing_count')}; blockers={len(blockers)}; "
+        f"warnings={len(warnings)}; run_packet={facts.get('run_packet')}."
+    )
+    status = "READY" if audit_status == "PASS" else "BLOCKED"
+    return Check("Success variation pre-batch assumption audit", status, detail)
+
+
 def brev_credit_review_status() -> Check:
     result = run_script("python3", "scripts/prepare_brev_credit_review.py", "--no-output")
     marker = "[brev-credit-review] facts="
@@ -663,6 +705,7 @@ def checks() -> list[Check]:
         contact_gate_status(),
         post_smoke_trace_status(),
         success_variation_status(),
+        success_variation_pre_batch_assumption_audit_status(),
         success_variation_paid_lifecycle_preflight_status(),
         brev_credit_review_status(),
         v0_skill_readiness_status(),
@@ -887,6 +930,7 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "python3 scripts/check_phase2_contact_gate.py",
             "python3 scripts/check_success_variation_batch_plan.py artifacts/manifests/success_trace_variations_2026-06-25.json",
             "python3 scripts/check_success_variation_batch_results.py artifacts/manifests/success_trace_variations_2026-06-25.json",
+            "python3 scripts/audit_success_variation_assumptions.py artifacts/manifests/success_trace_variations_2026-06-25.json --phase pre-batch --run-packet artifacts/analysis/success_variation_run_packet_2026-06-25.json --no-output",
             "python3 scripts/plan_success_variation_recovery_batch.py artifacts/manifests/success_trace_variations_2026-06-25.json",
             "python3 scripts/prepare_brev_credit_review.py --no-output",
             "python3 scripts/check_v0_language_instruction_suite.py --no-output",

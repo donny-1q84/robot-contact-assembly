@@ -331,6 +331,7 @@ def main() -> int:
     parser.add_argument("--negative-control-id", default=DEFAULT_NEGATIVE_CONTROL)
     parser.add_argument("--output-json", type=Path, default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--output-md", type=Path, default=DEFAULT_OUTPUT_MD)
+    parser.add_argument("--no-output", action="store_true", help="Do not write JSON/Markdown artifacts.")
     parser.add_argument("--fail-on-blocked", action="store_true")
     args = parser.parse_args()
 
@@ -348,14 +349,16 @@ def main() -> int:
         phase=args.phase,
     )
 
-    args.output_json.parent.mkdir(parents=True, exist_ok=True)
-    args.output_json.write_text(json.dumps(audit, indent=2, sort_keys=True), encoding="utf-8")
-    args.output_md.parent.mkdir(parents=True, exist_ok=True)
-    args.output_md.write_text(_render_markdown(audit), encoding="utf-8")
+    if not args.no_output:
+        args.output_json.parent.mkdir(parents=True, exist_ok=True)
+        args.output_json.write_text(json.dumps(audit, indent=2, sort_keys=True), encoding="utf-8")
+        args.output_md.parent.mkdir(parents=True, exist_ok=True)
+        args.output_md.write_text(_render_markdown(audit), encoding="utf-8")
 
-    print(f"[success-variation-assumption-audit] wrote JSON: {_rel(args.output_json)}")
-    print(f"[success-variation-assumption-audit] wrote Markdown: {_rel(args.output_md)}")
+        print(f"[success-variation-assumption-audit] wrote JSON: {_rel(args.output_json)}")
+        print(f"[success-variation-assumption-audit] wrote Markdown: {_rel(args.output_md)}")
     print(f"[success-variation-assumption-audit] status={audit['audit_status']}")
+    print(f"[success-variation-assumption-audit] facts={json.dumps(audit, sort_keys=True)}")
     if args.fail_on_blocked and audit["audit_status"] != "PASS":
         return 1
     return 0
