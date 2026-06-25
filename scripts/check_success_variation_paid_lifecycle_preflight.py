@@ -3,9 +3,10 @@
 
 This aggregates the local evidence needed before the one-shot paid lifecycle:
 clean source state, current contact-smoke bundle, credit evidence, Brev
-empty-org safety, local env armability, and the success-variation batch plan.
-It does not write the local env, create a Brev instance, run the batch, copy
-artifacts, start Isaac, or execute remote code.
+empty-org safety, local env armability, the success-variation batch plan, and
+the pre-batch assumption-and-metric audit. It does not write the local env,
+create a Brev instance, run the batch, copy artifacts, start Isaac, or execute
+remote code.
 """
 
 from __future__ import annotations
@@ -25,12 +26,14 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import arm_success_variation_paid_env as arm_gate  # noqa: E402
+import audit_success_variation_assumptions as assumption_audit  # noqa: E402
 import check_brev_credit_evidence as credit_gate  # noqa: E402
 import project_status_report as project_status  # noqa: E402
 
 
 DEFAULT_CONFIG = REPO_ROOT / "configs" / "success_variation_batch_run.local.env"
 DEFAULT_MANIFEST = REPO_ROOT / "artifacts" / "manifests" / "success_trace_variations_2026-06-25.json"
+DEFAULT_RUN_PACKET = REPO_ROOT / "artifacts" / "analysis" / "success_variation_run_packet_2026-06-25.json"
 DEFAULT_OUTPUT_JSON = REPO_ROOT / "artifacts" / "analysis" / "success_variation_paid_lifecycle_preflight.json"
 DEFAULT_OUTPUT_MD = REPO_ROOT / "artifacts" / "analysis" / "success_variation_paid_lifecycle_preflight.md"
 
@@ -154,12 +157,14 @@ def build_report(
     *,
     config_path: Path,
     manifest_path: Path,
+    run_packet_path: Path,
     command_timeout_seconds: int,
     brev_safety_output: Path | None = None,
     source_status_output: Path | None = None,
 ) -> dict[str, Any]:
     config_path = _resolve(config_path)
     manifest_path = _resolve(manifest_path)
+    run_packet_path = _resolve(run_packet_path)
     blockers: list[str] = []
     failures: list[str] = []
     values: dict[str, str] = {}
@@ -210,6 +215,29 @@ def build_report(
         if plan_report["exit_code"] != 0:
             blockers.append("success-variation batch plan gate must pass before the paid lifecycle")
 
+    pre_batch_audit: dict[str, Any] | None = None
+    if manifest_path.is_file():
+        try:
+            manifest = assumption_audit._load_json(manifest_path)
+            run_packet = (
+                assumption_audit._load_json(run_packet_path)
+                if run_packet_path.is_file()
+                else None
+            )
+            pre_batch_audit = assumption_audit._build_audit(
+                manifest_path=manifest_path,
+                manifest=manifest,
+                run_packet_path=run_packet_path if run_packet is not None else None,
+                run_packet=run_packet,
+                min_strict_successes=5,
+                negative_control_id=assumption_audit.DEFAULT_NEGATIVE_CONTROL,
+                phase="pre-batch",
+            )
+            if pre_batch_audit.get("audit_status") != "PASS":
+                blockers.append("success-variation pre-batch assumption audit must pass before the paid lifecycle")
+        except Exception as exc:  # noqa: BLE001 - preflight must fail closed on audit errors.
+            failures.append(f"pre-batch assumption audit could not run: {exc}")
+
     status = "FAIL" if failures else ("BLOCKED" if blockers else "READY_FOR_SINGLE_PAID_LIFECYCLE")
     next_action = "run_success_variation_paid_lifecycle_after_current_ui_balance_review"
     if status == "BLOCKED":
@@ -231,6 +259,7 @@ def build_report(
         "status": status,
         "config": _rel(config_path),
         "manifest": _rel(manifest_path),
+        "run_packet": _rel(run_packet_path),
         "credit_evidence_path": _rel(credit_path),
         "source_state": source_state,
         "budget_eur": budget,
@@ -238,6 +267,7 @@ def build_report(
         "credit_evidence": credit_report,
         "armability": arm_report,
         "batch_plan_gate": plan_report,
+        "pre_batch_assumption_audit": pre_batch_audit,
         "blockers": list(dict.fromkeys(blockers)),
         "failures": list(dict.fromkeys(failures)),
         "next_action": next_action,
@@ -254,6 +284,7 @@ def build_report(
             "not armed local env",
             "not clean/current source unless source_state checks are CLEAN/READY",
             "not fresh credit evidence unless credit_evidence.status is PASS",
+            "not assumption-audited unless pre_batch_assumption_audit.audit_status is PASS",
             "not success-variation result evidence",
         ],
     }
@@ -266,11 +297,14 @@ def _render_markdown(report: dict[str, Any]) -> str:
         f"- status: {report['status']}",
         f"- config: {report['config']}",
         f"- manifest: {report['manifest']}",
+        f"- run_packet: {report['run_packet']}",
         f"- credit_evidence_path: {report['credit_evidence_path']}",
         f"- git_worktree: {report['source_state']['git_worktree']['status']}",
         f"- contact_smoke_bundle: {report['source_state']['contact_smoke_bundle']['status']}",
         f"- budget_eur: {report['budget_eur']}",
         f"- next_action: {report['next_action']}",
+        f"- pre_batch_assumption_audit: "
+        f"{(report.get('pre_batch_assumption_audit') or {}).get('audit_status')}",
         "",
         "## Lifecycle Command Template",
         "",
@@ -300,6 +334,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    parser.add_argument("--run-packet", type=Path, default=DEFAULT_RUN_PACKET)
     parser.add_argument("--command-timeout-seconds", type=int, default=120)
     parser.add_argument(
         "--brev-safety-output",
@@ -325,6 +360,7 @@ def main() -> int:
     report = build_report(
         config_path=args.config,
         manifest_path=args.manifest,
+        run_packet_path=args.run_packet,
         command_timeout_seconds=args.command_timeout_seconds,
         brev_safety_output=args.brev_safety_output,
         source_status_output=args.source_status_output,

@@ -3567,6 +3567,11 @@ def run_success_variation_manifest_tests() -> None:
         assert_status(result, 0, "success variation paid lifecycle preflight reports blocked current state")
         assert_contains(result, "[success-variation-paid-preflight] status=BLOCKED", "paid lifecycle preflight blocked marker")
         assert_contains(result, "Brev credit evidence file is missing", "paid lifecycle preflight credit blocker detail")
+        assert_contains(
+            result,
+            "success-variation pre-batch assumption audit must pass before the paid lifecycle",
+            "paid lifecycle preflight assumption-audit blocker detail",
+        )
         assert_contains(result, "no paid instance was created", "paid lifecycle preflight safety detail")
         result = run(["python3", str(paid_preflight_path), "--no-output", "--fail-on-blocked"])
         assert_status(result, 1, "success variation paid lifecycle preflight can fail closed")
@@ -3622,6 +3627,20 @@ def run_success_variation_manifest_tests() -> None:
             + "\n",
             encoding="utf-8",
         )
+        ready_run_packet_path = tmp_dir / "paid_lifecycle_preflight_ready" / "run_packet_ready.json"
+        ready_run_packet_path.write_text(
+            json.dumps(
+                {
+                    "readiness": {
+                        "status": "READY",
+                        "blockers": [],
+                        "facts": {"brev_safety_status": "SAFE_NO_VISIBLE_PAID_INSTANCE"},
+                    },
+                    "estimated_cost": {"budget_eur": 6.0, "estimated_max_cost_eur": 5.625},
+                }
+            ),
+            encoding="utf-8",
+        )
         ready_preflight_json = tmp_dir / "paid_lifecycle_preflight_ready" / "preflight.json"
         ready_preflight_md = tmp_dir / "paid_lifecycle_preflight_ready" / "README.md"
         result = run(
@@ -3634,6 +3653,8 @@ def run_success_variation_manifest_tests() -> None:
                 str(fake_safe_brev),
                 "--source-status-output",
                 str(fake_clean_source),
+                "--run-packet",
+                str(ready_run_packet_path),
                 "--output-json",
                 str(ready_preflight_json),
                 "--output-md",
@@ -3658,6 +3679,8 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"paid lifecycle preflight should record clean source state: {ready_preflight}")
         if ready_preflight["source_state"]["contact_smoke_bundle"]["status"] != "READY":
             raise AssertionError(f"paid lifecycle preflight should record READY contact bundle: {ready_preflight}")
+        if ready_preflight["pre_batch_assumption_audit"]["audit_status"] != "PASS":
+            raise AssertionError(f"paid lifecycle preflight should enforce a passing pre-batch audit: {ready_preflight}")
         if any(ready_preflight["side_effects"].values()):
             raise AssertionError(f"paid lifecycle preflight must remain side-effect free: {ready_preflight}")
         if "Success Variation Paid Lifecycle Preflight" not in ready_preflight_md.read_text(encoding="utf-8"):
@@ -3672,6 +3695,8 @@ def run_success_variation_manifest_tests() -> None:
                 str(fake_safe_brev),
                 "--source-status-output",
                 str(fake_dirty_source),
+                "--run-packet",
+                str(ready_run_packet_path),
                 "--no-output",
                 "--fail-on-blocked",
             ]
@@ -3690,6 +3715,8 @@ def run_success_variation_manifest_tests() -> None:
                 str(fake_safe_brev),
                 "--source-status-output",
                 str(fake_clean_source),
+                "--run-packet",
+                str(ready_run_packet_path),
                 "--output-json",
                 str(ready_credit_review_json),
                 "--output-md",
@@ -3704,6 +3731,8 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"Brev credit review should be ready with valid evidence: {ready_credit_review}")
         if ready_credit_review["side_effects"]["creates_paid_instance"] is not False:
             raise AssertionError(f"Brev credit review must not create paid instances: {ready_credit_review}")
+        if ready_credit_review["paid_lifecycle_preflight"]["pre_batch_assumption_audit"]["audit_status"] != "PASS":
+            raise AssertionError(f"Brev credit review should preserve passing pre-batch audit: {ready_credit_review}")
         if "Brev Credit Review Packet" not in ready_credit_review_md.read_text(encoding="utf-8"):
             raise AssertionError("Brev credit review README should include a clear title")
 
@@ -3716,6 +3745,9 @@ def run_success_variation_manifest_tests() -> None:
             "Git worktree must be CLEAN",
             "current contact-smoke bundle must be READY",
             "check_success_variation_batch_plan.py",
+            "audit_success_variation_assumptions",
+            "pre_batch_assumption_audit",
+            "success-variation pre-batch assumption audit must pass before the paid lifecycle",
             "arm_success_variation_paid_env",
             "READY_FOR_SINGLE_PAID_LIFECYCLE",
             "not a paid run",

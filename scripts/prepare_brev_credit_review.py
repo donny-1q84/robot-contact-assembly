@@ -34,6 +34,7 @@ import check_success_variation_paid_lifecycle_preflight as paid_preflight  # noq
 
 DEFAULT_CONFIG = REPO_ROOT / "configs" / "success_variation_batch_run.local.env"
 DEFAULT_MANIFEST = REPO_ROOT / "artifacts" / "manifests" / "success_trace_variations_2026-06-25.json"
+DEFAULT_RUN_PACKET = REPO_ROOT / "artifacts" / "analysis" / "success_variation_run_packet_2026-06-25.json"
 DEFAULT_OUTPUT_JSON = REPO_ROOT / "artifacts" / "analysis" / "brev_credit_review_packet.json"
 DEFAULT_OUTPUT_MD = REPO_ROOT / "artifacts" / "analysis" / "brev_credit_review_packet.md"
 BREV_ORG_DASHBOARD_URL = f"https://brev.nvidia.com/org/{credit_gate.EXPECTED_ORG_ID}/environments"
@@ -71,6 +72,7 @@ def build_packet(
     *,
     config_path: Path,
     manifest_path: Path,
+    run_packet_path: Path,
     command_timeout_seconds: int,
     brev_safety_output: Path | None,
     source_status_output: Path | None,
@@ -79,6 +81,7 @@ def build_packet(
     preflight = paid_preflight.build_report(
         config_path=config_path,
         manifest_path=manifest_path,
+        run_packet_path=run_packet_path,
         command_timeout_seconds=command_timeout_seconds,
         brev_safety_output=brev_safety_output,
         source_status_output=source_status_output,
@@ -199,6 +202,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    parser.add_argument("--run-packet", type=Path, default=DEFAULT_RUN_PACKET)
     parser.add_argument("--command-timeout-seconds", type=int, default=120)
     parser.add_argument("--brev-safety-output", type=Path)
     parser.add_argument("--source-status-output", type=Path)
@@ -216,11 +220,13 @@ def main() -> int:
 
     config_path = _resolve(args.config)
     manifest_path = _resolve(args.manifest)
+    run_packet_path = _resolve(args.run_packet)
     safety_output = _resolve(args.brev_safety_output) if args.brev_safety_output is not None else None
     source_status_output = _resolve(args.source_status_output) if args.source_status_output is not None else None
     packet = build_packet(
         config_path=config_path,
         manifest_path=manifest_path,
+        run_packet_path=run_packet_path,
         command_timeout_seconds=args.command_timeout_seconds,
         brev_safety_output=safety_output,
         source_status_output=source_status_output,
