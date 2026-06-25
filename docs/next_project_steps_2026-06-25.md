@@ -174,6 +174,7 @@ scripts/check_v0_skill_api_contract.py
 configs/v0_skill_request.example.json
 scripts/plan_v0_skill_request.py
 scripts/validate_v0_skill_request.py
+scripts/run_v0_language_skill_dry_run.py
 scripts/check_v0_skill_readiness.py
 scripts/prepare_v0_policy_api_review.py
 scripts/run_v0_offline_policy_readiness_pipeline.py
@@ -194,6 +195,13 @@ joint targets, direct force commands, or VLM-to-raw-control modes fail closed.
 The planner is deliberately narrow and deterministic: supported insert
 instructions become a normalized request; ambiguous or low-level instructions
 do not write a request artifact.
+`scripts/run_v0_language_skill_dry_run.py` is the local language-to-skill
+handoff report. It takes a natural-language instruction, runs the deterministic
+request planner, validates the request against the V0 contract, and connects it
+to the gated execution plan. It is not an LLM/VLM call, Brev/Isaac launcher,
+ROS execution, or hardware command. In the current baseline-only state it should
+accept supported insert instructions but remain blocked on the missing
+success-variation traces and V0 dataset.
 The readiness gate connects that request to the current project evidence:
 request and contract validation, Phase 2 contact proof, success-variation result
 gate, and the V0 scripted-skill dataset. In the current baseline-only state it
@@ -247,6 +255,7 @@ python3 scripts/check_v0_skill_api_contract.py
 python3 scripts/plan_v0_skill_request.py "insert the peg into the left socket"
 python3 scripts/validate_v0_skill_request.py
 python3 scripts/check_v0_skill_readiness.py --skip-phase2-contact-gate
+python3 scripts/run_v0_language_skill_dry_run.py "insert the peg into the left socket" --skip-phase2-contact-gate --no-output
 python3 scripts/plan_v0_skill_execution.py --skip-phase2-contact-gate --no-output
 python3 scripts/prepare_v0_policy_api_review.py --skip-phase2-contact-gate
 python3 scripts/audit_v0_policy_dataset.py --no-output

@@ -1341,6 +1341,7 @@ def run_v0_skill_api_contract_tests() -> None:
     planner_path = REPO_ROOT / "scripts" / "plan_v0_skill_request.py"
     readiness_checker_path = REPO_ROOT / "scripts" / "check_v0_skill_readiness.py"
     execution_planner_path = REPO_ROOT / "scripts" / "plan_v0_skill_execution.py"
+    language_dry_run_path = REPO_ROOT / "scripts" / "run_v0_language_skill_dry_run.py"
     policy_api_review_path = REPO_ROOT / "scripts" / "prepare_v0_policy_api_review.py"
     policy_dataset_audit_path = REPO_ROOT / "scripts" / "audit_v0_policy_dataset.py"
     policy_experiment_path = REPO_ROOT / "scripts" / "plan_v0_policy_experiment.py"
@@ -1382,6 +1383,33 @@ def run_v0_skill_api_contract_tests() -> None:
     assert_status(result, 0, "V0 skill execution planner writes blocked plan without failing by default")
     assert_contains(result, "[v0-skill-execution-plan] status=BLOCKED", "V0 execution planner blocked detail")
     assert_contains(result, "ready_for_execution", "V0 execution planner readiness field")
+    result = run(
+        [
+            "python3",
+            str(language_dry_run_path),
+            "insert the peg into the right socket",
+            "--skip-phase2-contact-gate",
+            "--no-output",
+        ]
+    )
+    assert_status(result, 0, "V0 language skill dry-run reports blocked current state without failing by default")
+    assert_contains(result, "[v0-language-skill-dry-run] status=BLOCKED", "V0 language dry-run blocked marker")
+    assert_contains(result, "request_planner_status", "V0 language dry-run request-planner field")
+    assert_contains(result, "allowed_command_boundary", "V0 language dry-run execution-surface field")
+    result = run(
+        [
+            "python3",
+            str(language_dry_run_path),
+            "insert the peg into the right socket",
+            "--skip-phase2-contact-gate",
+            "--no-output",
+            "--fail-on-blocked",
+        ]
+    )
+    assert_status(result, 1, "V0 language skill dry-run can fail closed while V0 readiness is blocked")
+    result = run(["python3", str(language_dry_run_path), "move joint 4 down by 2 degrees", "--no-output"])
+    assert_status(result, 1, "V0 language skill dry-run rejects low-level joint commands")
+    assert_contains(result, "fix_language_instruction", "V0 language dry-run low-level rejection detail")
     result = run(
         [
             "python3",
@@ -1472,6 +1500,7 @@ def run_v0_skill_api_contract_tests() -> None:
     planner = planner_path.read_text(encoding="utf-8")
     readiness_checker = readiness_checker_path.read_text(encoding="utf-8")
     execution_planner = execution_planner_path.read_text(encoding="utf-8")
+    language_dry_run = language_dry_run_path.read_text(encoding="utf-8")
     policy_api_review = policy_api_review_path.read_text(encoding="utf-8")
     policy_dataset_audit = policy_dataset_audit_path.read_text(encoding="utf-8")
     policy_experiment = policy_experiment_path.read_text(encoding="utf-8")
@@ -1550,6 +1579,22 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"V0 skill execution planner missing snippet: {expected_snippet}")
     if "brev create" in execution_planner or '"${BREV_BIN}" create' in execution_planner:
         raise AssertionError("V0 skill execution planner must be offline and must not create Brev instances")
+    for expected_snippet in (
+        "Run the V0 language-to-skill dry-run",
+        "deterministic language request planner",
+        "plan_v0_skill_request",
+        "plan_v0_skill_execution",
+        "not an LLM or VLM call",
+        "not a Brev or Isaac launcher",
+        "not ROS or hardware execution",
+        "raw joint",
+        "Cartesian servo",
+        "force commands",
+    ):
+        if expected_snippet not in language_dry_run:
+            raise AssertionError(f"V0 language skill dry-run missing snippet: {expected_snippet}")
+    if "brev create" in language_dry_run or '"${BREV_BIN}" create' in language_dry_run:
+        raise AssertionError("V0 language skill dry-run must be offline and must not create Brev instances")
     for expected_snippet in (
         "READY_FOR_POLICY_API_REVIEW",
         "manual_review_checklist",
@@ -1954,6 +1999,7 @@ def run_v0_skill_api_contract_tests() -> None:
 
 
 def run_success_variation_manifest_tests() -> None:
+    language_dry_run_path = REPO_ROOT / "scripts" / "run_v0_language_skill_dry_run.py"
     policy_readiness_pipeline_path = REPO_ROOT / "scripts" / "run_v0_offline_policy_readiness_pipeline.py"
     source_trace = (
         REPO_ROOT
@@ -2453,6 +2499,47 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"execution planner should preserve skill boundary: {execution_plan['execution_surface']}")
         if "raw_joint_targets" not in execution_plan["execution_surface"]["forbidden_command_boundary"]:
             raise AssertionError("execution planner must preserve raw joint command ban")
+        language_dry_run_json = tmp_dir / "v0_language_skill_dry_run" / "report.json"
+        language_dry_run_md = tmp_dir / "v0_language_skill_dry_run" / "README.md"
+        language_request_json = tmp_dir / "v0_language_skill_dry_run" / "request.json"
+        result = run(
+            [
+                "python3",
+                str(language_dry_run_path),
+                "insert the peg into the right socket",
+                "--manifest",
+                str(pass_manifest_path),
+                "--dataset",
+                str(dataset_json),
+                "--skip-phase2-contact-gate",
+                "--request-json",
+                str(language_request_json),
+                "--output-json",
+                str(language_dry_run_json),
+                "--output-md",
+                str(language_dry_run_md),
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 0, "V0 language skill dry-run reaches ready execution review on ready fixture")
+        assert_contains(
+            result,
+            "READY_FOR_SKILL_EXECUTION_REVIEW",
+            "V0 language skill dry-run ready detail",
+        )
+        language_report = json.loads(language_dry_run_json.read_text(encoding="utf-8"))
+        if language_report["ready_for_execution"] is not True:
+            raise AssertionError(f"language dry-run should be ready with ready fixture: {language_report}")
+        if language_report["request_preview"]["task_parameters"]["socket_id"] != "right_socket":
+            raise AssertionError(f"language dry-run should normalize right socket: {language_report}")
+        if language_report["execution_surface"]["allowed_command_boundary"] != "task_parameters_to_skill_controller":
+            raise AssertionError(f"language dry-run should preserve skill boundary: {language_report}")
+        if "raw_joint_targets" not in language_report["execution_surface"]["forbidden_command_boundary"]:
+            raise AssertionError("language dry-run must preserve raw-joint command ban")
+        if not language_request_json.is_file():
+            raise AssertionError("language dry-run should write the planned request artifact when ready")
+        if "V0 Language Skill Dry Run" not in language_dry_run_md.read_text(encoding="utf-8"):
+            raise AssertionError("language dry-run README should include a clear title")
         policy_review_json = tmp_dir / "policy_api_review" / "review_packet.json"
         policy_review_md = tmp_dir / "policy_api_review" / "README.md"
         result = run(

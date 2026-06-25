@@ -118,6 +118,12 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    provides the narrow deterministic language-to-skill shim, and
    `scripts/check_v0_skill_readiness.py` connects a validated request to the
    current Phase 2, variation-result, and dataset evidence.
+   `scripts/run_v0_language_skill_dry_run.py` is the one-command local
+   language-to-skill report: it runs the deterministic request planner,
+   validates the request, and connects it to the gated execution plan without
+   calling an LLM/VLM, Brev, Isaac, ROS, or hardware. In the current state it
+   should accept supported insert instructions but stay `BLOCKED` on V0
+   readiness until the success-variation batch and dataset exist.
    `scripts/prepare_v0_policy_api_review.py` writes the post-readiness
    policy/API review packet only after those gates and the dataset are ready.
    The future external-robot adapter shape is checked separately by
@@ -153,6 +159,7 @@ skill_api_promotion_coverage: requires strict-success seed/reset plus socket X/Y
 success_variation_recovery: scripts/plan_success_variation_recovery_batch.py skips already satisfied traces and plans only unresolved reruns after a partial batch
 skill_request_contract: configs/v0_skill_request.example.json passes local request check
 skill_request_planner: scripts/plan_v0_skill_request.py maps supported insert instructions only
+language_skill_dry_run: scripts/run_v0_language_skill_dry_run.py chains instruction parsing, request validation, and gated execution planning while forbidding raw joint/force commands
 skill_execution_plan: scripts/plan_v0_skill_execution.py stays blocked until V0 readiness is READY and never emits raw joint/force commands
 skill_readiness: scripts/check_v0_skill_readiness.py is blocked until variation traces and dataset exist
 policy_api_review_packet: scripts/prepare_v0_policy_api_review.py is blocked until skill readiness is READY
