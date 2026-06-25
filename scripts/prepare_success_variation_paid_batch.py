@@ -255,15 +255,20 @@ def main() -> int:
     if status != 0:
         return status
 
-    status = _run(check_cmd)
-    if status != 0:
-        _disarm(config)
-        return status
+    try:
+        status = _run(check_cmd)
+        if status != 0:
+            _disarm(config)
+            return status
 
-    status = _run(preflight_cmd)
-    if status != 0:
+        status = _run(preflight_cmd)
+        if status != 0:
+            _disarm(config)
+            return status
+    except KeyboardInterrupt:
+        print("[success-variation-paid-prepare] INTERRUPTED")
         _disarm(config)
-        return status
+        return 130
 
     print("[success-variation-paid-prepare] READY_FOR_SINGLE_PAID_RUN")
     print("[success-variation-paid-prepare] next: scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --run")

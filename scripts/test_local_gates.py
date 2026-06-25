@@ -3716,6 +3716,9 @@ def run_success_variation_manifest_tests() -> None:
             "READY_FOR_SINGLE_PAID_RUN",
             "would not create a paid instance",
             "disarms the local env",
+            "except KeyboardInterrupt",
+            "[success-variation-paid-prepare] INTERRUPTED",
+            "return 130",
             "does not create, start, stop, delete, copy to, or execute on Brev instances",
         ):
             if expected_snippet not in prepare_paid_script:
