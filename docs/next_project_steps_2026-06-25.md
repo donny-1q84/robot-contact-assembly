@@ -221,6 +221,7 @@ python3 scripts/plan_v0_skill_request.py "insert the peg into the left socket"
 python3 scripts/validate_v0_skill_request.py
 python3 scripts/check_v0_skill_readiness.py --skip-phase2-contact-gate
 python3 scripts/check_v0_robot_adapter_contract.py
+python3 scripts/check_success_variation_batch_plan.py artifacts/manifests/success_trace_variations_2026-06-25.json
 python3 scripts/check_peg_in_hole_video_candidate.py artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json
 python3 scripts/check_final_contact_boundary_diagnostic.py artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json
 python3 scripts/audit_trace_frame_alignment.py artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json
@@ -233,6 +234,7 @@ Implemented in the local follow-up:
 scripts/create_success_variation_manifest.py
 scripts/classify_success_variation_results.py
 scripts/plan_success_variation_batch.py
+scripts/check_success_variation_batch_plan.py
 scripts/run_remote_success_variation_batch.sh
 scripts/run_remote_success_variation_batch_as_trace_runner.sh
 scripts/recreate_brev_and_run_success_variation_batch.sh

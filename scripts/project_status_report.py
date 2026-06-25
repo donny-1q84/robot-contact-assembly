@@ -573,6 +573,7 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "./scripts/brev_paid_safety_status.sh",
             "./scripts/run_local_quality_checks.sh",
             "python3 scripts/check_phase2_contact_gate.py",
+            "python3 scripts/check_success_variation_batch_plan.py artifacts/manifests/success_trace_variations_2026-06-25.json",
             "python3 scripts/check_success_variation_batch_results.py artifacts/manifests/success_trace_variations_2026-06-25.json",
             "scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --check-only",
             "python3 scripts/write_brev_credit_evidence.py --balance-eur <current-brev-ui-balance> --budget-eur 6.00 --force",

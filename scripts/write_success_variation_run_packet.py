@@ -125,6 +125,7 @@ def _commands(config_path: Path, manifest: Path) -> dict[str, str]:
     manifest_ref = _rel(manifest)
     return {
         "check_only": f"scripts/run_success_variation_batch_from_config.sh {config_ref} --check-only",
+        "plan_gate": f"python3 scripts/check_success_variation_batch_plan.py {manifest_ref}",
         "pre_batch_audit": (
             "python3 scripts/audit_success_variation_assumptions.py "
             f"{manifest_ref} --phase pre-batch "
@@ -250,6 +251,7 @@ def _render_markdown(packet: dict[str, Any]) -> str:
     readiness = packet["readiness"]
     facts = readiness.get("facts") if isinstance(readiness.get("facts"), dict) else {}
     credit_evidence = facts.get("credit_evidence") if isinstance(facts.get("credit_evidence"), dict) else {}
+    batch_plan = facts.get("batch_plan") if isinstance(facts.get("batch_plan"), dict) else {}
     rows = [
         "# Success Variation Paid Batch Run Packet",
         "",
@@ -260,6 +262,8 @@ def _render_markdown(packet: dict[str, Any]) -> str:
         f"- ttl_minutes: {packet['estimated_cost'].get('ttl_minutes')}",
         f"- brev_safety_status: {facts.get('brev_safety_status')}",
         f"- phase2_contact_gate: {facts.get('phase2_contact_gate')}",
+        f"- batch_plan_cases: {batch_plan.get('planned_case_count')}",
+        f"- negative_control_in_plan: {batch_plan.get('negative_control_in_plan')}",
         f"- credit_evidence_status: {credit_evidence.get('status')}",
         "",
         "## Current Blockers",

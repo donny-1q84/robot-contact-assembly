@@ -24,6 +24,9 @@ python3 scripts/check_project_policy_compliance.py
 echo "[local-quality] Brev support evidence consistency"
 python3 scripts/check_brev_support_evidence.py
 
+echo "[local-quality] success variation batch plan"
+python3 scripts/check_success_variation_batch_plan.py
+
 echo "[local-quality] local gate behavior tests"
 python3 scripts/test_local_gates.py
 

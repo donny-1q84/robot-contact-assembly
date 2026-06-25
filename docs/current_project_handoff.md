@@ -48,6 +48,9 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    reviewed template, put real one-run values in the git-ignored
    `configs/success_variation_batch_run.local.env`, generate the current
    read-only packet with `scripts/write_success_variation_run_packet.py`, run
+   `scripts/check_success_variation_batch_plan.py` to prove the generated plan
+   covers exactly the planned cases, remote artifact paths, and fail-closed
+   negative control before any paid create, run
    `scripts/audit_success_variation_assumptions.py --phase pre-batch` to trace
    every critical success/negative-control/budget/promotion metric back to
    concrete sources without treating the still-missing planned traces as a paid

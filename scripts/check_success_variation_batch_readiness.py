@@ -26,6 +26,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 import classify_success_variation_results as classifier  # noqa: E402
 import check_brev_credit_evidence as credit_gate  # noqa: E402
+import check_success_variation_batch_plan as plan_gate  # noqa: E402
 
 
 DEFAULT_MANIFEST = REPO_ROOT / "artifacts" / "manifests" / "success_trace_variations_2026-06-25.json"
@@ -296,6 +297,41 @@ def _check_manifest_contract(manifest_path: Path, blockers: list[str], facts: di
             blockers.append("negative control is already strict_success; metric definition is invalid")
 
 
+def _check_batch_plan_contract(manifest_path: Path, blockers: list[str], facts: dict[str, Any]) -> None:
+    steps_raw = os.environ.get("RCA_SUCCESS_VARIATION_STEPS", "220").strip() or "220"
+    try:
+        steps = int(steps_raw)
+    except ValueError:
+        blockers.append(f"RCA_SUCCESS_VARIATION_STEPS must be an integer, got {steps_raw!r}")
+        return
+    if steps <= 0:
+        blockers.append(f"RCA_SUCCESS_VARIATION_STEPS must be positive, got {steps_raw!r}")
+        return
+
+    task = os.environ.get("RCA_SUCCESS_VARIATION_TASK", "").strip() or None
+    try:
+        report = plan_gate.build_report(
+            manifest_path,
+            env_name=os.environ.get("RCA_SUCCESS_VARIATION_ENV_NAME", "rca-success-variation-batch-vm"),
+            remote_root=os.environ.get(
+                "RCA_SUCCESS_VARIATION_REMOTE_ROOT",
+                "/home/ubuntu/projects/robot-contact-assembly",
+            ),
+            compose_root=os.environ.get("RCA_SUCCESS_VARIATION_COMPOSE_ROOT", "/home/ubuntu/isaac-compose"),
+            task=task,
+            steps=steps,
+        )
+    except Exception as exc:  # noqa: BLE001 - expose malformed plan as a blocker.
+        blockers.append(f"success variation batch plan is invalid: {exc}")
+        return
+
+    facts["batch_plan"] = report.get("summary")
+    if not report.get("pass"):
+        failures = report.get("failures") if isinstance(report.get("failures"), list) else []
+        detail = "; ".join(str(item) for item in failures[:5]) or "unknown plan-gate failure"
+        blockers.append(f"success variation batch plan is invalid: {detail}")
+
+
 def _check_paid_env(blockers: list[str], facts: dict[str, Any]) -> None:
     paid_create_allowed = os.environ.get("RCA_ALLOW_PAID_BREV_CREATE") == "1"
     lifecycle_acknowledged = os.environ.get("RCA_ACK_BREV_LIFECYCLE_RISK") == "1"
@@ -359,6 +395,7 @@ def main() -> int:
     facts: dict[str, Any] = {}
 
     _check_manifest_contract(manifest_path, blockers, facts)
+    _check_batch_plan_contract(manifest_path, blockers, facts)
     _check_paid_env(blockers, facts)
     _check_phase2_gate(blockers, facts)
     _check_brev_safety(blockers, facts)

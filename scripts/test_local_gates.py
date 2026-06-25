@@ -1670,6 +1670,35 @@ def run_success_variation_manifest_tests() -> None:
             if expected_snippet not in rendered_plan:
                 raise AssertionError(f"rendered batch plan missing snippet: {expected_snippet}")
 
+        plan_gate_json = tmp_dir / "batch_plan_gate.json"
+        result = run(
+            [
+                "python3",
+                "scripts/check_success_variation_batch_plan.py",
+                str(manifest_path),
+                "--output-json",
+                str(plan_gate_json),
+            ]
+        )
+        assert_status(result, 0, "success variation batch plan gate accepts generated plan")
+        assert_contains(result, "[success-variation-plan-gate] PASS", "success variation batch plan-gate PASS detail")
+        plan_gate = json.loads(plan_gate_json.read_text(encoding="utf-8"))
+        if plan_gate["summary"]["planned_case_count"] != 8:
+            raise AssertionError(f"plan gate should audit the 8 planned cases: {plan_gate['summary']}")
+        if plan_gate["summary"]["negative_control_in_plan"] is not True:
+            raise AssertionError(f"plan gate must include the negative control: {plan_gate['summary']}")
+
+        bad_plan_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for case in bad_plan_manifest["cases"]:
+            if case["case_id"] == "socket_x_pos_1mm":
+                case["planned_trace_json"] = "/tmp/bad/video_trace.json"
+        bad_plan_manifest_path = tmp_dir / "success_variations_bad_plan.json"
+        bad_plan_manifest_path.write_text(json.dumps(bad_plan_manifest), encoding="utf-8")
+        result = run(["python3", "scripts/check_success_variation_batch_plan.py", str(bad_plan_manifest_path)])
+        assert_status(result, 1, "success variation batch plan gate rejects artifact path escapes")
+        assert_contains(result, "[success-variation-plan-gate] BLOCKED", "bad plan-gate blocked detail")
+        assert_contains(result, "planned trace", "bad plan-gate failure reason")
+
         result = run(["python3", "scripts/check_success_variation_batch_results.py", str(manifest_path)])
         assert_status(result, 1, "success variation result gate rejects incomplete batch")
         assert_contains(result, "missing planned trace artifacts", "incomplete variation batch result-gate detail")
@@ -1871,6 +1900,9 @@ def run_success_variation_manifest_tests() -> None:
         readiness_gate = (
             REPO_ROOT / "scripts" / "check_success_variation_batch_readiness.py"
         ).read_text(encoding="utf-8")
+        plan_gate_script = (
+            REPO_ROOT / "scripts" / "check_success_variation_batch_plan.py"
+        ).read_text(encoding="utf-8")
         result_gate = (
             REPO_ROOT / "scripts" / "check_success_variation_batch_results.py"
         ).read_text(encoding="utf-8")
@@ -2041,6 +2073,9 @@ def run_success_variation_manifest_tests() -> None:
             "RCA_BREV_CREDITS_VERIFIED=1 requires passing current Brev UI credit evidence",
             "Brev instance price search",
             "instance_price",
+            "check_success_variation_batch_plan",
+            "success variation batch plan is invalid",
+            "batch_plan",
             "selected instance type is not currently visible",
             "live Brev price_per_hour",
             "selected instance type is not stoppable",
@@ -2054,6 +2089,24 @@ def run_success_variation_manifest_tests() -> None:
                 raise AssertionError(f"success variation readiness gate missing snippet: {expected_snippet}")
         if "brev create" in readiness_gate or '"${BREV_BIN}" create' in readiness_gate:
             raise AssertionError("success variation readiness gate must be read-only and must not create Brev instances")
+
+        for expected_snippet in (
+            "Validate the generated success-variation batch plan before paid compute",
+            "plan_success_variation_batch",
+            "does not create, delete, copy to, or execute on Brev instances",
+            "RCA_TRACE_ONLY_REMOTE_DIR",
+            "RCA_TRACE_VARIATION_CASE_ID",
+            "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_PEG_VIDEO_CANDIDATE",
+            "scripts/run_remote_joint_response_socket_insertion_servo_trace.sh",
+            "socket_x_pos_25mm_negative_control",
+            "negative_control_in_plan",
+            "[success-variation-plan-gate] PASS",
+            "[success-variation-plan-gate] BLOCKED",
+        ):
+            if expected_snippet not in plan_gate_script:
+                raise AssertionError(f"success variation plan gate missing snippet: {expected_snippet}")
+        if "brev create" in plan_gate_script or '"${BREV_BIN}" create' in plan_gate_script:
+            raise AssertionError("success variation plan gate must not create Brev instances")
 
         for expected_snippet in (
             "baseline positive control remains strict_success",
@@ -2186,6 +2239,8 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError("run packet template must keep credit acknowledgement fail-closed")
         if "finalize_success_variation_batch.sh" not in run_packet["commands"]["finalize"]:
             raise AssertionError(f"run packet should include finalizer command: {run_packet['commands']}")
+        if "check_success_variation_batch_plan.py" not in run_packet["commands"]["plan_gate"]:
+            raise AssertionError(f"run packet should include plan gate command: {run_packet['commands']}")
         if "audit_success_variation_assumptions.py" not in run_packet["commands"]["pre_batch_audit"]:
             raise AssertionError(f"run packet should include pre-batch audit command: {run_packet['commands']}")
         run_packet_md_text = run_packet_md.read_text(encoding="utf-8")
@@ -2311,6 +2366,7 @@ def run_success_variation_manifest_tests() -> None:
 
         for expected_snippet in (
             "check_success_variation_batch_readiness.py",
+            "check_success_variation_batch_plan.py",
             "run_success_variation_batch_from_config.sh",
             "finalize_success_variation_batch.sh",
             "write_brev_credit_evidence.py",
