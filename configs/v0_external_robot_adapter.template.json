@@ -46,6 +46,32 @@
       "validated": false
     }
   },
+  "command_contract": {
+    "skill_target_schema": "configs/v0_skill_api_contract.json#skill_request_schema",
+    "command_frame": null,
+    "command_units": "meters_radians_seconds",
+    "control_mode": null,
+    "feedback_fields": null,
+    "abort_conditions": null,
+    "rate_limits": null
+  },
+  "frame_contract": {
+    "base_frame": null,
+    "tool_frame": null,
+    "tcp_frame": null,
+    "socket_frame": null,
+    "transform_source": null,
+    "timestamp_source": null
+  },
+  "runtime_guards": {
+    "max_translation_step_m": null,
+    "max_rotation_step_rad": null,
+    "max_joint_delta_rad": null,
+    "command_timeout_s": null,
+    "stale_state_timeout_s": null,
+    "abort_on_fault": true,
+    "low_speed_mode_required": true
+  },
   "revalidation_evidence": {
     "phase2_contact_gate_equivalent": null,
     "strict_success_variation_batch": null,

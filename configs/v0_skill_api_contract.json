@@ -106,6 +106,32 @@
       "emergency_stop_path",
       "low_speed_contact_validation"
     ],
+    "required_command_contract": [
+      "skill_target_schema",
+      "command_frame",
+      "command_units",
+      "control_mode",
+      "feedback_fields",
+      "abort_conditions",
+      "rate_limits"
+    ],
+    "required_frame_contract": [
+      "base_frame",
+      "tool_frame",
+      "tcp_frame",
+      "socket_frame",
+      "transform_source",
+      "timestamp_source"
+    ],
+    "required_runtime_guards": [
+      "max_translation_step_m",
+      "max_rotation_step_rad",
+      "max_joint_delta_rad",
+      "command_timeout_s",
+      "stale_state_timeout_s",
+      "abort_on_fault",
+      "low_speed_mode_required"
+    ],
     "ros2_interfaces": [
       {
         "name": "joint_trajectory_action",

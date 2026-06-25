@@ -206,6 +206,9 @@ the committed template is `BLOCKED`, not `READY`, and a future named arm must
 supply concrete URDF/USD or equivalent model sources, TCP/base/fixture
 calibration, safety gates, ROS 2 interface validation, low-speed contact
 validation, and variation-style revalidation before any hardware-use claim.
+`docs/v0_robot_adapter_contract.md` adds the explicit command contract, frame
+contract, and runtime guard checklist so "portable" means a named, validated
+adapter boundary, not direct drop-in precision on arbitrary arms.
 `scripts/plan_v0_robot_adapter_manifest.py` turns a named target arm and any
 known ROS 2 interface names into a machine-readable adapter manifest, but still
 leaves it safely blocked until the checker sees robot-specific model,

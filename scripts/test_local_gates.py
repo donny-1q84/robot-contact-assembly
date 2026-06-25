@@ -1438,6 +1438,9 @@ def run_v0_skill_api_contract_tests() -> None:
         "new_robot_requires_adapter_calibration_and_revalidation",
         "joint_trajectory_action",
         "low_speed_contact_validation",
+        "required_command_contract",
+        "required_frame_contract",
+        "required_runtime_guards",
         "requires_min_strict_success_traces must be an integer >= 5",
     ):
         if expected_snippet not in checker:
@@ -1599,6 +1602,10 @@ def run_v0_skill_api_contract_tests() -> None:
         "external-arm portability",
         "ready_for_external_robot cannot be true while adapter evidence blockers remain",
         "low_speed_hardware_contact_trial",
+        "command_contract",
+        "frame_contract",
+        "runtime_guards",
+        "abort_on_fault",
         "not direct drop-in precision on another robot arm",
         "It does not call Brev, Isaac, ROS, a",
     ):
@@ -1625,6 +1632,9 @@ def run_v0_skill_api_contract_tests() -> None:
         raise AssertionError("V0 skill contract must preserve cross-robot non-claim")
     if contract["robot_adapter_contract"]["portability_rule"] != "new_robot_requires_adapter_calibration_and_revalidation":
         raise AssertionError("V0 skill contract must require revalidation for new robots")
+    for required_section in ("required_command_contract", "required_frame_contract", "required_runtime_guards"):
+        if required_section not in contract["robot_adapter_contract"]:
+            raise AssertionError(f"V0 skill contract missing adapter section: {required_section}")
 
     with tempfile.TemporaryDirectory(prefix="rca-v0-skill-contract-tests-") as tmp_dir_raw:
         tmp_dir = Path(tmp_dir_raw)
@@ -1693,9 +1703,16 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError("planned adapter must not claim hardware readiness")
         if planned_adapter["ros2_interfaces"]["joint_trajectory_action"]["validated"] is not False:
             raise AssertionError("planned adapter must leave ROS 2 interface validation blocked")
+        for section in ("command_contract", "frame_contract", "runtime_guards"):
+            if section not in planned_adapter:
+                raise AssertionError(f"planned adapter missing section: {section}")
+        if planned_adapter["runtime_guards"]["abort_on_fault"] is not True:
+            raise AssertionError("planned adapter must preserve abort_on_fault guard")
         result = run(["python3", str(robot_adapter_checker_path), str(planned_adapter_path)])
         assert_status(result, 0, "V0 robot adapter checker accepts planned manifest as blocked")
         assert_contains(result, "[v0-robot-adapter] BLOCKED", "planned V0 robot adapter blocked detail")
+        assert_contains(result, "command_contract.command_frame", "planned adapter command-contract blocker detail")
+        assert_contains(result, "runtime_guards.command_timeout_s", "planned adapter runtime guard blocker detail")
         assert_contains(result, "low_speed_hardware_contact_trial", "planned adapter revalidation blocker detail")
 
         placeholder_adapter_path = tmp_dir / "placeholder_external_robot_adapter.json"

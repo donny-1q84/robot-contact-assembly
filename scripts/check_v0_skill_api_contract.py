@@ -199,6 +199,47 @@ def build_report(contract_path: Path) -> dict[str, Any]:
         },
         failures=failures,
     )
+    _require_list_items(
+        name="robot_adapter_contract.required_command_contract",
+        values=_list_field(adapter, "required_command_contract", failures),
+        required={
+            "skill_target_schema",
+            "command_frame",
+            "command_units",
+            "control_mode",
+            "feedback_fields",
+            "abort_conditions",
+            "rate_limits",
+        },
+        failures=failures,
+    )
+    _require_list_items(
+        name="robot_adapter_contract.required_frame_contract",
+        values=_list_field(adapter, "required_frame_contract", failures),
+        required={
+            "base_frame",
+            "tool_frame",
+            "tcp_frame",
+            "socket_frame",
+            "transform_source",
+            "timestamp_source",
+        },
+        failures=failures,
+    )
+    _require_list_items(
+        name="robot_adapter_contract.required_runtime_guards",
+        values=_list_field(adapter, "required_runtime_guards", failures),
+        required={
+            "max_translation_step_m",
+            "max_rotation_step_rad",
+            "max_joint_delta_rad",
+            "command_timeout_s",
+            "stale_state_timeout_s",
+            "abort_on_fault",
+            "low_speed_mode_required",
+        },
+        failures=failures,
+    )
     ros2_interfaces = adapter.get("ros2_interfaces")
     if not isinstance(ros2_interfaces, list):
         failures.append("robot_adapter_contract.ros2_interfaces must be a list")

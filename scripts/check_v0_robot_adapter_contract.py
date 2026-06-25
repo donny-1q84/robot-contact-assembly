@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 import sys
 from typing import Any
@@ -51,6 +52,43 @@ REQUIRED_ROS2 = {
     "joint_trajectory_action",
     "joint_state_feedback",
     "skill_status",
+}
+REQUIRED_COMMAND_CONTRACT = {
+    "skill_target_schema",
+    "command_frame",
+    "command_units",
+    "control_mode",
+    "feedback_fields",
+    "abort_conditions",
+    "rate_limits",
+}
+REQUIRED_FRAME_CONTRACT = {
+    "base_frame",
+    "tool_frame",
+    "tcp_frame",
+    "socket_frame",
+    "transform_source",
+    "timestamp_source",
+}
+REQUIRED_RUNTIME_GUARDS = {
+    "max_translation_step_m",
+    "max_rotation_step_rad",
+    "max_joint_delta_rad",
+    "command_timeout_s",
+    "stale_state_timeout_s",
+    "abort_on_fault",
+    "low_speed_mode_required",
+}
+REQUIRED_POSITIVE_RUNTIME_GUARDS = {
+    "max_translation_step_m",
+    "max_rotation_step_rad",
+    "max_joint_delta_rad",
+    "command_timeout_s",
+    "stale_state_timeout_s",
+}
+REQUIRED_TRUE_RUNTIME_GUARDS = {
+    "abort_on_fault",
+    "low_speed_mode_required",
 }
 REQUIRED_REVALIDATION = {
     "phase2_contact_gate_equivalent",
@@ -106,6 +144,8 @@ def _evidence_value_present(value: Any) -> bool:
         return bool(value.strip())
     if isinstance(value, dict):
         return bool(value.get("path") or value.get("uri") or value.get("source") or value.get("result"))
+    if isinstance(value, list):
+        return bool(value)
     return value is not None
 
 
@@ -152,6 +192,51 @@ def _check_ros2_interfaces(
             blockers.append(f"ros2_interfaces.{name}.validated must be true before external robot use")
         if ready and isinstance(spec.get("interface"), str) and not spec["interface"].strip():
             blockers.append(f"ros2_interfaces.{name}.interface is blank")
+
+
+def _check_required_contract_values(
+    *,
+    name: str,
+    payload: dict[str, Any],
+    required: set[str],
+    failures: list[str],
+    blockers: list[str],
+) -> None:
+    missing = _missing_keys(payload, required)
+    if missing:
+        failures.append(f"{name} missing required entries: {', '.join(missing)}")
+    for key in sorted(required & set(payload)):
+        if not _evidence_value_present(payload.get(key)):
+            blockers.append(f"{name}.{key} is missing")
+
+
+def _check_runtime_guards(
+    *,
+    payload: dict[str, Any],
+    failures: list[str],
+    blockers: list[str],
+) -> None:
+    missing = _missing_keys(payload, REQUIRED_RUNTIME_GUARDS)
+    if missing:
+        failures.append("runtime_guards missing required entries: " + ", ".join(missing))
+    for key in sorted(REQUIRED_RUNTIME_GUARDS & set(payload)):
+        value = payload.get(key)
+        if not _evidence_value_present(value):
+            blockers.append(f"runtime_guards.{key} is missing")
+    for key in sorted(REQUIRED_POSITIVE_RUNTIME_GUARDS & set(payload)):
+        value = payload.get(key)
+        if value is None:
+            continue
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            failures.append(f"runtime_guards.{key} must be a positive finite number")
+            continue
+        if not math.isfinite(parsed) or parsed <= 0.0:
+            failures.append(f"runtime_guards.{key} must be a positive finite number")
+    for key in sorted(REQUIRED_TRUE_RUNTIME_GUARDS & set(payload)):
+        if payload.get(key) is not True:
+            blockers.append(f"runtime_guards.{key} must be true before external robot use")
 
 
 def build_report(adapter_path: Path) -> dict[str, Any]:
@@ -214,6 +299,25 @@ def build_report(adapter_path: Path) -> dict[str, Any]:
     _check_ros2_interfaces(
         payload=_object(adapter.get("ros2_interfaces"), "ros2_interfaces", failures),
         ready=bool(ready),
+        failures=failures,
+        blockers=blockers,
+    )
+    _check_required_contract_values(
+        name="command_contract",
+        payload=_object(adapter.get("command_contract"), "command_contract", failures),
+        required=REQUIRED_COMMAND_CONTRACT,
+        failures=failures,
+        blockers=blockers,
+    )
+    _check_required_contract_values(
+        name="frame_contract",
+        payload=_object(adapter.get("frame_contract"), "frame_contract", failures),
+        required=REQUIRED_FRAME_CONTRACT,
+        failures=failures,
+        blockers=blockers,
+    )
+    _check_runtime_guards(
+        payload=_object(adapter.get("runtime_guards"), "runtime_guards", failures),
         failures=failures,
         blockers=blockers,
     )

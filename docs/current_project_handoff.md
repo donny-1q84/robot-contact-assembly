@@ -154,7 +154,7 @@ policy_label_dry_run: scripts/plan_v0_policy_label_dry_run.py stays blocked unti
 policy_label_dataset: scripts/extract_v0_policy_label_dataset.py stays blocked until label dry-run is ready; it writes JSONL plus manifest/checksum for allowed residual labels only, not a trained policy
 policy_training_preflight: scripts/check_v0_policy_training_preflight.py stays blocked until the label dataset exists; it checks JSONL checksum/schema and keeps training_script_status=NOT_IMPLEMENTED
 external_robot_adapter_planner: scripts/plan_v0_robot_adapter_manifest.py writes named-arm manifests that remain safely blocked
-external_robot_adapter: configs/v0_external_robot_adapter.template.json is safely blocked by scripts/check_v0_robot_adapter_contract.py
+external_robot_adapter: configs/v0_external_robot_adapter.template.json is safely blocked by scripts/check_v0_robot_adapter_contract.py; docs/v0_robot_adapter_contract.md defines command/frame/runtime guards so portability is adapter-specific, not drop-in
 dataset_preparation: blocked until the result gate passes
 ```
 
