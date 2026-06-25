@@ -169,6 +169,7 @@ The current V0 contract is now machine-readable:
 configs/v0_skill_api_contract.json
 scripts/check_v0_skill_api_contract.py
 configs/v0_skill_request.example.json
+scripts/plan_v0_skill_request.py
 scripts/validate_v0_skill_request.py
 ```
 
@@ -180,6 +181,9 @@ claim sim-to-real readiness or direct drop-in precision on another robot arm.
 The example request and validator turn that boundary into an executable local
 check: a high-level instruction can select `peg_in_hole`, but requests with raw
 joint targets, direct force commands, or VLM-to-raw-control modes fail closed.
+The planner is deliberately narrow and deterministic: supported insert
+instructions become a normalized request; ambiguous or low-level instructions
+do not write a request artifact.
 
 ## Do Not Do Next
 
@@ -197,6 +201,7 @@ No paid compute:
 ```bash
 ./scripts/run_local_quality_checks.sh
 python3 scripts/check_v0_skill_api_contract.py
+python3 scripts/plan_v0_skill_request.py "insert the peg into the left socket"
 python3 scripts/validate_v0_skill_request.py
 python3 scripts/check_peg_in_hole_video_candidate.py artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json
 python3 scripts/check_final_contact_boundary_diagnostic.py artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json
@@ -222,6 +227,7 @@ scripts/finalize_success_variation_batch.sh
 scripts/write_success_variation_run_packet.py
 scripts/audit_success_variation_assumptions.py
 scripts/check_v0_skill_api_contract.py
+scripts/plan_v0_skill_request.py
 scripts/validate_v0_skill_request.py
 configs/v0_skill_api_contract.json
 configs/v0_skill_request.example.json

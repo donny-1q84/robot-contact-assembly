@@ -1334,6 +1334,7 @@ def run_v0_skill_api_contract_tests() -> None:
     checker_path = REPO_ROOT / "scripts" / "check_v0_skill_api_contract.py"
     request_path = REPO_ROOT / "configs" / "v0_skill_request.example.json"
     request_checker_path = REPO_ROOT / "scripts" / "validate_v0_skill_request.py"
+    planner_path = REPO_ROOT / "scripts" / "plan_v0_skill_request.py"
 
     result = run(["python3", str(checker_path), str(contract_path)])
     assert_status(result, 0, "V0 skill API contract validator accepts committed contract")
@@ -1344,6 +1345,7 @@ def run_v0_skill_api_contract_tests() -> None:
 
     checker = checker_path.read_text(encoding="utf-8")
     request_checker = request_checker_path.read_text(encoding="utf-8")
+    planner = planner_path.read_text(encoding="utf-8")
     for expected_snippet in (
         "raw_joint_targets",
         "not direct drop-in precision on another robot arm",
@@ -1367,6 +1369,17 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"V0 skill request validator missing snippet: {expected_snippet}")
     if "brev create" in request_checker or '"${BREV_BIN}" create' in request_checker:
         raise AssertionError("V0 skill request validator must be offline and must not create Brev instances")
+    for expected_snippet in (
+        "deterministic_v0_language_to_skill_shim",
+        "Unsupported or ambiguous",
+        "instructions fail closed instead of guessing low-level behavior",
+        "not an LLM/VLM and does not command joints",
+        "blocked: request JSON was not written",
+    ):
+        if expected_snippet not in planner:
+            raise AssertionError(f"V0 skill request planner missing snippet: {expected_snippet}")
+    if "brev create" in planner or '"${BREV_BIN}" create' in planner:
+        raise AssertionError("V0 skill request planner must be offline and must not create Brev instances")
 
     contract = json.loads(contract_path.read_text(encoding="utf-8"))
     if "raw_joint_targets" not in contract["language_layer"]["forbidden_outputs"]:
@@ -1399,6 +1412,39 @@ def run_v0_skill_api_contract_tests() -> None:
         assert_status(result, 1, "V0 skill request validator rejects direct low-level control")
         assert_contains(result, "forbidden direct control keys", "unsafe V0 request direct-command detail")
         assert_contains(result, "controller_mode must be one of", "unsafe V0 request controller detail")
+
+        planned_request_path = tmp_dir / "planned_v0_skill_request.json"
+        result = run(
+            [
+                "python3",
+                str(planner_path),
+                "insert the peg into the right socket",
+                "--output-json",
+                str(planned_request_path),
+            ]
+        )
+        assert_status(result, 0, "V0 skill request planner writes supported insert request")
+        assert_contains(result, "[v0-skill-planner] PASS", "V0 planner PASS detail")
+        planned_request = json.loads(planned_request_path.read_text(encoding="utf-8"))
+        if planned_request["task_parameters"]["socket_id"] != "right_socket":
+            raise AssertionError(f"V0 planner should normalize right socket target: {planned_request}")
+        result = run(["python3", str(request_checker_path), str(planned_request_path)])
+        assert_status(result, 0, "V0 skill request validator accepts planned request")
+
+        blocked_request_path = tmp_dir / "blocked_v0_skill_request.json"
+        result = run(
+            [
+                "python3",
+                str(planner_path),
+                "move joint 4 down by 2 degrees",
+                "--output-json",
+                str(blocked_request_path),
+            ]
+        )
+        assert_status(result, 1, "V0 skill request planner rejects low-level joint instruction")
+        assert_contains(result, "must request the high-level insert skill", "V0 planner low-level rejection detail")
+        if blocked_request_path.exists():
+            raise AssertionError("V0 planner must not write a request artifact after a rejected instruction")
 
 
 def run_success_variation_manifest_tests() -> None:
