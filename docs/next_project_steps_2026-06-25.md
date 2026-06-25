@@ -456,6 +456,8 @@ python3 scripts/review_success_variation_batch.py \
 
 python3 scripts/check_success_variation_batch_results.py \
   artifacts/manifests/success_trace_variations_2026-06-25.json
+python3 scripts/plan_success_variation_recovery_batch.py \
+  artifacts/manifests/success_trace_variations_2026-06-25.json
 ```
 
 The default promotion contract is deliberately strict: `baseline_replay` must
@@ -464,6 +466,10 @@ remain `strict_success`, at least 5 non-baseline/non-negative variations must be
 `socket_y`, and `socket_z` variation groups, the
 `socket_x_pos_25mm_negative_control` must be labeled `expected=fail_closed` and
 classified `fail_closed`, and no planned trace artifact may be missing.
+If a fixed-budget batch only fills some traces, use
+`scripts/plan_success_variation_recovery_batch.py` before any rerun. It skips
+already satisfied strict-success cases and the fail-closed negative control, and
+blocks if the negative control unexpectedly succeeds.
 
 Only after that result gate passes, freeze the first V0 scripted-skill dataset
 manifest with:

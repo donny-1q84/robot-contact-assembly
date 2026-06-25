@@ -1805,6 +1805,28 @@ def run_success_variation_manifest_tests() -> None:
         result = run(["python3", "scripts/check_success_variation_batch_results.py", str(manifest_path)])
         assert_status(result, 1, "success variation result gate rejects incomplete batch")
         assert_contains(result, "missing planned trace artifacts", "incomplete variation batch result-gate detail")
+        recovery_json = tmp_dir / "recovery_plan.json"
+        recovery_sh = tmp_dir / "recovery_plan.sh"
+        result = run(
+            [
+                "python3",
+                "scripts/plan_success_variation_recovery_batch.py",
+                str(manifest_path),
+                "--output-json",
+                str(recovery_json),
+                "--output-sh",
+                str(recovery_sh),
+            ]
+        )
+        assert_status(result, 0, "success variation recovery planner handles incomplete batch")
+        assert_contains(result, "[success-variation-recovery] status=READY", "recovery planner ready detail")
+        recovery = json.loads(recovery_json.read_text(encoding="utf-8"))
+        if recovery["rerun_case_count"] != 8:
+            raise AssertionError(f"baseline-only recovery should rerun 8 planned cases: {recovery}")
+        if "baseline_replay" in recovery["rerun_case_ids"]:
+            raise AssertionError("recovery planner must not rerun the baseline positive control")
+        if "socket_x_pos_25mm_negative_control" not in recovery_sh.read_text(encoding="utf-8"):
+            raise AssertionError("recovery shell should include the missing negative-control rerun")
 
         blocked_dataset_json = tmp_dir / "blocked_dataset" / "manifest.json"
         blocked_dataset_md = tmp_dir / "blocked_dataset" / "README.md"
@@ -1896,6 +1918,22 @@ def run_success_variation_manifest_tests() -> None:
         result = run(["python3", "scripts/check_success_variation_batch_results.py", str(pass_manifest_path)])
         assert_status(result, 0, "success variation result gate accepts strict successes plus fail-closed negative")
         assert_contains(result, "[success-variation-result-gate] PASS", "success variation result-gate PASS detail")
+        result = run(
+            [
+                "python3",
+                "scripts/plan_success_variation_recovery_batch.py",
+                str(pass_manifest_path),
+                "--output-json",
+                str(recovery_json),
+                "--output-sh",
+                str(recovery_sh),
+            ]
+        )
+        assert_status(result, 0, "success variation recovery planner skips fully promotable batch")
+        assert_contains(result, "status=NOTHING_TO_RERUN", "recovery planner no-rerun detail")
+        recovery = json.loads(recovery_json.read_text(encoding="utf-8"))
+        if recovery["rerun_case_count"] != 0 or recovery["blocked_case_count"] != 0:
+            raise AssertionError(f"promotable batch should have no recovery reruns: {recovery}")
         dataset_json = tmp_dir / "dataset" / "manifest.json"
         dataset_md = tmp_dir / "dataset" / "README.md"
         result = run(
@@ -2029,6 +2067,21 @@ def run_success_variation_manifest_tests() -> None:
         )
         assert_status(result, 1, "success variation result gate rejects successful negative control")
         assert_contains(result, "must be fail_closed", "negative-control success result-gate detail")
+        result = run(
+            [
+                "python3",
+                "scripts/plan_success_variation_recovery_batch.py",
+                str(negative_success_manifest_path),
+                "--output-json",
+                str(recovery_json),
+                "--output-sh",
+                str(recovery_sh),
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 1, "success variation recovery planner blocks successful negative control")
+        assert_contains(result, "status=BLOCKED", "negative-control recovery blocked detail")
+        assert_contains(result, "blocked_case_count=1", "negative-control recovery blocked count")
 
         negative_expected_manifest = json.loads(pass_manifest_path.read_text(encoding="utf-8"))
         for case in negative_expected_manifest["cases"]:
@@ -2065,6 +2118,9 @@ def run_success_variation_manifest_tests() -> None:
         ).read_text(encoding="utf-8")
         result_gate = (
             REPO_ROOT / "scripts" / "check_success_variation_batch_results.py"
+        ).read_text(encoding="utf-8")
+        recovery_script = (
+            REPO_ROOT / "scripts" / "plan_success_variation_recovery_batch.py"
         ).read_text(encoding="utf-8")
         review_script = (
             REPO_ROOT / "scripts" / "review_success_variation_batch.py"
@@ -2346,6 +2402,19 @@ def run_success_variation_manifest_tests() -> None:
                 raise AssertionError(f"success variation result gate missing snippet: {expected_snippet}")
         if "brev create" in result_gate or '"${BREV_BIN}" create' in result_gate:
             raise AssertionError("success variation result gate must be offline and must not create Brev instances")
+
+        for expected_snippet in (
+            "partial paid runs",
+            "skip cases that already satisfy the promotion contract",
+            "NOTHING_TO_RERUN",
+            "negative control classified",
+            "not a paid-run launcher",
+            "[success-variation-recovery] status=",
+        ):
+            if expected_snippet not in recovery_script:
+                raise AssertionError(f"success variation recovery planner missing snippet: {expected_snippet}")
+        if "brev create" in recovery_script or '"${BREV_BIN}" create' in recovery_script:
+            raise AssertionError("success variation recovery planner must be offline and must not create Brev instances")
 
         for expected_snippet in (
             "classify_success_variation_results",

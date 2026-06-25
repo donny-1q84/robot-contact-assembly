@@ -668,6 +668,7 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "python3 scripts/check_phase2_contact_gate.py",
             "python3 scripts/check_success_variation_batch_plan.py artifacts/manifests/success_trace_variations_2026-06-25.json",
             "python3 scripts/check_success_variation_batch_results.py artifacts/manifests/success_trace_variations_2026-06-25.json",
+            "python3 scripts/plan_success_variation_recovery_batch.py artifacts/manifests/success_trace_variations_2026-06-25.json",
             "python3 scripts/check_v0_skill_readiness.py --skip-phase2-contact-gate",
             "python3 scripts/prepare_v0_policy_api_review.py --skip-phase2-contact-gate",
             "python3 scripts/check_v0_robot_adapter_contract.py",

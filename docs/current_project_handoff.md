@@ -139,6 +139,7 @@ pre_batch_assumption_audit: blocked until one-run paid acknowledgements exist; p
 post_batch_assumption_audit: blocked until planned traces and negative control results exist
 skill_api_contract: configs/v0_skill_api_contract.json passes local contract check
 skill_api_promotion_coverage: requires strict-success seed/reset plus socket X/Y/Z variation coverage before policy/API promotion
+success_variation_recovery: scripts/plan_success_variation_recovery_batch.py skips already satisfied traces and plans only unresolved reruns after a partial batch
 skill_request_contract: configs/v0_skill_request.example.json passes local request check
 skill_request_planner: scripts/plan_v0_skill_request.py maps supported insert instructions only
 skill_readiness: scripts/check_v0_skill_readiness.py is blocked until variation traces and dataset exist
