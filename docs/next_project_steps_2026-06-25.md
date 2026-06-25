@@ -163,6 +163,19 @@ The ROS 2 / external robot adapter should be designed after the V0 skill API is
 stable. Portability will require a robot-specific adapter, calibration, joint
 limits, controller gains, and safety checks.
 
+The current V0 contract is now machine-readable:
+
+```text
+configs/v0_skill_api_contract.json
+scripts/check_v0_skill_api_contract.py
+```
+
+It keeps language/VLM behavior at the task-parameter and skill-selection layer,
+forbids raw joint or direct force commands from language, records the semantic
+validators required before promotion, and defines the minimum robot-specific
+adapter gates for future ROS 2 or external-arm work. It explicitly does not
+claim sim-to-real readiness or direct drop-in precision on another robot arm.
+
 ## Do Not Do Next
 
 - Do not open another paid GPU instance just to make a prettier video.
@@ -178,6 +191,7 @@ No paid compute:
 
 ```bash
 ./scripts/run_local_quality_checks.sh
+python3 scripts/check_v0_skill_api_contract.py
 python3 scripts/check_peg_in_hole_video_candidate.py artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json
 python3 scripts/check_final_contact_boundary_diagnostic.py artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json
 python3 scripts/audit_trace_frame_alignment.py artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json
@@ -201,6 +215,8 @@ scripts/prepare_success_variation_dataset.py
 scripts/finalize_success_variation_batch.sh
 scripts/write_success_variation_run_packet.py
 scripts/audit_success_variation_assumptions.py
+scripts/check_v0_skill_api_contract.py
+configs/v0_skill_api_contract.json
 configs/success_variation_batch_run.env.example
 tests in scripts/test_local_gates.py for the variation manifest / classifier
 artifacts/manifests/success_trace_variations_2026-06-25.json

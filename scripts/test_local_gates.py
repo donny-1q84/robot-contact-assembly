@@ -1329,6 +1329,51 @@ def run_success_deliverable_bundle_tests() -> None:
         assert_contains(result, "checksum mismatch", "checksum mismatch failure detail")
 
 
+def run_v0_skill_api_contract_tests() -> None:
+    contract_path = REPO_ROOT / "configs" / "v0_skill_api_contract.json"
+    checker_path = REPO_ROOT / "scripts" / "check_v0_skill_api_contract.py"
+
+    result = run(["python3", str(checker_path), str(contract_path)])
+    assert_status(result, 0, "V0 skill API contract validator accepts committed contract")
+    assert_contains(result, "[v0-skill-api-contract] PASS", "V0 skill API contract PASS detail")
+
+    checker = checker_path.read_text(encoding="utf-8")
+    for expected_snippet in (
+        "raw_joint_targets",
+        "not direct drop-in precision on another robot arm",
+        "new_robot_requires_adapter_calibration_and_revalidation",
+        "joint_trajectory_action",
+        "low_speed_contact_validation",
+        "requires_min_strict_success_traces must be an integer >= 5",
+    ):
+        if expected_snippet not in checker:
+            raise AssertionError(f"V0 skill API contract checker missing snippet: {expected_snippet}")
+    if "brev create" in checker or '"${BREV_BIN}" create' in checker:
+        raise AssertionError("V0 skill API contract checker must be offline and must not create Brev instances")
+
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    if "raw_joint_targets" not in contract["language_layer"]["forbidden_outputs"]:
+        raise AssertionError("V0 skill contract must forbid language-to-raw-joint outputs")
+    if "not cross-robot-ready" not in contract["not_claims"]:
+        raise AssertionError("V0 skill contract must preserve cross-robot non-claim")
+    if contract["robot_adapter_contract"]["portability_rule"] != "new_robot_requires_adapter_calibration_and_revalidation":
+        raise AssertionError("V0 skill contract must require revalidation for new robots")
+
+    with tempfile.TemporaryDirectory(prefix="rca-v0-skill-contract-tests-") as tmp_dir_raw:
+        tmp_dir = Path(tmp_dir_raw)
+        bad_contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        bad_contract["language_layer"]["forbidden_outputs"].remove("raw_joint_targets")
+        bad_contract["promotion_gates"]["requires_min_strict_success_traces"] = 1
+        bad_contract["not_claims"].remove("not direct drop-in precision on another robot arm")
+        bad_path = tmp_dir / "bad_v0_skill_api_contract.json"
+        bad_path.write_text(json.dumps(bad_contract), encoding="utf-8")
+        result = run(["python3", str(checker_path), str(bad_path)])
+        assert_status(result, 1, "V0 skill API contract validator rejects unsafe contract")
+        assert_contains(result, "raw_joint_targets", "unsafe V0 skill contract raw joint detail")
+        assert_contains(result, "requires_min_strict_success_traces", "unsafe V0 skill contract trace-count detail")
+        assert_contains(result, "not direct drop-in precision", "unsafe V0 skill contract non-claim detail")
+
+
 def run_success_variation_manifest_tests() -> None:
     source_trace = (
         REPO_ROOT
@@ -1559,6 +1604,8 @@ def run_success_variation_manifest_tests() -> None:
         dataset = json.loads(dataset_json.read_text(encoding="utf-8"))
         if dataset["dataset_name"] != "v0_scripted_skill_success_variations":
             raise AssertionError(f"dataset prep wrote wrong dataset name: {dataset['dataset_name']}")
+        if dataset.get("skill_api_contract") != "configs/v0_skill_api_contract.json":
+            raise AssertionError(f"dataset prep must reference the V0 skill API contract: {dataset.get('skill_api_contract')}")
         if len(dataset["cases"]) < 6:
             raise AssertionError(f"dataset prep should include baseline plus strict variations: {len(dataset['cases'])}")
         dataset_case_ids = {case["case_id"] for case in dataset["cases"]}
@@ -2210,6 +2257,7 @@ def main() -> int:
     run_trace_video_renderer_static_tests()
     run_trace_frame_alignment_tests()
     run_success_deliverable_bundle_tests()
+    run_v0_skill_api_contract_tests()
     run_success_variation_manifest_tests()
 
     with tempfile.TemporaryDirectory(prefix="rca-gate-tests-") as tmp_dir_raw:

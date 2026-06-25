@@ -1,0 +1,129 @@
+{
+  "contract_name": "v0_contact_rich_assembly_skill_api",
+  "version": "2026-06-25",
+  "status": "draft_blocked_until_success_variation_dataset_ready",
+  "task_family": "peg_in_hole",
+  "language_layer": {
+    "role": "high_level_task_parameterization",
+    "allowed_outputs": [
+      "task_parameters",
+      "skill_selection",
+      "tolerance_selection",
+      "failure_explanation_request"
+    ],
+    "forbidden_outputs": [
+      "raw_joint_targets",
+      "raw_joint_velocities",
+      "direct_cartesian_servo_commands",
+      "direct_force_commands"
+    ]
+  },
+  "normalized_task_parameters": {
+    "required": [
+      "object_id",
+      "socket_id",
+      "target_pose_frame",
+      "tolerance_profile",
+      "validation_profile"
+    ],
+    "optional": [
+      "approach_hint",
+      "retry_policy",
+      "max_attempts"
+    ]
+  },
+  "skill": {
+    "skill_id": "peg_in_hole",
+    "allowed_controller_modes": [
+      "scripted_success_baseline",
+      "residual_policy_over_scripted_baseline"
+    ],
+    "disallowed_controller_modes": [
+      "language_to_raw_joint_control",
+      "vlm_to_raw_joint_control"
+    ],
+    "required_phases": [
+      "approach",
+      "align",
+      "insert",
+      "preload",
+      "recover"
+    ]
+  },
+  "semantic_validator": {
+    "required_scripts": [
+      "scripts/check_peg_in_hole_video_candidate.py",
+      "scripts/check_final_contact_boundary_diagnostic.py",
+      "scripts/audit_trace_frame_alignment.py",
+      "scripts/check_success_variation_batch_results.py",
+      "scripts/audit_success_variation_assumptions.py"
+    ],
+    "required_evidence": [
+      "sustained_insertion_depth",
+      "bounded_lateral_error",
+      "bounded_rotation_error",
+      "contact_force_present",
+      "no_final_contact_pop",
+      "negative_control_fail_closed"
+    ]
+  },
+  "promotion_gates": {
+    "requires_phase2_contact_gate_pass": true,
+    "requires_success_variation_result_gate_pass": true,
+    "requires_post_batch_assumption_audit_pass": true,
+    "requires_min_strict_success_traces": 5,
+    "requires_negative_control_fail_closed": true,
+    "requires_no_missing_planned_traces": true,
+    "requires_dataset_review_before_policy_training": true
+  },
+  "robot_adapter_contract": {
+    "adapter_boundary": "skill_targets_to_robot_specific_controller",
+    "required_model_sources": [
+      "robot_urdf_or_usd",
+      "joint_limits",
+      "tool_geometry",
+      "tcp_transform",
+      "controller_interface_spec"
+    ],
+    "required_calibration": [
+      "base_frame_alignment",
+      "tool_center_point",
+      "camera_or_perception_frame_if_used",
+      "socket_fixture_frame",
+      "force_or_contact_thresholds_if_used"
+    ],
+    "required_safety_gates": [
+      "joint_limit_check",
+      "workspace_limit_check",
+      "collision_or_clearance_check",
+      "controller_timeout",
+      "emergency_stop_path",
+      "low_speed_contact_validation"
+    ],
+    "ros2_interfaces": [
+      {
+        "name": "joint_trajectory_action",
+        "kind": "control",
+        "required_for_external_robot": true
+      },
+      {
+        "name": "joint_state_feedback",
+        "kind": "state",
+        "required_for_external_robot": true
+      },
+      {
+        "name": "skill_status",
+        "kind": "diagnostic",
+        "required_for_external_robot": true
+      }
+    ],
+    "portability_rule": "new_robot_requires_adapter_calibration_and_revalidation"
+  },
+  "not_claims": [
+    "not learned policy",
+    "not sim-to-real",
+    "not cross-robot-ready",
+    "not direct drop-in precision on another robot arm",
+    "not a direct low-level VLM controller"
+  ]
+}

@@ -37,6 +37,7 @@ DEFAULT_MANIFEST = REPO_ROOT / "artifacts" / "manifests" / "success_trace_variat
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "artifacts" / "datasets" / "v0_scripted_skill_success_variations"
 DEFAULT_OUTPUT_JSON = DEFAULT_OUTPUT_DIR / "manifest.json"
 DEFAULT_OUTPUT_MD = DEFAULT_OUTPUT_DIR / "README.md"
+DEFAULT_SKILL_CONTRACT = REPO_ROOT / "configs" / "v0_skill_api_contract.json"
 DEFAULT_NEGATIVE_CONTROL = result_gate.DEFAULT_NEGATIVE_CONTROL
 
 
@@ -146,6 +147,7 @@ def _build_dataset(
         "source_trace_json": manifest.get("source_trace_json"),
         "source_trace_sha256": manifest.get("source_trace_sha256"),
         "task": manifest.get("task"),
+        "skill_api_contract": _rel(DEFAULT_SKILL_CONTRACT),
         "selection_policy": {
             "requires_success_variation_result_gate_pass": True,
             "includes_baseline_positive_control": True,
@@ -178,6 +180,7 @@ def _render_markdown(dataset: dict[str, Any]) -> str:
         "",
         f"- dataset_name: {dataset['dataset_name']}",
         f"- source_manifest: {dataset['source_manifest']}",
+        f"- skill_api_contract: {dataset['skill_api_contract']}",
         f"- task: {dataset.get('task')}",
         f"- case_count: {len(dataset['cases'])}",
         "",
