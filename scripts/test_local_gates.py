@@ -3380,6 +3380,35 @@ def run_success_variation_manifest_tests() -> None:
         assert_contains(result, "would not create a paid instance", "paid lifecycle dry-run safety detail")
         assert_contains(result, "finalize_success_variation_batch.sh", "paid lifecycle finalizer detail")
         assert_contains(result, "plan_success_variation_recovery_batch.py", "paid lifecycle recovery detail")
+        custom_lifecycle_config = tmp_dir / "custom_success_variation_batch_run.local.env"
+        custom_lifecycle_credit = tmp_dir / "custom_brev_credit_verification.local.json"
+        custom_lifecycle_config.write_text(
+            (REPO_ROOT / "configs" / "success_variation_batch_run.local.env")
+            .read_text(encoding="utf-8")
+            .replace(
+                "RCA_BREV_CREDIT_EVIDENCE_JSON=configs/brev_credit_verification.local.json",
+                f"RCA_BREV_CREDIT_EVIDENCE_JSON={custom_lifecycle_credit}",
+            ),
+            encoding="utf-8",
+        )
+        result = run(
+            [
+                "python3",
+                "scripts/run_success_variation_paid_lifecycle.py",
+                "--balance-eur",
+                "20.00",
+                "--config",
+                str(custom_lifecycle_config),
+                "--dry-run",
+            ]
+        )
+        assert_status(result, 0, "success variation paid lifecycle dry-run preserves custom config")
+        assert_contains(result, f"--config {custom_lifecycle_config}", "paid lifecycle custom config prepare detail")
+        assert_contains(
+            result,
+            f"--credit-output {custom_lifecycle_credit}",
+            "paid lifecycle custom credit evidence detail",
+        )
         result = run(["python3", "scripts/run_success_variation_paid_lifecycle.py"])
         assert_status(result, 1, "success variation paid lifecycle blocks without explicit run inputs")
         assert_contains(result, "BLOCKED", "paid lifecycle blocked marker")
@@ -3390,6 +3419,7 @@ def run_success_variation_manifest_tests() -> None:
             "highest-level paid entrypoint",
             "--i-understand-this-can-create-paid-instance",
             "prepare_success_variation_paid_batch.py",
+            "RCA_BREV_CREDIT_EVIDENCE_JSON",
             "run_success_variation_batch_from_config.sh",
             "arm_success_variation_paid_env.py",
             "brev_paid_safety_status.sh",

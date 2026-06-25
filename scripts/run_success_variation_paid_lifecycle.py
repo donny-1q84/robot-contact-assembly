@@ -25,6 +25,7 @@ DEFAULT_CONFIG = REPO_ROOT / "configs" / "success_variation_batch_run.local.env"
 DEFAULT_MANIFEST = REPO_ROOT / "artifacts" / "manifests" / "success_trace_variations_2026-06-25.json"
 DEFAULT_RECOVERY_JSON = REPO_ROOT / "artifacts" / "analysis" / "success_trace_variation_recovery_plan_2026-06-25.json"
 DEFAULT_RECOVERY_SH = REPO_ROOT / "artifacts" / "analysis" / "success_trace_variation_recovery_plan_2026-06-25.sh"
+DEFAULT_CREDIT_EVIDENCE = REPO_ROOT / "configs" / "brev_credit_verification.local.json"
 
 
 def _resolve(path: Path) -> Path:
@@ -48,6 +49,19 @@ def _fmt(args: list[str]) -> str:
     return " ".join(shlex.quote(arg) for arg in args)
 
 
+def _read_config_value(config: Path, key: str) -> str | None:
+    if not config.is_file():
+        return None
+    for raw_line in config.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        current_key, value = line.split("=", 1)
+        if current_key == key:
+            return value.strip()
+    return None
+
+
 def _run(label: str, args: list[str]) -> int:
     print(f"[success-variation-lifecycle] {label}: {_fmt(args)}", flush=True)
     result = subprocess.run(args, cwd=REPO_ROOT, check=False)
@@ -60,6 +74,8 @@ def _build_commands(args: argparse.Namespace) -> dict[str, list[str]]:
     manifest = _resolve(args.manifest)
     recovery_json = _resolve(args.recovery_json)
     recovery_sh = _resolve(args.recovery_sh)
+    credit_output_raw = _read_config_value(config, "RCA_BREV_CREDIT_EVIDENCE_JSON")
+    credit_output = _resolve(Path(credit_output_raw)) if credit_output_raw else DEFAULT_CREDIT_EVIDENCE
     balance = "<current-brev-ui-balance>" if args.balance_eur is None else f"{args.balance_eur:.2f}"
     return {
         "prepare": [
@@ -69,6 +85,10 @@ def _build_commands(args: argparse.Namespace) -> dict[str, list[str]]:
             balance,
             "--budget-eur",
             f"{args.budget_eur:.2f}",
+            "--config",
+            str(config),
+            "--credit-output",
+            str(credit_output),
             "--force-credit",
             "--i-understand-this-arms-paid-run",
         ],
