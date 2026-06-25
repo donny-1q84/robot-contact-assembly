@@ -27,6 +27,7 @@ DEFAULT_FEATURE_DRY_RUN = REPO_ROOT / "artifacts" / "analysis" / "v0_policy_feat
 DEFAULT_EXPERIMENT_PLAN = REPO_ROOT / "artifacts" / "plans" / "v0_residual_policy_experiment_plan.json"
 DEFAULT_OUTPUT_JSON = REPO_ROOT / "artifacts" / "analysis" / "v0_policy_label_source_audit.json"
 DEFAULT_OUTPUT_MD = REPO_ROOT / "artifacts" / "analysis" / "v0_policy_label_source_audit.md"
+DEFAULT_NEGATIVE_CONTROL = "socket_x_pos_25mm_negative_control"
 READY_FEATURE_STATUS = "READY_FOR_FEATURE_EXTRACTION_REVIEW"
 READY_EXPERIMENT_STATUS = "READY_FOR_LOCAL_POLICY_EXPERIMENT_DESIGN"
 READY_STATUS = "READY_FOR_LABEL_SOURCE_REVIEW"
@@ -223,6 +224,26 @@ def _dataset_cases(dataset: dict[str, Any]) -> list[dict[str, Any]]:
     return [case for case in cases if isinstance(case, dict)]
 
 
+def _negative_control_failure(prefix: str, evidence: dict[str, Any]) -> str | None:
+    if not evidence:
+        return f"{prefix} must preserve negative_control_evidence"
+    if evidence.get("case_id") != DEFAULT_NEGATIVE_CONTROL:
+        return (
+            f"{prefix} negative_control_evidence.case_id must be {DEFAULT_NEGATIVE_CONTROL}, "
+            f"got {evidence.get('case_id')}"
+        )
+    if evidence.get("expected") != "fail_closed":
+        return f"{prefix} negative_control_evidence.expected must be fail_closed, got {evidence.get('expected')}"
+    if evidence.get("classification") != "fail_closed":
+        return (
+            f"{prefix} negative_control_evidence.classification must be fail_closed, "
+            f"got {evidence.get('classification')}"
+        )
+    if evidence.get("excluded_from_training_cases") is not True:
+        return f"{prefix} negative_control_evidence must preserve excluded_from_training_cases=true"
+    return None
+
+
 def build_audit(
     *,
     dataset_path: Path,
@@ -245,8 +266,13 @@ def build_audit(
         failures.append(f"dataset case count {len(cases)} < required {min_cases}")
     if "baseline_replay" not in case_ids:
         failures.append("dataset must include baseline_replay positive control")
-    if "socket_x_pos_25mm_negative_control" in case_ids:
+    if DEFAULT_NEGATIVE_CONTROL in case_ids:
         failures.append("dataset must exclude the fail_closed negative control from label source review")
+    dataset_negative = (
+        dataset.get("negative_control_evidence")
+        if isinstance(dataset.get("negative_control_evidence"), dict)
+        else {}
+    )
 
     if feature_dry_run:
         if feature_dry_run.get("status") != READY_FEATURE_STATUS:
@@ -258,6 +284,11 @@ def build_audit(
             failures.append("feature dry-run target_status must remain NOT_GENERATED")
         if feature_dry_run.get("dataset") and not _same_repo_path(str(feature_dry_run.get("dataset")), dataset_path):
             failures.append("feature dry-run points at a different dataset path")
+    feature_negative = (
+        feature_dry_run.get("negative_control_evidence")
+        if isinstance(feature_dry_run.get("negative_control_evidence"), dict)
+        else {}
+    )
 
     if experiment_plan:
         if experiment_plan.get("status") != READY_EXPERIMENT_STATUS:
@@ -270,6 +301,25 @@ def build_audit(
             forbidden
         ):
             failures.append("policy experiment plan must preserve raw joint, direct Cartesian, and force bans")
+    experiment_negative = (
+        experiment_plan.get("negative_control_evidence")
+        if isinstance(experiment_plan.get("negative_control_evidence"), dict)
+        else {}
+    )
+    for failure in (
+        _negative_control_failure("dataset", dataset_negative),
+        _negative_control_failure("policy feature dry-run", feature_negative),
+        _negative_control_failure("policy experiment plan", experiment_negative),
+    ):
+        if failure:
+            failures.append(failure)
+    evidence_checksums = {
+        str(evidence.get("trace_sha256"))
+        for evidence in (dataset_negative, feature_negative, experiment_negative)
+        if evidence.get("trace_sha256")
+    }
+    if len(evidence_checksums) > 1:
+        failures.append("negative_control_evidence trace_sha256 values must match across dataset, feature dry-run, and experiment plan")
 
     target_channel_names = [channel["name"] for channel in TARGET_CHANNEL_SCHEMA]
     for name in target_channel_names:
@@ -336,6 +386,7 @@ def build_audit(
         "policy_experiment_plan": _rel(experiment_plan_path),
         "dataset_case_count": len(cases),
         "case_ids": case_ids,
+        "negative_control_evidence": dataset_negative or feature_negative or experiment_negative,
         "target_channel_schema": TARGET_CHANNEL_SCHEMA,
         "target_channel_names": target_channel_names,
         "case_reports": case_reports,
@@ -343,7 +394,7 @@ def build_audit(
             "manual review of allowed target channels",
             "implement a separate no-GPU label-generation dry-run over trace windows",
             "prove the label generator ignores raw_action and joint_pos_des even when traces contain them",
-            "run a negative-control label-source audit before any policy training",
+            "keep fail-closed negative-control evidence outside label sources before any policy training",
         ],
         "blockers": failures,
         "warnings": warnings,
@@ -371,6 +422,13 @@ def _render_markdown(audit: dict[str, Any]) -> str:
         f"- policy_feature_dry_run: {audit['policy_feature_dry_run']}",
         f"- policy_experiment_plan: {audit['policy_experiment_plan']}",
         f"- dataset_case_count: {audit['dataset_case_count']}",
+        "",
+        "## Negative Control Evidence",
+        "",
+        f"- case_id: {audit.get('negative_control_evidence', {}).get('case_id')}",
+        f"- expected: {audit.get('negative_control_evidence', {}).get('expected')}",
+        f"- classification: {audit.get('negative_control_evidence', {}).get('classification')}",
+        f"- excluded_from_training_cases: {audit.get('negative_control_evidence', {}).get('excluded_from_training_cases')}",
         "",
         "## Target Channel Schema",
         "",

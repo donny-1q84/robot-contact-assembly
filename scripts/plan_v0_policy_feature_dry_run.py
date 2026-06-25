@@ -103,6 +103,26 @@ def _case_ids(dataset: dict[str, Any]) -> list[str]:
     return [str(case.get("case_id")) for case in cases if isinstance(case, dict)]
 
 
+def _negative_control_failure(prefix: str, evidence: dict[str, Any], *, negative_control_id: str) -> str | None:
+    if not evidence:
+        return f"{prefix} must preserve negative_control_evidence"
+    if evidence.get("case_id") != negative_control_id:
+        return (
+            f"{prefix} negative_control_evidence.case_id must be {negative_control_id}, "
+            f"got {evidence.get('case_id')}"
+        )
+    if evidence.get("expected") != "fail_closed":
+        return f"{prefix} negative_control_evidence.expected must be fail_closed, got {evidence.get('expected')}"
+    if evidence.get("classification") != "fail_closed":
+        return (
+            f"{prefix} negative_control_evidence.classification must be fail_closed, "
+            f"got {evidence.get('classification')}"
+        )
+    if evidence.get("excluded_from_training_cases") is not True:
+        return f"{prefix} negative_control_evidence must preserve excluded_from_training_cases=true"
+    return None
+
+
 def _same_repo_path(left: str | None, right: Path) -> bool:
     if not left:
         return False
@@ -215,6 +235,11 @@ def build_dry_run(
         failures.append(f"dataset must exclude negative-control case {negative_control_id}")
     if len(case_ids) != len(set(case_ids)):
         failures.append("dataset case IDs must be unique")
+    dataset_negative = (
+        dataset.get("negative_control_evidence")
+        if isinstance(dataset.get("negative_control_evidence"), dict)
+        else {}
+    )
 
     if dataset_audit:
         if dataset_audit.get("status") != "PASS":
@@ -234,6 +259,27 @@ def build_dry_run(
             failures.append("policy experiment plan must keep ready_for_training=false")
         if experiment_plan.get("dataset") and not _same_repo_path(str(experiment_plan.get("dataset")), dataset_path):
             failures.append("policy experiment plan points at a different dataset path")
+        experiment_negative = (
+            experiment_plan.get("negative_control_evidence")
+            if isinstance(experiment_plan.get("negative_control_evidence"), dict)
+            else {}
+        )
+        for failure in (
+            _negative_control_failure("dataset", dataset_negative, negative_control_id=negative_control_id),
+            _negative_control_failure(
+                "policy experiment plan",
+                experiment_negative,
+                negative_control_id=negative_control_id,
+            ),
+        ):
+            if failure:
+                failures.append(failure)
+        if (
+            dataset_negative
+            and experiment_negative
+            and dataset_negative.get("trace_sha256") != experiment_negative.get("trace_sha256")
+        ):
+            failures.append("dataset and policy experiment plan negative_control_evidence trace_sha256 values must match")
         forbidden = set(experiment_plan.get("experiment", {}).get("forbidden_outputs", []))
         if not {"raw_joint_targets", "direct_cartesian_servo_commands", "direct_force_commands"}.issubset(
             forbidden
@@ -275,6 +321,7 @@ def build_dry_run(
         "policy_experiment_plan": _rel(experiment_plan_path),
         "sample_count": len(feature_records) if not failures else len(feature_records),
         "case_ids": case_ids,
+        "negative_control_evidence": dataset_negative,
         "feature_schema": FEATURE_SCHEMA,
         "feature_names": feature_names,
         "feature_count": len(feature_names),
@@ -282,6 +329,7 @@ def build_dry_run(
         "target_schema": target_schema,
         "required_before_training": [
             "manual review of this feature schema and sample preview",
+            "negative-control fail-closed evidence remains outside feature samples",
             "explicit residual target design in the skill-controller action space",
             "separate no-GPU label-generation dry-run before any PyTorch training",
             "fixed budget, timeout, artifact plan, and cleanup plan before any paid Isaac evaluation",
@@ -311,6 +359,13 @@ def _render_markdown(dry_run: dict[str, Any]) -> str:
         f"- sample_count: {dry_run['sample_count']}",
         f"- feature_count: {dry_run['feature_count']}",
         f"- target_status: {dry_run['target_schema']['target_status']}",
+        "",
+        "## Negative Control Evidence",
+        "",
+        f"- case_id: {dry_run.get('negative_control_evidence', {}).get('case_id')}",
+        f"- expected: {dry_run.get('negative_control_evidence', {}).get('expected')}",
+        f"- classification: {dry_run.get('negative_control_evidence', {}).get('classification')}",
+        f"- excluded_from_training_cases: {dry_run.get('negative_control_evidence', {}).get('excluded_from_training_cases')}",
         "",
         "## Feature Schema",
         "",

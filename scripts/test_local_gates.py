@@ -3279,6 +3279,15 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"feature dry-run missing socket_delta_x_m: {policy_feature_dry_run}")
         if policy_feature_dry_run["target_schema"]["target_status"] != "NOT_GENERATED":
             raise AssertionError(f"feature dry-run must not generate residual targets: {policy_feature_dry_run}")
+        feature_negative_evidence = policy_feature_dry_run.get("negative_control_evidence")
+        if not isinstance(feature_negative_evidence, dict):
+            raise AssertionError(f"feature dry-run should carry negative-control evidence: {policy_feature_dry_run}")
+        if feature_negative_evidence.get("case_id") != "socket_x_pos_25mm_negative_control":
+            raise AssertionError(f"feature dry-run should name the negative-control case: {feature_negative_evidence}")
+        if feature_negative_evidence.get("classification") != "fail_closed":
+            raise AssertionError(f"feature dry-run should preserve fail-closed evidence: {feature_negative_evidence}")
+        if feature_negative_evidence.get("excluded_from_training_cases") is not True:
+            raise AssertionError(f"feature dry-run should preserve training exclusion: {feature_negative_evidence}")
         feature_payload = json.dumps(
             {
                 "feature_names": policy_feature_dry_run["feature_names"],
@@ -3292,6 +3301,32 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError("feature dry-run must keep raw joint targets forbidden")
         if "V0 Policy Feature Dry Run" not in policy_feature_md.read_text(encoding="utf-8"):
             raise AssertionError("feature dry-run README should include a clear title")
+        if "Negative Control Evidence" not in policy_feature_md.read_text(encoding="utf-8"):
+            raise AssertionError("feature dry-run README should surface negative-control evidence")
+        missing_negative_feature_json = tmp_dir / "policy_feature_dry_run" / "missing_negative_evidence.json"
+        missing_negative_feature = json.loads(policy_feature_json.read_text(encoding="utf-8"))
+        missing_negative_feature.pop("negative_control_evidence", None)
+        missing_negative_feature_json.write_text(json.dumps(missing_negative_feature), encoding="utf-8")
+        result = run(
+            [
+                "python3",
+                "scripts/audit_v0_policy_label_sources.py",
+                "--dataset",
+                str(dataset_json),
+                "--policy-feature-dry-run",
+                str(missing_negative_feature_json),
+                "--policy-experiment-plan",
+                str(policy_experiment_json),
+                "--no-output",
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 1, "V0 label-source audit rejects feature dry-run missing negative-control evidence")
+        assert_contains(
+            result,
+            "policy feature dry-run must preserve negative_control_evidence",
+            "missing feature negative evidence failure detail",
+        )
         policy_label_source_json = tmp_dir / "policy_label_source_audit" / "audit.json"
         policy_label_source_md = tmp_dir / "policy_label_source_audit" / "README.md"
         result = run(
@@ -3326,6 +3361,15 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"label-source audit must remain design-only: {policy_label_source_audit}")
         if "residual_socket_offset_x_m" not in policy_label_source_audit["target_channel_names"]:
             raise AssertionError(f"label-source audit missing socket offset target: {policy_label_source_audit}")
+        label_source_negative_evidence = policy_label_source_audit.get("negative_control_evidence")
+        if not isinstance(label_source_negative_evidence, dict):
+            raise AssertionError(f"label-source audit should carry negative-control evidence: {policy_label_source_audit}")
+        if label_source_negative_evidence.get("case_id") != "socket_x_pos_25mm_negative_control":
+            raise AssertionError(f"label-source audit should name negative-control case: {label_source_negative_evidence}")
+        if label_source_negative_evidence.get("classification") != "fail_closed":
+            raise AssertionError(f"label-source audit should preserve fail-closed evidence: {label_source_negative_evidence}")
+        if label_source_negative_evidence.get("excluded_from_training_cases") is not True:
+            raise AssertionError(f"label-source audit should preserve training exclusion: {label_source_negative_evidence}")
         target_payload = json.dumps(policy_label_source_audit["target_channel_schema"], sort_keys=True)
         if "raw_joint" in target_payload or "joint_pos" in target_payload:
             raise AssertionError("label-source target schema must not expose raw joint labels")
@@ -3336,6 +3380,8 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError("label-source audit should record raw_action as present but excluded")
         if "V0 Policy Label Source Audit" not in policy_label_source_md.read_text(encoding="utf-8"):
             raise AssertionError("label-source audit README should include a clear title")
+        if "Negative Control Evidence" not in policy_label_source_md.read_text(encoding="utf-8"):
+            raise AssertionError("label-source audit README should surface negative-control evidence")
         policy_label_json = tmp_dir / "policy_label_dry_run" / "labels.json"
         policy_label_md = tmp_dir / "policy_label_dry_run" / "README.md"
         result = run(
