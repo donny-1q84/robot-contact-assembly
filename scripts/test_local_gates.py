@@ -1779,6 +1779,20 @@ def run_success_variation_manifest_tests() -> None:
                 case["trace_json"] = str(source_trace)
         pass_manifest_path = tmp_dir / "success_variations_pass.json"
         pass_manifest_path.write_text(json.dumps(pass_manifest), encoding="utf-8")
+
+        sparse_coverage_manifest = json.loads(pass_manifest_path.read_text(encoding="utf-8"))
+        for case in sparse_coverage_manifest["cases"]:
+            if case["case_id"] in {"socket_y_neg_1mm", "socket_z_pos_1mm"}:
+                case["trace_json"] = str(bad_trace)
+        sparse_coverage_manifest_path = tmp_dir / "success_variations_sparse_coverage.json"
+        sparse_coverage_manifest_path.write_text(json.dumps(sparse_coverage_manifest), encoding="utf-8")
+        result = run(
+            ["python3", "scripts/check_success_variation_batch_results.py", str(sparse_coverage_manifest_path)]
+        )
+        assert_status(result, 1, "success variation result gate rejects sparse variation coverage")
+        assert_contains(result, "missing required strict-success variation coverage groups", "sparse coverage failure detail")
+        assert_contains(result, "socket_z", "sparse coverage missing group detail")
+
         result = run(["python3", "scripts/check_success_variation_batch_results.py", str(pass_manifest_path)])
         assert_status(result, 0, "success variation result gate accepts strict successes plus fail-closed negative")
         assert_contains(result, "[success-variation-result-gate] PASS", "success variation result-gate PASS detail")

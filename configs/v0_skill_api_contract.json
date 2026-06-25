@@ -72,6 +72,12 @@
     "requires_success_variation_result_gate_pass": true,
     "requires_post_batch_assumption_audit_pass": true,
     "requires_min_strict_success_traces": 5,
+    "requires_strict_success_variation_coverage_groups": [
+      "seed_or_reset",
+      "socket_x",
+      "socket_y",
+      "socket_z"
+    ],
     "requires_negative_control_fail_closed": true,
     "requires_no_missing_planned_traces": true,
     "requires_dataset_review_before_policy_training": true

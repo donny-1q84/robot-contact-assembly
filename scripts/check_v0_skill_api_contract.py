@@ -161,6 +161,12 @@ def build_report(contract_path: Path) -> dict[str, Any]:
     min_strict = promotion.get("requires_min_strict_success_traces")
     if not isinstance(min_strict, int) or min_strict < 5:
         failures.append("promotion_gates.requires_min_strict_success_traces must be an integer >= 5")
+    _require_list_items(
+        name="promotion_gates.requires_strict_success_variation_coverage_groups",
+        values=_list_field(promotion, "requires_strict_success_variation_coverage_groups", failures),
+        required={"seed_or_reset", "socket_x", "socket_y", "socket_z"},
+        failures=failures,
+    )
 
     adapter = contract.get("robot_adapter_contract")
     if not isinstance(adapter, dict):

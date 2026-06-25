@@ -442,8 +442,10 @@ python3 scripts/check_success_variation_batch_results.py \
 
 The default promotion contract is deliberately strict: `baseline_replay` must
 remain `strict_success`, at least 5 non-baseline/non-negative variations must be
-`strict_success`, the `socket_x_pos_25mm_negative_control` must be
-`fail_closed`, and no planned trace artifact may be missing.
+`strict_success`, strict successes must cover `seed_or_reset`, `socket_x`,
+`socket_y`, and `socket_z` variation groups, the
+`socket_x_pos_25mm_negative_control` must be labeled `expected=fail_closed` and
+classified `fail_closed`, and no planned trace artifact may be missing.
 
 Only after that result gate passes, freeze the first V0 scripted-skill dataset
 manifest with:

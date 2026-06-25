@@ -158,6 +158,12 @@ def classify_case(
     results_root: Path | None,
 ) -> dict[str, Any]:
     case_id = str(case.get("case_id") or "<missing-case-id>")
+    case_metadata = {
+        "socket_delta_m": case.get("socket_delta_m"),
+        "reset_joint_noise_rad": case.get("reset_joint_noise_rad"),
+        "status": case.get("status"),
+        "rationale": case.get("rationale"),
+    }
     trace_path = _first_existing_trace(case, results_root=results_root)
     if trace_path is None:
         return {
@@ -166,6 +172,7 @@ def classify_case(
             "classification": "missing",
             "trace_json": None,
             "failure_reasons": ["trace artifact is missing"],
+            **case_metadata,
         }
 
     try:
@@ -180,6 +187,7 @@ def classify_case(
             "classification": "fail_closed",
             "trace_json": _rel(trace_path),
             "failure_reasons": [f"trace evaluation failed: {exc}"],
+            **case_metadata,
         }
 
     strict_success = bool(
@@ -210,6 +218,7 @@ def classify_case(
         "expected": case.get("expected"),
         "classification": classification,
         "trace_json": _rel(trace_path),
+        **case_metadata,
         "strict_success": strict_success,
         "near_success": near_success,
         "gates": {

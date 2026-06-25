@@ -94,9 +94,11 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    `scripts/finalize_success_variation_batch.sh` to write the review record,
    enforce the strict result gate, and prepare the V0 scripted-skill dataset
    only if the gate passes. The result gate requires at least 5
-   non-baseline/non-negative strict successes, `baseline_replay` still
-   `strict_success`, the 25 mm socket-shift negative control `fail_closed`, and
-   no missing planned trace artifacts before learned policy, VLM, ROS, or
+   non-baseline/non-negative strict successes, strict-success coverage across
+   `seed_or_reset`, `socket_x`, `socket_y`, and `socket_z` variation groups,
+   `baseline_replay` still `strict_success`, the 25 mm socket-shift negative
+   control labeled `expected=fail_closed` and classified `fail_closed`, and no
+   missing planned trace artifacts before learned policy, VLM, ROS, or
    sim-to-real claims. The finalizer does not create or delete Brev instances
    and must fail closed in the current baseline-only state.
 9. keep the V0 language/skill/robot-adapter boundary checked by
@@ -131,6 +133,7 @@ credit_evidence: configs/brev_credit_verification.local.json is ignored and must
 pre_batch_assumption_audit: blocked until one-run paid acknowledgements exist; planned traces may still be missing
 post_batch_assumption_audit: blocked until planned traces and negative control results exist
 skill_api_contract: configs/v0_skill_api_contract.json passes local contract check
+skill_api_promotion_coverage: requires strict-success seed/reset plus socket X/Y/Z variation coverage before policy/API promotion
 skill_request_contract: configs/v0_skill_request.example.json passes local request check
 skill_request_planner: scripts/plan_v0_skill_request.py maps supported insert instructions only
 skill_readiness: scripts/check_v0_skill_readiness.py is blocked until variation traces and dataset exist
