@@ -4243,17 +4243,26 @@ def run_success_variation_manifest_tests() -> None:
             ]
         )
         assert_status(result, 0, "success variation paid lifecycle dry-run preserves custom config")
-        assert_contains(result, f"--config {custom_lifecycle_config}", "paid lifecycle custom config prepare detail")
+        custom_lifecycle_facts, _ = json.JSONDecoder().raw_decode(
+            result.stdout.split("[success-variation-lifecycle] facts=", 1)[1].lstrip()
+        )
+        if custom_lifecycle_facts["commands"]["prepare"][
+            custom_lifecycle_facts["commands"]["prepare"].index("--config") + 1
+        ] != str(custom_lifecycle_config):
+            raise AssertionError(
+                f"paid lifecycle custom config should be preserved in prepare command: {custom_lifecycle_facts}"
+            )
         assert_contains(
             result,
             "success_trace_variations_2026-06-25.json",
             "paid lifecycle custom manifest preflight detail",
         )
-        assert_contains(
-            result,
-            f"--credit-output {custom_lifecycle_credit}",
-            "paid lifecycle custom credit evidence detail",
-        )
+        if custom_lifecycle_facts["commands"]["prepare"][
+            custom_lifecycle_facts["commands"]["prepare"].index("--credit-output") + 1
+        ] != str(custom_lifecycle_credit):
+            raise AssertionError(
+                f"paid lifecycle custom credit evidence should be preserved in prepare command: {custom_lifecycle_facts}"
+            )
         result = run(["python3", "scripts/run_success_variation_paid_lifecycle.py"])
         assert_status(result, 1, "success variation paid lifecycle blocks without explicit run inputs")
         assert_contains(result, "BLOCKED", "paid lifecycle blocked marker")

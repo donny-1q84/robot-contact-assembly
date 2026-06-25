@@ -61,7 +61,13 @@ def parse_current_archive(text: str) -> tuple[Path, str]:
     for line in text.splitlines():
         if "gmail_draft_attachment" in line or re.match(r"\s*attachment:", line):
             continue
-        archive_refs.extend(re.findall(r"`?([^`\s]+\.tar\.gz)`?", line))
+        archive_line = re.match(r"\s*archive:\s*(.+?\.tar\.gz)\s*$", line)
+        if archive_line:
+            archive_refs.append(archive_line.group(1).strip())
+        backtick_refs = [match.strip() for match in re.findall(r"`([^`]+\.tar\.gz)`", line)]
+        archive_refs.extend(backtick_refs)
+        if not archive_line and not backtick_refs:
+            archive_refs.extend(match.strip() for match in re.findall(r"(?<!`)([^\s`]+\.tar\.gz)(?!`)", line))
         sha_refs.extend(re.findall(r"sha256[=:]\s*([0-9a-f]{64})", line))
 
     if not archive_refs:
