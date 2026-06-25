@@ -1346,6 +1346,7 @@ def run_v0_skill_api_contract_tests() -> None:
     policy_experiment_path = REPO_ROOT / "scripts" / "plan_v0_policy_experiment.py"
     policy_feature_dry_run_path = REPO_ROOT / "scripts" / "plan_v0_policy_feature_dry_run.py"
     policy_label_source_audit_path = REPO_ROOT / "scripts" / "audit_v0_policy_label_sources.py"
+    policy_label_dry_run_path = REPO_ROOT / "scripts" / "plan_v0_policy_label_dry_run.py"
     robot_adapter_path = REPO_ROOT / "configs" / "v0_external_robot_adapter.template.json"
     robot_adapter_checker_path = REPO_ROOT / "scripts" / "check_v0_robot_adapter_contract.py"
     robot_adapter_planner_path = REPO_ROOT / "scripts" / "plan_v0_robot_adapter_manifest.py"
@@ -1398,6 +1399,11 @@ def run_v0_skill_api_contract_tests() -> None:
     assert_contains(result, "[v0-policy-label-source-audit] status=BLOCKED", "V0 policy label-source blocked detail")
     result = run(["python3", str(policy_label_source_audit_path), "--no-output", "--fail-on-blocked"])
     assert_status(result, 1, "V0 policy label-source audit can fail closed before feature dry-run exists")
+    result = run(["python3", str(policy_label_dry_run_path), "--no-output"])
+    assert_status(result, 0, "V0 policy label dry-run reports blocked current state without failing by default")
+    assert_contains(result, "[v0-policy-label-dry-run] status=BLOCKED", "V0 policy label dry-run blocked detail")
+    result = run(["python3", str(policy_label_dry_run_path), "--no-output", "--fail-on-blocked"])
+    assert_status(result, 1, "V0 policy label dry-run can fail closed before label-source audit exists")
 
     checker = checker_path.read_text(encoding="utf-8")
     request_checker = request_checker_path.read_text(encoding="utf-8")
@@ -1409,6 +1415,7 @@ def run_v0_skill_api_contract_tests() -> None:
     policy_experiment = policy_experiment_path.read_text(encoding="utf-8")
     policy_feature_dry_run = policy_feature_dry_run_path.read_text(encoding="utf-8")
     policy_label_source_audit = policy_label_source_audit_path.read_text(encoding="utf-8")
+    policy_label_dry_run = policy_label_dry_run_path.read_text(encoding="utf-8")
     robot_adapter_checker = robot_adapter_checker_path.read_text(encoding="utf-8")
     robot_adapter_planner = robot_adapter_planner_path.read_text(encoding="utf-8")
     for expected_snippet in (
@@ -1535,6 +1542,19 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"V0 policy label-source audit missing snippet: {expected_snippet}")
     if "brev create" in policy_label_source_audit or '"${BREV_BIN}" create' in policy_label_source_audit:
         raise AssertionError("V0 policy label-source audit must be offline and must not create Brev instances")
+    for expected_snippet in (
+        "Dry-run V0 residual-policy label generation",
+        "READY_FOR_LABEL_DRY_RUN_REVIEW",
+        "DRY_RUN_PREVIEW_ONLY",
+        "not full label dataset",
+        "socket_insertion_servo_offset_socket",
+        "recording raw joint/action fields as excluded evidence",
+        "does not train a policy",
+    ):
+        if expected_snippet not in policy_label_dry_run:
+            raise AssertionError(f"V0 policy label dry-run missing snippet: {expected_snippet}")
+    if "brev create" in policy_label_dry_run or '"${BREV_BIN}" create' in policy_label_dry_run:
+        raise AssertionError("V0 policy label dry-run must be offline and must not create Brev instances")
     for expected_snippet in (
         "external-arm portability",
         "ready_for_external_robot cannot be true while adapter evidence blockers remain",
@@ -2303,6 +2323,56 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError("label-source audit should record raw_action as present but excluded")
         if "V0 Policy Label Source Audit" not in policy_label_source_md.read_text(encoding="utf-8"):
             raise AssertionError("label-source audit README should include a clear title")
+        policy_label_json = tmp_dir / "policy_label_dry_run" / "labels.json"
+        policy_label_md = tmp_dir / "policy_label_dry_run" / "README.md"
+        result = run(
+            [
+                "python3",
+                "scripts/plan_v0_policy_label_dry_run.py",
+                "--dataset",
+                str(dataset_json),
+                "--policy-feature-dry-run",
+                str(policy_feature_json),
+                "--policy-label-source-audit",
+                str(policy_label_source_json),
+                "--output-json",
+                str(policy_label_json),
+                "--output-md",
+                str(policy_label_md),
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 0, "V0 policy label dry-run accepts ready label-source audit and traces")
+        assert_contains(
+            result,
+            "READY_FOR_LABEL_DRY_RUN_REVIEW",
+            "V0 policy label dry-run ready detail",
+        )
+        policy_label_dry_run = json.loads(policy_label_json.read_text(encoding="utf-8"))
+        if policy_label_dry_run["ready_for_training"] is not False:
+            raise AssertionError(f"label dry-run must not mark training ready: {policy_label_dry_run}")
+        if policy_label_dry_run["label_generation_status"] != "DRY_RUN_PREVIEW_ONLY":
+            raise AssertionError(f"label dry-run must remain preview-only: {policy_label_dry_run}")
+        if policy_label_dry_run["candidate_label_window_count"] <= 0:
+            raise AssertionError(f"label dry-run should find candidate label windows: {policy_label_dry_run}")
+        if "residual_socket_offset_x_m" not in policy_label_dry_run["label_names"]:
+            raise AssertionError(f"label dry-run missing socket offset label: {policy_label_dry_run}")
+        label_schema_payload = json.dumps(policy_label_dry_run["label_schema"], sort_keys=True)
+        if "raw_joint" in label_schema_payload or "joint_pos" in label_schema_payload:
+            raise AssertionError("label dry-run schema must not expose raw joint labels")
+        label_values_payload = json.dumps(
+            [sample["labels"] for sample in policy_label_dry_run["sample_preview"]],
+            sort_keys=True,
+        )
+        if "raw_action" in label_values_payload or "joint_pos" in label_values_payload:
+            raise AssertionError("label dry-run samples must not contain raw action or joint labels")
+        if not any(
+            "raw_action" in case_report["forbidden_trace_fields_present_but_excluded"]
+            for case_report in policy_label_dry_run["case_reports"]
+        ):
+            raise AssertionError("label dry-run should record raw_action as present but excluded")
+        if "V0 Policy Label Dry Run" not in policy_label_md.read_text(encoding="utf-8"):
+            raise AssertionError("label dry-run README should include a clear title")
         result = run(
             [
                 "python3",
