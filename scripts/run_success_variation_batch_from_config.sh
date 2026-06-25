@@ -82,6 +82,24 @@ load_config() {
 
 load_config
 
+disarm_on_exit() {
+  local status=$?
+  if [[ "${MODE}" == "--run" && "${RCA_SUCCESS_VARIATION_AUTO_DISARM:-1}" == "1" ]]; then
+    echo "[success-variation-config] auto-disarming paid local env"
+    if ! python3 "${SCRIPT_DIR}/arm_success_variation_paid_env.py" \
+      --config "${CONFIG_PATH}" \
+      --output "${CONFIG_PATH}" \
+      --disarm; then
+      echo "[success-variation-config] warning: auto-disarm failed; run scripts/arm_success_variation_paid_env.py --disarm manually" >&2
+    fi
+  fi
+  exit "${status}"
+}
+
+if [[ "${MODE}" == "--run" ]]; then
+  trap disarm_on_exit EXIT
+fi
+
 MANIFEST="${RCA_SUCCESS_VARIATION_MANIFEST:-${REPO_ROOT}/artifacts/manifests/success_trace_variations_2026-06-25.json}"
 if [[ ! "${MANIFEST}" = /* ]]; then
   MANIFEST="${REPO_ROOT}/${MANIFEST}"

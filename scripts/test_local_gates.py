@@ -1954,6 +1954,9 @@ def run_success_variation_manifest_tests() -> None:
             "writing read-only run packet",
             "writing read-only pre-batch assumption audit",
             "--phase pre-batch",
+            "auto-disarming paid local env",
+            "trap disarm_on_exit EXIT",
+            "RCA_SUCCESS_VARIATION_AUTO_DISARM",
             "Real acknowledgement values should live in the ignored *.local.env file",
             "disallowed config key",
             "RCA_*|BREV_BIN",
@@ -1966,6 +1969,7 @@ def run_success_variation_manifest_tests() -> None:
         for expected_snippet in (
             "RCA_SUCCESS_VARIATION_MANIFEST=artifacts/manifests/success_trace_variations_2026-06-25.json",
             "RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES=75",
+            "RCA_SUCCESS_VARIATION_AUTO_DISARM=1",
             "RCA_PAID_BUDGET_EUR=6.00",
             "RCA_PAID_ESTIMATED_EUR_PER_HOUR=4.50",
             "RCA_BREV_CREDIT_EVIDENCE_JSON=configs/brev_credit_verification.local.json",
@@ -2458,6 +2462,7 @@ def run_success_variation_manifest_tests() -> None:
             "RCA_ALLOW_PAID_BREV_CREATE=0",
             "RCA_BREV_CREDITS_VERIFIED=0",
             "RCA_ACK_BREV_LIFECYCLE_RISK=0",
+            "RCA_SUCCESS_VARIATION_AUTO_DISARM=1",
             "RCA_PAID_ARMED_AT_UTC=",
             "RCA_PAID_ARMING_MAX_AGE_MINUTES=15",
         ):

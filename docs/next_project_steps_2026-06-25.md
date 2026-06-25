@@ -373,7 +373,9 @@ env after credit evidence and Brev safety checks pass. It also writes
 `RCA_PAID_ARMED_AT_UTC`; the readiness gate treats the arming as stale after
 `RCA_PAID_ARMING_MAX_AGE_MINUTES` and blocks the paid run. It does not create,
 delete, copy to, or execute on Brev instances. Run `--check-only` immediately
-after arming and before any `--run`. Use this to clear stale acknowledgements:
+after arming and before any `--run`. The `--run` launcher automatically disarms
+the local env on exit; use this manually if a run is not started or you need to
+clear stale acknowledgements:
 
 ```bash
 python3 scripts/arm_success_variation_paid_env.py --disarm
