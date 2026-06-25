@@ -443,16 +443,31 @@ def _render_markdown(report: dict[str, Any]) -> str:
         f"- next_action: {report['next_action']}",
         f"- pre_batch_assumption_audit: "
         f"{(report.get('pre_batch_assumption_audit') or {}).get('audit_status')}",
-        "",
-        "## Lifecycle Command Template",
-        "",
-        "```bash",
-        " ".join(report["lifecycle_command_template"]),
-        "```",
-        "",
-        "## Blockers",
-        "",
     ]
+    armability = report.get("armability") if isinstance(report.get("armability"), dict) else {}
+    brev_safety = armability.get("brev_safety") if isinstance(armability.get("brev_safety"), dict) else {}
+    if brev_safety:
+        lines.extend(
+            [
+                f"- brev_safety_status: {brev_safety.get('status')}",
+                f"- brev_visible_instances: {brev_safety.get('visible_instances')}",
+                f"- brev_watchdog_processes: {brev_safety.get('watchdog_processes')}",
+                f"- brev_manual_delete_alerts: {brev_safety.get('manual_delete_alerts')}",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "## Lifecycle Command Template",
+            "",
+            "```bash",
+            " ".join(report["lifecycle_command_template"]),
+            "```",
+            "",
+            "## Blockers",
+            "",
+        ]
+    )
     if report["blockers"]:
         lines.extend(f"- {item}" for item in report["blockers"])
     else:

@@ -178,13 +178,25 @@ def _int_value(values: dict[str, str], key: str, blockers: list[str]) -> int | N
 
 
 def _parse_brev_safety_output(text: str, *, exit_code: int) -> dict[str, Any]:
-    status = None
+    fields: dict[str, str] = {}
     for line in text.splitlines():
-        if line.startswith("[brev-safety] status="):
-            status = line.split("=", 1)[1].strip()
+        if not line.startswith("[brev-safety] "):
+            continue
+        payload = line.removeprefix("[brev-safety] ").strip()
+        if "=" not in payload:
+            continue
+        key, value = payload.split("=", 1)
+        fields[key.strip()] = value.strip()
     return {
         "exit_code": exit_code,
-        "status": status,
+        "status": fields.get("status"),
+        "visible_instances": fields.get("visible_instances"),
+        "watchdog_processes": fields.get("watchdog_processes"),
+        "manual_delete_alerts": fields.get("manual_delete_alerts"),
+        "instance_list": fields.get("instance_list"),
+        "org_list": fields.get("org_list"),
+        "healthcheck": fields.get("healthcheck"),
+        "lifecycle_hold": fields.get("lifecycle_hold"),
         "output_tail": text[-3000:],
     }
 

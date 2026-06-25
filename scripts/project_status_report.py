@@ -278,8 +278,14 @@ def success_variation_paid_lifecycle_preflight_status() -> Check:
     plan = facts.get("batch_plan_gate") if isinstance(facts.get("batch_plan_gate"), dict) else {}
     lifecycle_plan = facts.get("lifecycle_plan") if isinstance(facts.get("lifecycle_plan"), dict) else {}
     lifecycle_budget = lifecycle_plan.get("budget") if isinstance(lifecycle_plan.get("budget"), dict) else {}
+    armability = facts.get("armability") if isinstance(facts.get("armability"), dict) else {}
+    brev_safety = armability.get("brev_safety") if isinstance(armability.get("brev_safety"), dict) else {}
     detail = (
         f"config={facts.get('config')}; credit={credit.get('status')}; "
+        f"brev_safety={brev_safety.get('status')}; "
+        f"visible_instances={brev_safety.get('visible_instances')}; "
+        f"watchdog_processes={brev_safety.get('watchdog_processes')}; "
+        f"manual_delete_alerts={brev_safety.get('manual_delete_alerts')}; "
         f"plan_exit={plan.get('exit_code')}; "
         f"watchdog_max_minutes={lifecycle_budget.get('watchdog_max_minutes')}; "
         f"estimated_max_cost_eur={lifecycle_budget.get('estimated_max_cost_eur')}; "

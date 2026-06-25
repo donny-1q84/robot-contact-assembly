@@ -3827,7 +3827,21 @@ def run_success_variation_manifest_tests() -> None:
         )
         ready_config_path.write_text(ready_config_text, encoding="utf-8")
         fake_safe_brev = tmp_dir / "paid_lifecycle_preflight_ready" / "brev_safety_safe.txt"
-        fake_safe_brev.write_text("[brev-safety] status=SAFE_NO_VISIBLE_PAID_INSTANCE\n", encoding="utf-8")
+        fake_safe_brev.write_text(
+            "\n".join(
+                [
+                    "[brev-safety] healthcheck=pass",
+                    "[brev-safety] org_list=pass",
+                    "[brev-safety] instance_list=pass",
+                    "[brev-safety] visible_instances=0",
+                    "[brev-safety] watchdog_processes=none",
+                    "[brev-safety] manual_delete_alerts=none",
+                    "[brev-safety] status=SAFE_NO_VISIBLE_PAID_INSTANCE",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         fake_clean_source = tmp_dir / "paid_lifecycle_preflight_ready" / "project_status_clean.txt"
         fake_clean_source.write_text(
             "\n".join(
@@ -3902,6 +3916,13 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"paid lifecycle preflight should accept valid credit evidence: {ready_preflight}")
         if ready_preflight["armability"]["status"] != "PASS":
             raise AssertionError(f"paid lifecycle preflight should accept safe armability fixture: {ready_preflight}")
+        brev_safety = ready_preflight["armability"]["brev_safety"]
+        if brev_safety["visible_instances"] != "0":
+            raise AssertionError(f"paid lifecycle preflight should expose visible instance count: {ready_preflight}")
+        if brev_safety["watchdog_processes"] != "none":
+            raise AssertionError(f"paid lifecycle preflight should expose watchdog process state: {ready_preflight}")
+        if brev_safety["manual_delete_alerts"] != "none":
+            raise AssertionError(f"paid lifecycle preflight should expose manual-delete alert state: {ready_preflight}")
         if ready_preflight["source_state"]["git_worktree"]["status"] != "CLEAN":
             raise AssertionError(f"paid lifecycle preflight should record clean source state: {ready_preflight}")
         if ready_preflight["source_state"]["contact_smoke_bundle"]["status"] != "READY":
@@ -3924,6 +3945,14 @@ def run_success_variation_manifest_tests() -> None:
         if any(ready_preflight["side_effects"].values()):
             raise AssertionError(f"paid lifecycle preflight must remain side-effect free: {ready_preflight}")
         ready_preflight_md_text = ready_preflight_md.read_text(encoding="utf-8")
+        for expected_snippet in (
+            "brev_safety_status: SAFE_NO_VISIBLE_PAID_INSTANCE",
+            "brev_visible_instances: 0",
+            "brev_watchdog_processes: none",
+            "brev_manual_delete_alerts: none",
+        ):
+            if expected_snippet not in ready_preflight_md_text:
+                raise AssertionError(f"paid lifecycle preflight markdown missing safety snippet {expected_snippet}")
         if "Success Variation Paid Lifecycle Preflight" not in ready_preflight_md_text:
             raise AssertionError("paid lifecycle preflight README should include a clear title")
         if "Cleanup Guards" not in ready_preflight_md_text:
@@ -5954,6 +5983,14 @@ def main() -> int:
             "Success variation paid lifecycle preflight | BLOCKED",
             "status report paid lifecycle preflight detail",
         )
+        assert_contains(
+            result,
+            "brev_safety=",
+            "status report Brev safety status detail",
+        )
+        assert_contains(result, "visible_instances=", "status report visible instance detail")
+        assert_contains(result, "watchdog_processes=", "status report watchdog process detail")
+        assert_contains(result, "manual_delete_alerts=", "status report manual-delete alert detail")
         assert_contains(
             result,
             "Success variation pre-batch assumption audit | BLOCKED",
