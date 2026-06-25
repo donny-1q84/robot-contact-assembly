@@ -5715,6 +5715,11 @@ def main() -> int:
             "write_command=python3 scripts/write_brev_credit_evidence.py",
             "status report write credit command detail",
         )
+        assert_contains(
+            result,
+            "prepare_command=python3 scripts/prepare_success_variation_paid_batch.py",
+            "status report prepare helper detail",
+        )
         assert_contains(result, "V0 skill readiness | BLOCKED", "status report V0 readiness detail")
         assert_contains(result, "V0 policy/API review packet | BLOCKED", "status report V0 policy/API review detail")
         assert_contains(result, "V0 policy training preflight | BLOCKED", "status report V0 training preflight detail")

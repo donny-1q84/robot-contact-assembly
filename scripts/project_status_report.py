@@ -278,13 +278,15 @@ def brev_credit_review_status() -> Check:
     credit = preflight.get("credit_evidence") if isinstance(preflight.get("credit_evidence"), dict) else {}
     commands = facts.get("next_commands") if isinstance(facts.get("next_commands"), dict) else {}
     write_command = commands.get("write_credit_evidence")
+    prepare_command = commands.get("prepare_paid_batch")
     detail = (
         f"packet_status={packet_status}; dashboard_url={facts.get('dashboard_url')}; "
         f"credit_evidence_path={facts.get('credit_evidence_path')}; "
         f"credit_status={credit.get('status')}; budget_eur={facts.get('budget_eur')}; "
         f"writes_credit_evidence={side_effects.get('writes_credit_evidence')}; "
         f"creates_paid_instance={side_effects.get('creates_paid_instance')}; "
-        f"write_command={' '.join(write_command) if isinstance(write_command, list) else '<missing>'}."
+        f"write_command={' '.join(write_command) if isinstance(write_command, list) else '<missing>'}; "
+        f"prepare_command={' '.join(prepare_command) if isinstance(prepare_command, list) else '<missing>'}."
     )
     status = "READY" if packet_status == "READY_FOR_PAID_LIFECYCLE" else "BLOCKED"
     return Check("Brev UI credit review", status, detail)
