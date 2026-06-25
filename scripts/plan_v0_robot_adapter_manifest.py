@@ -134,19 +134,25 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             output_json.write_text(json.dumps(adapter, indent=2, sort_keys=True), encoding="utf-8")
             checker_report = adapter_gate.build_report(output_json)
 
+    if failures:
+        status = "FAIL"
+        next_action = "provide_named_robot_identity_and_interfaces"
+    elif checker_report is not None and checker_report.get("status") == "READY":
+        status = "PASS_READY"
+        next_action = "review_named_robot_adapter_for_low_speed_manual_hardware_gate"
+    else:
+        status = "PASS_SAFE_BLOCKED"
+        next_action = "review_named_robot_adapter_blockers"
+
     return {
-        "status": "PASS" if not failures else "FAIL",
+        "status": status,
         "failures": failures,
         "template": _rel(template_path),
         "output_json": None if args.no_output else _rel(output_json),
         "adapter": adapter,
         "adapter_contract_status": None if checker_report is None else checker_report.get("status"),
         "adapter_contract_blockers": [] if checker_report is None else checker_report.get("blockers", []),
-        "next_action": (
-            "review_named_robot_adapter_blockers"
-            if not failures
-            else "provide_named_robot_identity_and_interfaces"
-        ),
+        "next_action": next_action,
         "not_claims": [
             "not ready for hardware execution",
             "not verified on this robot",
@@ -175,10 +181,10 @@ def main() -> int:
         print("[v0-robot-adapter-planner] blocked: adapter manifest was not written", file=sys.stderr)
 
     print("[v0-robot-adapter-planner] facts=" + json.dumps(report, indent=2, sort_keys=True))
-    if report["status"] == "PASS":
+    if report["status"] in {"PASS_SAFE_BLOCKED", "PASS_READY"}:
         if report["output_json"] is not None:
             print(f"[v0-robot-adapter-planner] wrote adapter JSON: {report['output_json']}")
-        print("[v0-robot-adapter-planner] PASS_SAFE_BLOCKED")
+        print(f"[v0-robot-adapter-planner] {report['status']}")
         return 0
 
     print("[v0-robot-adapter-planner] FAIL")

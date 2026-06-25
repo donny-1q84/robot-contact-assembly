@@ -154,7 +154,9 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    ROS 2 interface names, but it still emits a not-ready adapter manifest. This
    planner also runs the adapter contract checker through a temporary preview
    file when `--no-output` is used, so dry-run output exposes the same
-   `BLOCKED` adapter evidence gaps without leaving artifacts behind. This
+   `BLOCKED` adapter evidence gaps without leaving artifacts behind. Its JSON
+   top-level status is `PASS_SAFE_BLOCKED` while the planned manifest is
+   syntactically usable but still missing adapter evidence. This
    contract keeps language at task-parameter and skill-selection level, forbids
    raw joint/force commands from language requests, and requires robot-specific
    model, calibration, safety, ROS 2 interface, and revalidation gates before
@@ -204,7 +206,7 @@ policy_training_entrypoint: scripts/train_v0_residual_policy.py supports fail-cl
 policy_readiness_pipeline: scripts/run_v0_offline_policy_readiness_pipeline.py chains the offline post-batch review/audit/feature/label/training-preflight/training-dry-run gates; it stays blocked until the V0 variation dataset exists and never creates paid resources; use --no-summary --no-output for read-only status/audit paths
 policy_eval_entrypoint: scripts/evaluate_v0_residual_policy.py verifies training metadata, checkpoint checksum, label manifest checksum, and JSONL checksum before supervised residual-label evaluation; it is not an Isaac closed-loop policy gate
 policy_promotion_gate: scripts/check_v0_policy_promotion_gate.py stays blocked until V0 skill readiness, supervised residual-policy evaluation, and an Isaac closed-loop policy evaluation with the same checkpoint checksum, strict successes, fail-closed negative control, and scripted-baseline comparison are all present
-external_robot_adapter_planner: scripts/plan_v0_robot_adapter_manifest.py writes named-arm manifests that remain safely blocked; --no-output now validates the preview through a temporary contract-check file and reports adapter_contract_status/blockers without writing artifacts
+external_robot_adapter_planner: scripts/plan_v0_robot_adapter_manifest.py writes named-arm manifests that remain safely blocked; --no-output validates the preview through a temporary contract-check file and reports PASS_SAFE_BLOCKED plus adapter_contract_status/blockers without writing artifacts
 external_robot_adapter: configs/v0_external_robot_adapter.template.json is safely blocked by scripts/check_v0_robot_adapter_contract.py; docs/v0_robot_adapter_contract.md defines command/frame/runtime guards so portability is adapter-specific, not drop-in
 portability_boundary: scripts/check_v0_portability_boundary.py combines V0 skill readiness with the named adapter contract and keeps universal_drop_in_ready=false
 portability_review_packet: scripts/prepare_v0_portability_review.py packages the portability boundary, reusable layers, robot-specific layers, current blockers, exact non-drop-in answer, adapter_workplan, and optional target_adapter_preview into JSON/Markdown without touching Brev, Isaac, ROS, or hardware

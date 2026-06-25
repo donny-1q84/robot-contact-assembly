@@ -2013,6 +2013,8 @@ def run_v0_skill_api_contract_tests() -> None:
         )
         if preview_report["adapter_contract_status"] != "BLOCKED":
             raise AssertionError(f"planned adapter preview should run contract checker: {preview_report}")
+        if preview_report["status"] != "PASS_SAFE_BLOCKED":
+            raise AssertionError(f"planned adapter preview status should be safe-blocked: {preview_report}")
         if not preview_report["adapter_contract_blockers"]:
             raise AssertionError(f"planned adapter preview should expose blockers: {preview_report}")
         if preview_report["output_json"] is not None:
@@ -2057,6 +2059,13 @@ def run_v0_skill_api_contract_tests() -> None:
                 raise AssertionError(f"planned adapter missing section: {section}")
         if planned_adapter["runtime_guards"]["abort_on_fault"] is not True:
             raise AssertionError("planned adapter must preserve abort_on_fault guard")
+        planned_report, _ = json.JSONDecoder().raw_decode(
+            result.stdout.split("[v0-robot-adapter-planner] facts=", 1)[1].lstrip()
+        )
+        if planned_report["status"] != "PASS_SAFE_BLOCKED":
+            raise AssertionError(f"planned adapter writer status should be safe-blocked: {planned_report}")
+        if planned_report["adapter_contract_status"] != "BLOCKED":
+            raise AssertionError(f"planned adapter writer should surface blocked checker status: {planned_report}")
         result = run(["python3", str(robot_adapter_checker_path), str(planned_adapter_path)])
         assert_status(result, 0, "V0 robot adapter checker accepts planned manifest as blocked")
         assert_contains(result, "[v0-robot-adapter] BLOCKED", "planned V0 robot adapter blocked detail")
