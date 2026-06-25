@@ -1347,6 +1347,7 @@ def run_v0_skill_api_contract_tests() -> None:
     policy_feature_dry_run_path = REPO_ROOT / "scripts" / "plan_v0_policy_feature_dry_run.py"
     policy_label_source_audit_path = REPO_ROOT / "scripts" / "audit_v0_policy_label_sources.py"
     policy_label_dry_run_path = REPO_ROOT / "scripts" / "plan_v0_policy_label_dry_run.py"
+    policy_label_dataset_path = REPO_ROOT / "scripts" / "extract_v0_policy_label_dataset.py"
     robot_adapter_path = REPO_ROOT / "configs" / "v0_external_robot_adapter.template.json"
     robot_adapter_checker_path = REPO_ROOT / "scripts" / "check_v0_robot_adapter_contract.py"
     robot_adapter_planner_path = REPO_ROOT / "scripts" / "plan_v0_robot_adapter_manifest.py"
@@ -1404,6 +1405,11 @@ def run_v0_skill_api_contract_tests() -> None:
     assert_contains(result, "[v0-policy-label-dry-run] status=BLOCKED", "V0 policy label dry-run blocked detail")
     result = run(["python3", str(policy_label_dry_run_path), "--no-output", "--fail-on-blocked"])
     assert_status(result, 1, "V0 policy label dry-run can fail closed before label-source audit exists")
+    result = run(["python3", str(policy_label_dataset_path), "--no-output"])
+    assert_status(result, 0, "V0 policy label dataset extractor reports blocked current state without failing by default")
+    assert_contains(result, "[v0-policy-label-dataset] status=BLOCKED", "V0 policy label dataset blocked detail")
+    result = run(["python3", str(policy_label_dataset_path), "--no-output", "--fail-on-blocked"])
+    assert_status(result, 1, "V0 policy label dataset extractor can fail closed before label dry-run exists")
 
     checker = checker_path.read_text(encoding="utf-8")
     request_checker = request_checker_path.read_text(encoding="utf-8")
@@ -1416,6 +1422,7 @@ def run_v0_skill_api_contract_tests() -> None:
     policy_feature_dry_run = policy_feature_dry_run_path.read_text(encoding="utf-8")
     policy_label_source_audit = policy_label_source_audit_path.read_text(encoding="utf-8")
     policy_label_dry_run = policy_label_dry_run_path.read_text(encoding="utf-8")
+    policy_label_dataset = policy_label_dataset_path.read_text(encoding="utf-8")
     robot_adapter_checker = robot_adapter_checker_path.read_text(encoding="utf-8")
     robot_adapter_planner = robot_adapter_planner_path.read_text(encoding="utf-8")
     for expected_snippet in (
@@ -1555,6 +1562,19 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"V0 policy label dry-run missing snippet: {expected_snippet}")
     if "brev create" in policy_label_dry_run or '"${BREV_BIN}" create' in policy_label_dry_run:
         raise AssertionError("V0 policy label dry-run must be offline and must not create Brev instances")
+    for expected_snippet in (
+        "Extract a V0 residual-policy label dataset",
+        "READY_FOR_LOCAL_POLICY_DATASET_REVIEW",
+        "jsonl_sha256",
+        "not trained policy",
+        "socket_insertion_servo_offset_socket",
+        "skill_controller_task_parameter_residual",
+        "It does not train a policy",
+    ):
+        if expected_snippet not in policy_label_dataset:
+            raise AssertionError(f"V0 policy label dataset extractor missing snippet: {expected_snippet}")
+    if "brev create" in policy_label_dataset or '"${BREV_BIN}" create' in policy_label_dataset:
+        raise AssertionError("V0 policy label dataset extractor must be offline and must not create Brev instances")
     for expected_snippet in (
         "external-arm portability",
         "ready_for_external_robot cannot be true while adapter evidence blockers remain",
@@ -2373,6 +2393,54 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError("label dry-run should record raw_action as present but excluded")
         if "V0 Policy Label Dry Run" not in policy_label_md.read_text(encoding="utf-8"):
             raise AssertionError("label dry-run README should include a clear title")
+        policy_label_dataset_dir = tmp_dir / "policy_label_dataset"
+        policy_label_dataset_jsonl = policy_label_dataset_dir / "labels.jsonl"
+        policy_label_dataset_manifest = policy_label_dataset_dir / "manifest.json"
+        policy_label_dataset_md = policy_label_dataset_dir / "README.md"
+        result = run(
+            [
+                "python3",
+                "scripts/extract_v0_policy_label_dataset.py",
+                "--dataset",
+                str(dataset_json),
+                "--policy-label-dry-run",
+                str(policy_label_json),
+                "--max-samples-per-case",
+                "3",
+                "--output-jsonl",
+                str(policy_label_dataset_jsonl),
+                "--output-manifest",
+                str(policy_label_dataset_manifest),
+                "--output-md",
+                str(policy_label_dataset_md),
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 0, "V0 policy label dataset extractor accepts ready label dry-run and traces")
+        assert_contains(
+            result,
+            "READY_FOR_LOCAL_POLICY_DATASET_REVIEW",
+            "V0 policy label dataset ready detail",
+        )
+        policy_label_dataset = json.loads(policy_label_dataset_manifest.read_text(encoding="utf-8"))
+        if policy_label_dataset["ready_for_training"] is not False:
+            raise AssertionError(f"label dataset must not mark training ready: {policy_label_dataset}")
+        if policy_label_dataset["sample_count"] <= 0:
+            raise AssertionError(f"label dataset should contain samples: {policy_label_dataset}")
+        if not policy_label_dataset_jsonl.is_file():
+            raise AssertionError("label dataset JSONL should be written on ready extraction")
+        if "jsonl_sha256" not in policy_label_dataset:
+            raise AssertionError(f"label dataset manifest should include JSONL checksum: {policy_label_dataset}")
+        sample_lines = [json.loads(line) for line in policy_label_dataset_jsonl.read_text(encoding="utf-8").splitlines()]
+        if len(sample_lines) != policy_label_dataset["sample_count"]:
+            raise AssertionError(f"label dataset sample_count mismatch: {policy_label_dataset}")
+        if "residual_socket_offset_x_m" not in sample_lines[0]["labels"]:
+            raise AssertionError(f"label dataset sample missing residual offset label: {sample_lines[0]}")
+        sample_payload = json.dumps(sample_lines, sort_keys=True)
+        if "raw_action" in sample_payload or "joint_pos_des" in sample_payload:
+            raise AssertionError("label dataset samples must not contain raw action or joint target fields")
+        if "V0 Residual Policy Label Dataset" not in policy_label_dataset_md.read_text(encoding="utf-8"):
+            raise AssertionError("label dataset README should include a clear title")
         result = run(
             [
                 "python3",
