@@ -1345,6 +1345,7 @@ def run_v0_skill_api_contract_tests() -> None:
     policy_dataset_audit_path = REPO_ROOT / "scripts" / "audit_v0_policy_dataset.py"
     policy_experiment_path = REPO_ROOT / "scripts" / "plan_v0_policy_experiment.py"
     policy_feature_dry_run_path = REPO_ROOT / "scripts" / "plan_v0_policy_feature_dry_run.py"
+    policy_label_source_audit_path = REPO_ROOT / "scripts" / "audit_v0_policy_label_sources.py"
     robot_adapter_path = REPO_ROOT / "configs" / "v0_external_robot_adapter.template.json"
     robot_adapter_checker_path = REPO_ROOT / "scripts" / "check_v0_robot_adapter_contract.py"
     robot_adapter_planner_path = REPO_ROOT / "scripts" / "plan_v0_robot_adapter_manifest.py"
@@ -1392,6 +1393,11 @@ def run_v0_skill_api_contract_tests() -> None:
     assert_contains(result, "[v0-policy-feature-dry-run] status=BLOCKED", "V0 policy feature dry-run blocked detail")
     result = run(["python3", str(policy_feature_dry_run_path), "--no-output", "--fail-on-blocked"])
     assert_status(result, 1, "V0 policy feature dry-run can fail closed before dataset audit and experiment plan exist")
+    result = run(["python3", str(policy_label_source_audit_path), "--no-output"])
+    assert_status(result, 0, "V0 policy label-source audit reports blocked current state without failing by default")
+    assert_contains(result, "[v0-policy-label-source-audit] status=BLOCKED", "V0 policy label-source blocked detail")
+    result = run(["python3", str(policy_label_source_audit_path), "--no-output", "--fail-on-blocked"])
+    assert_status(result, 1, "V0 policy label-source audit can fail closed before feature dry-run exists")
 
     checker = checker_path.read_text(encoding="utf-8")
     request_checker = request_checker_path.read_text(encoding="utf-8")
@@ -1402,6 +1408,7 @@ def run_v0_skill_api_contract_tests() -> None:
     policy_dataset_audit = policy_dataset_audit_path.read_text(encoding="utf-8")
     policy_experiment = policy_experiment_path.read_text(encoding="utf-8")
     policy_feature_dry_run = policy_feature_dry_run_path.read_text(encoding="utf-8")
+    policy_label_source_audit = policy_label_source_audit_path.read_text(encoding="utf-8")
     robot_adapter_checker = robot_adapter_checker_path.read_text(encoding="utf-8")
     robot_adapter_planner = robot_adapter_planner_path.read_text(encoding="utf-8")
     for expected_snippet in (
@@ -1514,6 +1521,20 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"V0 policy feature dry-run missing snippet: {expected_snippet}")
     if "brev create" in policy_feature_dry_run or '"${BREV_BIN}" create' in policy_feature_dry_run:
         raise AssertionError("V0 policy feature dry-run must be offline and must not create Brev instances")
+    for expected_snippet in (
+        "Audit V0 residual-policy label sources",
+        "READY_FOR_LABEL_SOURCE_REVIEW",
+        "target_generation_status",
+        "DESIGN_ONLY",
+        "socket_insertion_servo_offset_socket",
+        "prove the label generator ignores raw_action and joint_pos_des",
+        "not generated labels",
+        "does not train a policy, generate",
+    ):
+        if expected_snippet not in policy_label_source_audit:
+            raise AssertionError(f"V0 policy label-source audit missing snippet: {expected_snippet}")
+    if "brev create" in policy_label_source_audit or '"${BREV_BIN}" create' in policy_label_source_audit:
+        raise AssertionError("V0 policy label-source audit must be offline and must not create Brev instances")
     for expected_snippet in (
         "external-arm portability",
         "ready_for_external_robot cannot be true while adapter evidence blockers remain",
@@ -2238,6 +2259,50 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError("feature dry-run must keep raw joint targets forbidden")
         if "V0 Policy Feature Dry Run" not in policy_feature_md.read_text(encoding="utf-8"):
             raise AssertionError("feature dry-run README should include a clear title")
+        policy_label_source_json = tmp_dir / "policy_label_source_audit" / "audit.json"
+        policy_label_source_md = tmp_dir / "policy_label_source_audit" / "README.md"
+        result = run(
+            [
+                "python3",
+                "scripts/audit_v0_policy_label_sources.py",
+                "--dataset",
+                str(dataset_json),
+                "--policy-feature-dry-run",
+                str(policy_feature_json),
+                "--policy-experiment-plan",
+                str(policy_experiment_json),
+                "--output-json",
+                str(policy_label_source_json),
+                "--output-md",
+                str(policy_label_source_md),
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 0, "V0 policy label-source audit accepts ready feature dry-run and traces")
+        assert_contains(
+            result,
+            "READY_FOR_LABEL_SOURCE_REVIEW",
+            "V0 policy label-source ready detail",
+        )
+        policy_label_source_audit = json.loads(policy_label_source_json.read_text(encoding="utf-8"))
+        if policy_label_source_audit["ready_for_training"] is not False:
+            raise AssertionError(f"label-source audit must not mark training ready: {policy_label_source_audit}")
+        if policy_label_source_audit["ready_for_label_generation"] is not False:
+            raise AssertionError(f"label-source audit must not mark label generation ready: {policy_label_source_audit}")
+        if policy_label_source_audit["target_generation_status"] != "DESIGN_ONLY":
+            raise AssertionError(f"label-source audit must remain design-only: {policy_label_source_audit}")
+        if "residual_socket_offset_x_m" not in policy_label_source_audit["target_channel_names"]:
+            raise AssertionError(f"label-source audit missing socket offset target: {policy_label_source_audit}")
+        target_payload = json.dumps(policy_label_source_audit["target_channel_schema"], sort_keys=True)
+        if "raw_joint" in target_payload or "joint_pos" in target_payload:
+            raise AssertionError("label-source target schema must not expose raw joint labels")
+        if not any(
+            "raw_action" in case_report["forbidden_trace_fields_present_but_excluded"]
+            for case_report in policy_label_source_audit["case_reports"]
+        ):
+            raise AssertionError("label-source audit should record raw_action as present but excluded")
+        if "V0 Policy Label Source Audit" not in policy_label_source_md.read_text(encoding="utf-8"):
+            raise AssertionError("label-source audit README should include a clear title")
         result = run(
             [
                 "python3",

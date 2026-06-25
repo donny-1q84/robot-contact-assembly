@@ -235,6 +235,7 @@ python3 scripts/prepare_v0_policy_api_review.py --skip-phase2-contact-gate
 python3 scripts/audit_v0_policy_dataset.py --no-output
 python3 scripts/plan_v0_policy_experiment.py --no-output
 python3 scripts/plan_v0_policy_feature_dry_run.py --no-output
+python3 scripts/audit_v0_policy_label_sources.py --no-output
 python3 scripts/plan_v0_robot_adapter_manifest.py \
   --robot-id demo_arm_v0 \
   --robot-family demo_6dof_arm \
