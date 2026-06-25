@@ -1461,6 +1461,37 @@ def run_success_variation_manifest_tests() -> None:
             if expected_snippet not in rendered_plan:
                 raise AssertionError(f"rendered batch plan missing snippet: {expected_snippet}")
 
+        result = run(["python3", "scripts/check_success_variation_batch_results.py", str(manifest_path)])
+        assert_status(result, 1, "success variation result gate rejects incomplete batch")
+        assert_contains(result, "missing planned trace artifacts", "incomplete variation batch result-gate detail")
+
+        pass_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for case in pass_manifest["cases"]:
+            case_id = case["case_id"]
+            if case_id == "baseline_replay":
+                continue
+            if case_id == "socket_x_pos_25mm_negative_control":
+                case["trace_json"] = str(bad_trace)
+            else:
+                case["trace_json"] = str(source_trace)
+        pass_manifest_path = tmp_dir / "success_variations_pass.json"
+        pass_manifest_path.write_text(json.dumps(pass_manifest), encoding="utf-8")
+        result = run(["python3", "scripts/check_success_variation_batch_results.py", str(pass_manifest_path)])
+        assert_status(result, 0, "success variation result gate accepts strict successes plus fail-closed negative")
+        assert_contains(result, "[success-variation-result-gate] PASS", "success variation result-gate PASS detail")
+
+        negative_success_manifest = json.loads(pass_manifest_path.read_text(encoding="utf-8"))
+        for case in negative_success_manifest["cases"]:
+            if case["case_id"] == "socket_x_pos_25mm_negative_control":
+                case["trace_json"] = str(source_trace)
+        negative_success_manifest_path = tmp_dir / "success_variations_negative_success.json"
+        negative_success_manifest_path.write_text(json.dumps(negative_success_manifest), encoding="utf-8")
+        result = run(
+            ["python3", "scripts/check_success_variation_batch_results.py", str(negative_success_manifest_path)]
+        )
+        assert_status(result, 1, "success variation result gate rejects successful negative control")
+        assert_contains(result, "must be fail_closed", "negative-control success result-gate detail")
+
         batch_runner = (REPO_ROOT / "scripts" / "run_remote_success_variation_batch.sh").read_text(
             encoding="utf-8"
         )
@@ -1472,6 +1503,9 @@ def run_success_variation_manifest_tests() -> None:
         ).read_text(encoding="utf-8")
         readiness_gate = (
             REPO_ROOT / "scripts" / "check_success_variation_batch_readiness.py"
+        ).read_text(encoding="utf-8")
+        result_gate = (
+            REPO_ROOT / "scripts" / "check_success_variation_batch_results.py"
         ).read_text(encoding="utf-8")
 
         for expected_snippet in (
@@ -1529,6 +1563,22 @@ def run_success_variation_manifest_tests() -> None:
                 raise AssertionError(f"success variation readiness gate missing snippet: {expected_snippet}")
         if "brev create" in readiness_gate or '"${BREV_BIN}" create' in readiness_gate:
             raise AssertionError("success variation readiness gate must be read-only and must not create Brev instances")
+
+        for expected_snippet in (
+            "baseline positive control remains strict_success",
+            "planned non-negative variations have trace artifacts",
+            "at least N non-baseline, non-negative variations are strict_success",
+            "the deliberate negative control is fail_closed",
+            "strict non-baseline, non-negative variation successes",
+            "missing planned trace artifacts",
+            "negative_control_classification",
+            "[success-variation-result-gate] FAIL",
+            "[success-variation-result-gate] PASS",
+        ):
+            if expected_snippet not in result_gate:
+                raise AssertionError(f"success variation result gate missing snippet: {expected_snippet}")
+        if "brev create" in result_gate or '"${BREV_BIN}" create' in result_gate:
+            raise AssertionError("success variation result gate must be offline and must not create Brev instances")
 
 
 def write_action_response_trace(

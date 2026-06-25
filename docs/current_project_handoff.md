@@ -45,7 +45,13 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    `scripts/check_success_variation_batch_readiness.py` first, then
    `scripts/recreate_brev_and_run_success_variation_batch.sh`, which delegates
    paid preflight, watchdog, artifact pull, deletion, and empty-org confirmation
-   to the existing lifecycle wrapper.
+   to the existing lifecycle wrapper;
+8. after the pulled artifacts are classified, use
+   `scripts/check_success_variation_batch_results.py` to require at least 5
+   non-baseline/non-negative strict successes, `baseline_replay` still
+   `strict_success`, the 25 mm socket-shift negative control `fail_closed`, and
+   no missing planned trace artifacts before learned policy, VLM, ROS, or
+   sim-to-real claims.
 
 The first local variation contract is:
 
@@ -68,7 +74,9 @@ or delete Brev instances. If creation is needed, the dedicated success-variation
 paid wrapper must still pass the success-variation readiness gate,
 `paid_compute_preflight.sh`, current-credit verification, fixed budget/TTL,
 `SAFE_NO_VISIBLE_PAID_INSTANCE`, and lifecycle-risk acknowledgement while
-`docs/brev_launchable_lifecycle_hold.md` is active.
+`docs/brev_launchable_lifecycle_hold.md` is active. After the run, the
+success-variation result gate must pass before this project can move from
+scripted reproducibility into dataset/policy work.
 
 Detailed plan:
 

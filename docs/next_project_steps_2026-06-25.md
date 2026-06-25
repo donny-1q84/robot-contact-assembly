@@ -194,6 +194,7 @@ scripts/run_remote_success_variation_batch.sh
 scripts/run_remote_success_variation_batch_as_trace_runner.sh
 scripts/recreate_brev_and_run_success_variation_batch.sh
 scripts/check_success_variation_batch_readiness.py
+scripts/check_success_variation_batch_results.py
 tests in scripts/test_local_gates.py for the variation manifest / classifier
 artifacts/manifests/success_trace_variations_2026-06-25.json
 artifacts/analysis/success_trace_variation_classification_2026-06-25.json
@@ -253,3 +254,16 @@ the existing `paid_compute_preflight.sh`,
 `brev_paid_run_watchdog.sh`, artifact pull, delete, and empty-org confirmation
 path. The lifecycle-risk acknowledgement is required while
 `docs/brev_launchable_lifecycle_hold.md` is active.
+
+After the batch artifacts are pulled and classified, gate promotion to learned
+policy work with:
+
+```bash
+python3 scripts/check_success_variation_batch_results.py \
+  artifacts/manifests/success_trace_variations_2026-06-25.json
+```
+
+The default promotion contract is deliberately strict: `baseline_replay` must
+remain `strict_success`, at least 5 non-baseline/non-negative variations must be
+`strict_success`, the `socket_x_pos_25mm_negative_control` must be
+`fail_closed`, and no planned trace artifact may be missing.
