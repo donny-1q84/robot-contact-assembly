@@ -1892,6 +1892,9 @@ def run_success_variation_manifest_tests() -> None:
         local_env_script = (
             REPO_ROOT / "scripts" / "prepare_success_variation_local_env.py"
         ).read_text(encoding="utf-8")
+        arm_env_script = (
+            REPO_ROOT / "scripts" / "arm_success_variation_paid_env.py"
+        ).read_text(encoding="utf-8")
         credit_template_path = REPO_ROOT / "configs" / "brev_credit_verification.template.json"
         credit_checker_path = REPO_ROOT / "scripts" / "check_brev_credit_evidence.py"
         credit_checker = credit_checker_path.read_text(encoding="utf-8")
@@ -2303,6 +2306,7 @@ def run_success_variation_manifest_tests() -> None:
             "run_success_variation_batch_from_config.sh",
             "finalize_success_variation_batch.sh",
             "write_brev_credit_evidence.py",
+            "arm_success_variation_paid_env.py",
             "audit_success_variation_assumptions.py",
             "--phase pre-batch",
             "RCA_BREV_CREDITS_VERIFIED",
@@ -2315,6 +2319,21 @@ def run_success_variation_manifest_tests() -> None:
                 raise AssertionError(f"success variation run packet script missing snippet: {expected_snippet}")
         if "brev create" in run_packet_script or '"${BREV_BIN}" create' in run_packet_script:
             raise AssertionError("success variation run packet must not create Brev instances")
+
+        for expected_snippet in (
+            "Arm the ignored success-variation local env for one paid batch",
+            "SAFE_NO_VISIBLE_PAID_INSTANCE",
+            "RCA_ALLOW_PAID_BREV_CREATE",
+            "RCA_BREV_CREDITS_VERIFIED",
+            "RCA_ACK_BREV_LIFECYCLE_RISK",
+            "--i-understand-this-arms-paid-run",
+            "--brev-safety-output",
+            "does not create, start, stop, delete, copy to, or execute on Brev instances",
+        ):
+            if expected_snippet not in arm_env_script:
+                raise AssertionError(f"success variation arm helper missing snippet: {expected_snippet}")
+        if "brev create" in arm_env_script or '"${BREV_BIN}" create' in arm_env_script:
+            raise AssertionError("success variation arm helper must not create Brev instances")
 
         written_credit_path = tmp_dir / "written_brev_credit.local.json"
         result = run(
@@ -2442,6 +2461,71 @@ def run_success_variation_manifest_tests() -> None:
         ):
             if forbidden_snippet in local_env_text:
                 raise AssertionError(f"local env generator must not grant acknowledgement: {forbidden_snippet}")
+        armable_env_text = local_env_text.replace(
+            "RCA_BREV_CREDIT_EVIDENCE_JSON=configs/brev_credit_verification.local.json",
+            f"RCA_BREV_CREDIT_EVIDENCE_JSON={credit_evidence_path}",
+        )
+        local_env_path.write_text(armable_env_text, encoding="utf-8")
+        fake_brev_safety = tmp_dir / "brev_safety_safe.txt"
+        fake_brev_safety.write_text("[brev-safety] status=SAFE_NO_VISIBLE_PAID_INSTANCE\n", encoding="utf-8")
+        armed_env_path = tmp_dir / "success_variation_batch_run.armed.env"
+        result = run(
+            [
+                "python3",
+                "scripts/arm_success_variation_paid_env.py",
+                "--config",
+                str(local_env_path),
+                "--output",
+                str(armed_env_path),
+                "--brev-safety-output",
+                str(fake_brev_safety),
+            ]
+        )
+        assert_status(result, 1, "success variation arm helper requires explicit paid-run flag")
+        assert_contains(result, "--i-understand-this-arms-paid-run", "arm helper explicit flag detail")
+        if armed_env_path.exists():
+            raise AssertionError("arm helper must not write without explicit paid-run flag")
+        result = run(
+            [
+                "python3",
+                "scripts/arm_success_variation_paid_env.py",
+                "--config",
+                str(local_env_path),
+                "--output",
+                str(armed_env_path),
+                "--brev-safety-output",
+                str(fake_brev_safety),
+                "--i-understand-this-arms-paid-run",
+                "--dry-run",
+            ]
+        )
+        assert_status(result, 0, "success variation arm helper dry-run accepts passing evidence")
+        assert_contains(result, "DRY_RUN_READY", "arm helper dry-run detail")
+        if armed_env_path.exists():
+            raise AssertionError("arm helper dry-run must not write armed env")
+        result = run(
+            [
+                "python3",
+                "scripts/arm_success_variation_paid_env.py",
+                "--config",
+                str(local_env_path),
+                "--output",
+                str(armed_env_path),
+                "--brev-safety-output",
+                str(fake_brev_safety),
+                "--i-understand-this-arms-paid-run",
+            ]
+        )
+        assert_status(result, 0, "success variation arm helper writes armed env after checked evidence")
+        assert_contains(result, "wrote armed env", "arm helper write detail")
+        armed_env_text = armed_env_path.read_text(encoding="utf-8")
+        for expected_snippet in (
+            "RCA_ALLOW_PAID_BREV_CREATE=1",
+            "RCA_BREV_CREDITS_VERIFIED=1",
+            "RCA_ACK_BREV_LIFECYCLE_RISK=1",
+        ):
+            if expected_snippet not in armed_env_text:
+                raise AssertionError(f"armed env missing acknowledgement: {expected_snippet}")
         result = run(
             [
                 "python3",

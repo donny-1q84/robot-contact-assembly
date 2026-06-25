@@ -246,6 +246,7 @@ scripts/write_success_variation_run_packet.py
 scripts/audit_success_variation_assumptions.py
 scripts/check_brev_credit_evidence.py
 scripts/write_brev_credit_evidence.py
+scripts/arm_success_variation_paid_env.py
 scripts/check_v0_skill_api_contract.py
 scripts/plan_v0_skill_request.py
 scripts/validate_v0_skill_request.py
@@ -360,6 +361,17 @@ python3 scripts/check_brev_credit_evidence.py \
 
 The readiness gate only treats `RCA_BREV_CREDITS_VERIFIED=1` as valid when this
 git-ignored evidence file passes freshness, org, source, and budget checks.
+After the evidence passes, arm the ignored local env with the checked helper:
+
+```bash
+python3 scripts/arm_success_variation_paid_env.py \
+  --i-understand-this-arms-paid-run
+```
+
+This only writes the three paid acknowledgement markers into the ignored local
+env after credit evidence and Brev safety checks pass. It does not create,
+delete, copy to, or execute on Brev instances. Run `--check-only` immediately
+after arming and before any `--run`.
 
 ```bash
 scripts/run_success_variation_batch_from_config.sh \
