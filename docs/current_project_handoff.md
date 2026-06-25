@@ -56,7 +56,12 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    non-baseline/non-negative strict successes, `baseline_replay` still
    `strict_success`, the 25 mm socket-shift negative control `fail_closed`, and
    no missing planned trace artifacts before learned policy, VLM, ROS, or
-   sim-to-real claims.
+   sim-to-real claims;
+9. only after that result gate passes, run
+   `scripts/prepare_success_variation_dataset.py` to write the V0 scripted-skill
+   dataset manifest and README under
+   `artifacts/datasets/v0_scripted_skill_success_variations/`; this script is
+   offline/read-only and must fail closed in the current baseline-only state.
 
 The first local variation contract is:
 
@@ -69,6 +74,7 @@ batch_plan_sh: artifacts/analysis/success_trace_variation_batch_plan_2026-06-25.
 result: 1 strict_success positive control, 8 missing planned cases
 negative_control: socket_x_pos_25mm_negative_control expected fail_closed
 paid_compute_allowed: false
+dataset_preparation: blocked until the result gate passes
 ```
 
 Do not open another paid GPU run for a prettier video, old Abs IK/JointPos
@@ -82,6 +88,9 @@ paid wrapper must still pass the success-variation readiness gate,
 and lifecycle-risk acknowledgement while `docs/brev_launchable_lifecycle_hold.md`
 is active. After the run, the success-variation result gate must pass before
 this project can move from scripted reproducibility into dataset/policy work.
+The dataset-prep gate then freezes only strict-success non-negative traces and
+keeps explicit non-claims: not learned policy, not sim-to-real, and not
+cross-robot-ready.
 
 Detailed plan:
 

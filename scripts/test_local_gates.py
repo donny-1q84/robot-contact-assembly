@@ -1465,6 +1465,24 @@ def run_success_variation_manifest_tests() -> None:
         assert_status(result, 1, "success variation result gate rejects incomplete batch")
         assert_contains(result, "missing planned trace artifacts", "incomplete variation batch result-gate detail")
 
+        blocked_dataset_json = tmp_dir / "blocked_dataset" / "manifest.json"
+        blocked_dataset_md = tmp_dir / "blocked_dataset" / "README.md"
+        result = run(
+            [
+                "python3",
+                "scripts/prepare_success_variation_dataset.py",
+                str(manifest_path),
+                "--output-json",
+                str(blocked_dataset_json),
+                "--output-md",
+                str(blocked_dataset_md),
+            ]
+        )
+        assert_status(result, 1, "success variation dataset prep rejects incomplete batch")
+        assert_contains(result, "[success-variation-dataset] BLOCKED", "blocked dataset prep detail")
+        if blocked_dataset_json.exists() or blocked_dataset_md.exists():
+            raise AssertionError("blocked dataset prep must not write dataset artifacts")
+
         review_json = tmp_dir / "success_variation_review.json"
         review_md = tmp_dir / "success_variation_review.md"
         result = run(
@@ -1501,6 +1519,33 @@ def run_success_variation_manifest_tests() -> None:
         result = run(["python3", "scripts/check_success_variation_batch_results.py", str(pass_manifest_path)])
         assert_status(result, 0, "success variation result gate accepts strict successes plus fail-closed negative")
         assert_contains(result, "[success-variation-result-gate] PASS", "success variation result-gate PASS detail")
+        dataset_json = tmp_dir / "dataset" / "manifest.json"
+        dataset_md = tmp_dir / "dataset" / "README.md"
+        result = run(
+            [
+                "python3",
+                "scripts/prepare_success_variation_dataset.py",
+                str(pass_manifest_path),
+                "--output-json",
+                str(dataset_json),
+                "--output-md",
+                str(dataset_md),
+            ]
+        )
+        assert_status(result, 0, "success variation dataset prep accepts promotable batch")
+        assert_contains(result, "READY_FOR_POLICY_API_REVIEW", "dataset prep ready detail")
+        dataset = json.loads(dataset_json.read_text(encoding="utf-8"))
+        if dataset["dataset_name"] != "v0_scripted_skill_success_variations":
+            raise AssertionError(f"dataset prep wrote wrong dataset name: {dataset['dataset_name']}")
+        if len(dataset["cases"]) < 6:
+            raise AssertionError(f"dataset prep should include baseline plus strict variations: {len(dataset['cases'])}")
+        dataset_case_ids = {case["case_id"] for case in dataset["cases"]}
+        if "socket_x_pos_25mm_negative_control" in dataset_case_ids:
+            raise AssertionError("dataset prep must exclude the negative-control case")
+        if "not learned policy" not in dataset["not_claims"] or "not sim-to-real" not in dataset["not_claims"]:
+            raise AssertionError(f"dataset prep must carry explicit non-claims: {dataset['not_claims']}")
+        if "V0 Scripted Skill Success Variations Dataset" not in dataset_md.read_text(encoding="utf-8"):
+            raise AssertionError("dataset prep README should include a clear title")
         result = run(
             [
                 "python3",
@@ -1553,6 +1598,9 @@ def run_success_variation_manifest_tests() -> None:
         ).read_text(encoding="utf-8")
         review_script = (
             REPO_ROOT / "scripts" / "review_success_variation_batch.py"
+        ).read_text(encoding="utf-8")
+        dataset_script = (
+            REPO_ROOT / "scripts" / "prepare_success_variation_dataset.py"
         ).read_text(encoding="utf-8")
         gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
 
@@ -1677,6 +1725,22 @@ def run_success_variation_manifest_tests() -> None:
                 raise AssertionError(f"success variation review script missing snippet: {expected_snippet}")
         if "brev create" in review_script or '"${BREV_BIN}" create' in review_script:
             raise AssertionError("success variation review script must be read-only and must not create Brev instances")
+
+        for expected_snippet in (
+            "v0_scripted_skill_success_variations",
+            "not learned policy",
+            "not sim-to-real",
+            "not cross-robot-ready",
+            "check_success_variation_batch_results",
+            "classify_success_variation_results",
+            "result_gate_pass",
+            "[success-variation-dataset] BLOCKED",
+            "READY_FOR_POLICY_API_REVIEW",
+        ):
+            if expected_snippet not in dataset_script:
+                raise AssertionError(f"success variation dataset prep script missing snippet: {expected_snippet}")
+        if "brev create" in dataset_script or '"${BREV_BIN}" create' in dataset_script:
+            raise AssertionError("success variation dataset prep must be offline and must not create Brev instances")
 
 
 def write_action_response_trace(

@@ -197,6 +197,7 @@ scripts/run_success_variation_batch_from_config.sh
 scripts/check_success_variation_batch_readiness.py
 scripts/check_success_variation_batch_results.py
 scripts/review_success_variation_batch.py
+scripts/prepare_success_variation_dataset.py
 configs/success_variation_batch_run.env.example
 tests in scripts/test_local_gates.py for the variation manifest / classifier
 artifacts/manifests/success_trace_variations_2026-06-25.json
@@ -275,3 +276,24 @@ The default promotion contract is deliberately strict: `baseline_replay` must
 remain `strict_success`, at least 5 non-baseline/non-negative variations must be
 `strict_success`, the `socket_x_pos_25mm_negative_control` must be
 `fail_closed`, and no planned trace artifact may be missing.
+
+Only after that result gate passes, freeze the first V0 scripted-skill dataset
+manifest with:
+
+```bash
+python3 scripts/prepare_success_variation_dataset.py \
+  artifacts/manifests/success_trace_variations_2026-06-25.json
+```
+
+The dataset prep script is offline/read-only. In the current baseline-only
+state it must fail closed because the planned variation traces and the negative
+control trace are missing. When the batch is complete, it writes:
+
+```text
+artifacts/datasets/v0_scripted_skill_success_variations/manifest.json
+artifacts/datasets/v0_scripted_skill_success_variations/README.md
+```
+
+Those files are allowed to support residual-policy and skill-API design, but
+they still are not proof of a learned policy, sim-to-real readiness, or direct
+cross-robot portability.
