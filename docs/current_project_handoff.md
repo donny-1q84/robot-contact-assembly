@@ -67,7 +67,9 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    reviewed run. Before setting `RCA_BREV_CREDITS_VERIFIED=1`, run
    `scripts/write_brev_credit_evidence.py --balance-eur <current-brev-ui-balance> --budget-eur 6.00 --force`
    to write the git-ignored `configs/brev_credit_verification.local.json` from
-   the current Brev UI org balance and validate it covers the run budget, or
+   the current Brev UI org balance and validate it covers the run budget. Add
+   `--dry-run` first to emit machine-readable preview facts without writing the
+   evidence file, validating a written file, or creating paid resources. Or
    use `scripts/prepare_success_variation_paid_batch.py --balance-eur <current-brev-ui-balance> --force-credit --i-understand-this-arms-paid-run`
    to write credit evidence, arm the local env, refresh the run packet through
    the read-only `--check-only` gate, and rerun the aggregate paid lifecycle
@@ -161,7 +163,7 @@ batch_plan_sh: artifacts/analysis/success_trace_variation_batch_plan_2026-06-25.
 result: 1 strict_success positive control, 8 missing planned cases
 negative_control: socket_x_pos_25mm_negative_control expected fail_closed
 paid_compute_allowed: false
-credit_evidence: configs/brev_credit_verification.local.json is ignored and must pass scripts/check_brev_credit_evidence.py; use scripts/write_brev_credit_evidence.py and scripts/arm_success_variation_paid_env.py after checking the Brev UI balance before RCA_BREV_CREDITS_VERIFIED=1
+credit_evidence: configs/brev_credit_verification.local.json is ignored and must pass scripts/check_brev_credit_evidence.py; use scripts/write_brev_credit_evidence.py --dry-run to preview the payload with no write/create side effects, then write evidence and arm via scripts/arm_success_variation_paid_env.py after checking the Brev UI balance before RCA_BREV_CREDITS_VERIFIED=1
 paid_success_variation_preflight: scripts/check_success_variation_paid_lifecycle_preflight.py summarizes clean source state, current contact-smoke bundle, credit evidence, Brev safety, local-env armability, batch-plan readiness, and the pre-batch assumption audit without arming or creating a paid instance
 brev_credit_review_packet: scripts/prepare_brev_credit_review.py exposes the Brev org dashboard URL, current credit-evidence blocker, exact write-credit command, fail-closed prepare_success_variation_paid_batch.py command, rerun-preflight command, and paid lifecycle command without opening paid compute by default; prepare_success_variation_paid_batch.py --dry-run now emits parseable facts with no write/arm/create side effects
 pre_batch_assumption_audit: scripts/audit_success_variation_assumptions.py --phase pre-batch --no-output is surfaced in scripts/project_status_report.py; blocked until one-run paid acknowledgements exist, while planned traces may still be missing

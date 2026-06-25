@@ -414,6 +414,19 @@ command, the rerun-preflight command, and the one-shot paid lifecycle command.
 It does not open paid compute, write credit evidence, or arm the local env unless
 the explicit follow-up commands are run separately.
 
+To preview the credit evidence payload after reading the current UI balance,
+without writing the ignored JSON file, use:
+
+```bash
+python3 scripts/write_brev_credit_evidence.py \
+  --balance-eur <current-brev-ui-balance> \
+  --budget-eur 6.00 \
+  --dry-run
+```
+
+The dry-run emits parseable facts with the payload preview and explicit
+no-write/no-create side effects.
+
 After manually reading the current Brev UI balance, the preferred local prepare
 step is:
 

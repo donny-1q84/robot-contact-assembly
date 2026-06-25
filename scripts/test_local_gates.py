@@ -3480,6 +3480,37 @@ def run_success_variation_manifest_tests() -> None:
         if "brev create" in credit_writer or '"${BREV_BIN}" create' in credit_writer:
             raise AssertionError("Brev credit evidence writer must not create Brev instances")
 
+        credit_dry_run_output = tmp_dir / "brev_credit_verification.local.json"
+        result = run(
+            [
+                "python3",
+                "scripts/write_brev_credit_evidence.py",
+                "--balance-eur",
+                "20.00",
+                "--budget-eur",
+                "6.00",
+                "--output",
+                str(credit_dry_run_output),
+                "--dry-run",
+            ]
+        )
+        assert_status(result, 0, "Brev credit evidence writer dry-run succeeds")
+        assert_contains(result, "[brev-credit-evidence-write] DRY_RUN", "Brev credit writer dry-run marker")
+        assert_contains(result, "[brev-credit-evidence-write] facts=", "Brev credit writer dry-run facts marker")
+        if credit_dry_run_output.exists():
+            raise AssertionError("Brev credit evidence writer dry-run must not write the evidence file")
+        credit_dry_run_facts, _ = json.JSONDecoder().raw_decode(
+            result.stdout.split("[brev-credit-evidence-write] facts=", 1)[1].lstrip()
+        )
+        if credit_dry_run_facts["status"] != "DRY_RUN_READY":
+            raise AssertionError(f"Brev credit writer dry-run should be ready: {credit_dry_run_facts}")
+        if credit_dry_run_facts["side_effects"]["writes_credit_evidence"] is not False:
+            raise AssertionError(f"Brev credit writer dry-run must not write evidence: {credit_dry_run_facts}")
+        if credit_dry_run_facts["side_effects"]["creates_paid_instance"] is not False:
+            raise AssertionError(f"Brev credit writer dry-run must not create paid instances: {credit_dry_run_facts}")
+        if credit_dry_run_facts["payload_preview"]["balance_eur"] != 20.0:
+            raise AssertionError(f"Brev credit writer dry-run should preview provided balance: {credit_dry_run_facts}")
+
         result = run(
             [
                 "python3",
