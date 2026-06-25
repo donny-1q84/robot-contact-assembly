@@ -83,7 +83,12 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    `scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --check-only` before
    `scripts/recreate_brev_and_run_success_variation_batch.sh`, which delegates
    paid preflight, watchdog, artifact pull, deletion, and empty-org confirmation
-   to the existing lifecycle wrapper. The config launcher now also writes the
+   to the existing lifecycle wrapper. The lifecycle wrapper also bounds its
+   direct Brev list/delete cleanup calls with
+   `RCA_FINAL_CONTACT_BREV_QUERY_TIMEOUT_SECONDS` and
+   `RCA_FINAL_CONTACT_BREV_MUTATION_TIMEOUT_SECONDS`, so login or network
+   failures cannot leave the main cleanup path waiting forever while the
+   independent watchdog remains armed. The config launcher now also writes the
    read-only run packet automatically before each check/run;
 8. after the pulled artifacts are classified, use
    `scripts/finalize_success_variation_batch.sh` to write the review record,

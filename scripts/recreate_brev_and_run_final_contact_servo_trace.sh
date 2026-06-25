@@ -22,6 +22,8 @@ WATCHDOG_START_GRACE_SECONDS="${RCA_FINAL_CONTACT_WATCHDOG_START_GRACE_SECONDS:-
 WATCHDOG_DASHBOARD_URL="${RCA_FINAL_CONTACT_DASHBOARD_URL:-https://brev.nvidia.com/org/org-3BaYGdtoRGmgc77Z7NHHhPSD254/environments}"
 DELETE_ATTEMPTS="${RCA_FINAL_CONTACT_DELETE_ATTEMPTS:-45}"
 DELETE_RETRY_INTERVAL_SECONDS="${RCA_FINAL_CONTACT_DELETE_RETRY_INTERVAL_SECONDS:-10}"
+BREV_QUERY_TIMEOUT_SECONDS="${RCA_FINAL_CONTACT_BREV_QUERY_TIMEOUT_SECONDS:-45}"
+BREV_MUTATION_TIMEOUT_SECONDS="${RCA_FINAL_CONTACT_BREV_MUTATION_TIMEOUT_SECONDS:-180}"
 TRACE_TIMEOUT_SECONDS="${RCA_FINAL_CONTACT_TRACE_TIMEOUT_SECONDS:-900}"
 TRACE_TIMEOUT_KILL_SECONDS="${RCA_FINAL_CONTACT_TRACE_TIMEOUT_KILL_SECONDS:-45}"
 TRACE_RUNNER="${RCA_FINAL_CONTACT_TRACE_RUNNER:-${SCRIPT_DIR}/run_remote_final_contact_servo_trace.sh}"
@@ -30,6 +32,47 @@ RUN_ID="$(date -u +"%Y-%m-%dT%H-%M-%SZ")"
 WATCHDOG_DIR="${RCA_FINAL_CONTACT_WATCHDOG_LEDGER_DIR:-${REPO_ROOT}/artifacts/brev_paid_runs/${RUN_ID}_${ENV_NAME}}"
 CREATED_INSTANCE=0
 WATCHDOG_PID=""
+
+run_with_timeout() {
+  local timeout_seconds="$1"
+  shift
+
+  local output_file status_file pid deadline status
+  mkdir -p "${WATCHDOG_DIR}"
+  output_file="${WATCHDOG_DIR}/.timeout_$$_${RANDOM}.out"
+  status_file="${WATCHDOG_DIR}/.timeout_$$_${RANDOM}.status"
+
+  (
+    set +e
+    "$@" >"${output_file}" 2>&1
+    printf '%s' "$?" >"${status_file}"
+  ) &
+  pid=$!
+  deadline=$((SECONDS + timeout_seconds))
+
+  while kill -0 "${pid}" 2>/dev/null; do
+    if (( SECONDS >= deadline )); then
+      kill "${pid}" 2>/dev/null || true
+      sleep 1
+      kill -9 "${pid}" 2>/dev/null || true
+      wait "${pid}" 2>/dev/null || true
+      cat "${output_file}" 2>/dev/null || true
+      rm -f "${output_file}" "${status_file}"
+      return 124
+    fi
+    sleep 1
+  done
+
+  wait "${pid}" 2>/dev/null || true
+  cat "${output_file}" 2>/dev/null || true
+  if [[ -f "${status_file}" ]]; then
+    status="$(cat "${status_file}")"
+  else
+    status=1
+  fi
+  rm -f "${output_file}" "${status_file}"
+  return "${status}"
+}
 
 verify_watchdog_alive() {
   local pid="$1"
@@ -66,7 +109,7 @@ start_billing_watchdog() {
 
 matching_instance_tokens() {
   local raw
-  raw="$("${BREV_BIN}" ls instances --json --all 2>/dev/null || true)"
+  raw="$(run_with_timeout "${BREV_QUERY_TIMEOUT_SECONDS}" "${BREV_BIN}" ls instances --json --all 2>/dev/null || true)"
   RCA_FINAL_CONTACT_TARGET="${ENV_NAME}" RCA_FINAL_CONTACT_INSTANCES_JSON="${raw}" python3 - <<'PY'
 import json
 import os
@@ -106,7 +149,7 @@ delete_instance() {
   local attempt tokens token
 
   echo "[final-contact-servo] deleting Brev instance ${ENV_NAME}"
-  "${BREV_BIN}" delete "${ENV_NAME}" || true
+  run_with_timeout "${BREV_MUTATION_TIMEOUT_SECONDS}" "${BREV_BIN}" delete "${ENV_NAME}" || true
   for attempt in $(seq 1 "${DELETE_ATTEMPTS}"); do
     tokens="$(matching_instance_tokens || true)"
     if [[ -z "${tokens}" ]]; then
@@ -117,7 +160,7 @@ delete_instance() {
     while IFS= read -r token; do
       [[ -z "${token}" ]] && continue
       echo "[final-contact-servo] deleting Brev instance token=${token} attempt=${attempt}"
-      "${BREV_BIN}" delete "${token}" >/dev/null 2>&1 || true
+      run_with_timeout "${BREV_MUTATION_TIMEOUT_SECONDS}" "${BREV_BIN}" delete "${token}" >/dev/null 2>&1 || true
     done <<< "${tokens}"
 
     sleep "${DELETE_RETRY_INTERVAL_SECONDS}"
@@ -130,7 +173,7 @@ delete_instance() {
   fi
 
   echo "[final-contact-servo] manual cleanup required: ${ENV_NAME} still visible or Brev CLI query failed" >&2
-  "${BREV_BIN}" ls instances --json --all || true
+  run_with_timeout "${BREV_QUERY_TIMEOUT_SECONDS}" "${BREV_BIN}" ls instances --json --all || true
   return 1
 }
 
@@ -139,7 +182,7 @@ confirm_org_empty() {
 
   echo "[final-contact-servo] confirming Brev org is empty"
   for attempt in $(seq 1 "${DELETE_ATTEMPTS}"); do
-    raw="$("${BREV_BIN}" ls instances --json --all 2>/dev/null || true)"
+    raw="$(run_with_timeout "${BREV_QUERY_TIMEOUT_SECONDS}" "${BREV_BIN}" ls instances --json --all 2>/dev/null || true)"
     set +e
     count="$(
       RCA_FINAL_CONTACT_INSTANCES_JSON="${raw}" python3 - <<'PY'
@@ -178,7 +221,7 @@ PY
   done
 
   echo "[final-contact-servo] manual cleanup required: Brev org is not confirmed empty" >&2
-  "${BREV_BIN}" ls instances --json --all || true
+  run_with_timeout "${BREV_QUERY_TIMEOUT_SECONDS}" "${BREV_BIN}" ls instances --json --all || true
   return 1
 }
 
