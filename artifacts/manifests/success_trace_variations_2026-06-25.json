@@ -1,0 +1,162 @@
+{
+  "cases": [
+    {
+      "case_id": "baseline_replay",
+      "expected": "strict_success",
+      "planned_trace_json": "artifacts/videos/success_variations/2026-06-25/baseline_replay/video_trace.json",
+      "rationale": "Original validated success trace; positive control for classifier and future batch.",
+      "reset_joint_noise_rad": 0.0,
+      "seed": 42,
+      "socket_delta_m": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "status": "available",
+      "trace_json": "artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json"
+    },
+    {
+      "case_id": "seed_43_nominal",
+      "expected": "unknown",
+      "planned_trace_json": "artifacts/videos/success_variations/2026-06-25/seed_43_nominal/video_trace.json",
+      "rationale": "Same nominal task with a different seed; should show whether success is seed-fragile.",
+      "reset_joint_noise_rad": 0.0,
+      "seed": 43,
+      "socket_delta_m": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "status": "planned"
+    },
+    {
+      "case_id": "seed_44_reset_noise",
+      "expected": "unknown",
+      "planned_trace_json": "artifacts/videos/success_variations/2026-06-25/seed_44_reset_noise/video_trace.json",
+      "rationale": "Small reset perturbation to test robustness without changing socket pose.",
+      "reset_joint_noise_rad": 0.01,
+      "seed": 44,
+      "socket_delta_m": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "status": "planned"
+    },
+    {
+      "case_id": "socket_x_pos_1mm",
+      "expected": "unknown",
+      "planned_trace_json": "artifacts/videos/success_variations/2026-06-25/socket_x_pos_1mm/video_trace.json",
+      "rationale": "Millimeter positive X socket perturbation.",
+      "reset_joint_noise_rad": 0.0,
+      "seed": 42,
+      "socket_delta_m": [
+        0.001,
+        0.0,
+        0.0
+      ],
+      "status": "planned"
+    },
+    {
+      "case_id": "socket_x_neg_1mm",
+      "expected": "unknown",
+      "planned_trace_json": "artifacts/videos/success_variations/2026-06-25/socket_x_neg_1mm/video_trace.json",
+      "rationale": "Millimeter negative X socket perturbation.",
+      "reset_joint_noise_rad": 0.0,
+      "seed": 42,
+      "socket_delta_m": [
+        -0.001,
+        0.0,
+        0.0
+      ],
+      "status": "planned"
+    },
+    {
+      "case_id": "socket_y_pos_1mm",
+      "expected": "unknown",
+      "planned_trace_json": "artifacts/videos/success_variations/2026-06-25/socket_y_pos_1mm/video_trace.json",
+      "rationale": "Millimeter positive Y socket perturbation.",
+      "reset_joint_noise_rad": 0.0,
+      "seed": 42,
+      "socket_delta_m": [
+        0.0,
+        0.001,
+        0.0
+      ],
+      "status": "planned"
+    },
+    {
+      "case_id": "socket_y_neg_1mm",
+      "expected": "unknown",
+      "planned_trace_json": "artifacts/videos/success_variations/2026-06-25/socket_y_neg_1mm/video_trace.json",
+      "rationale": "Millimeter negative Y socket perturbation.",
+      "reset_joint_noise_rad": 0.0,
+      "seed": 42,
+      "socket_delta_m": [
+        0.0,
+        -0.001,
+        0.0
+      ],
+      "status": "planned"
+    },
+    {
+      "case_id": "socket_z_pos_1mm",
+      "expected": "unknown",
+      "planned_trace_json": "artifacts/videos/success_variations/2026-06-25/socket_z_pos_1mm/video_trace.json",
+      "rationale": "Millimeter positive Z socket perturbation.",
+      "reset_joint_noise_rad": 0.0,
+      "seed": 42,
+      "socket_delta_m": [
+        0.0,
+        0.0,
+        0.001
+      ],
+      "status": "planned"
+    },
+    {
+      "case_id": "socket_x_pos_25mm_negative_control",
+      "expected": "fail_closed",
+      "planned_trace_json": "artifacts/videos/success_variations/2026-06-25/socket_x_pos_25mm_negative_control/video_trace.json",
+      "rationale": "Deliberate large socket shift; semantic success gate should fail if the trace/controller is not regenerated correctly.",
+      "reset_joint_noise_rad": 0.0,
+      "seed": 42,
+      "socket_delta_m": [
+        0.025,
+        0.0,
+        0.0
+      ],
+      "status": "planned"
+    }
+  ],
+  "classification_contract": {
+    "fail_closed": "trace exists but does not meet strict or near-success criteria",
+    "missing": "planned case has no trace artifact yet",
+    "near_success": "strict gates fail but relaxed near-contact metrics are met",
+    "strict_success": "peg-video-candidate, final-contact-boundary, and trace-frame-alignment gates all pass"
+  },
+  "created_utc": "2026-06-25T04-33-20Z",
+  "manifest_version": 1,
+  "near_success_thresholds": {
+    "best_axial_max_m": 0.06,
+    "best_lateral_max_m": 0.015,
+    "best_rot_max_rad": 0.35,
+    "max_contact_force_min_n": 0.2
+  },
+  "purpose": "successful_trace_variation_batch",
+  "remote_run_policy": {
+    "paid_compute_allowed": false,
+    "requires_budget_watchdog_pullback_delete": true,
+    "run_mode": "trace-only-first"
+  },
+  "source_summary": {
+    "best_axial": 0.007546612061560154,
+    "best_lateral": 0.00014721538173034787,
+    "best_rot": 0.0003452669770922512,
+    "final_success_rate": 1.0,
+    "max_contact_force_magnitude": 1.0929346084594727,
+    "success_step": 167
+  },
+  "source_trace_json": "artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json",
+  "source_trace_sha256": "26b3b3daa208b0c22fe8977d4c622d258aa1eecea30a03afaf66fbda599cb1cc",
+  "task": "RCA-PegInHole-Franka-JointPos-Contact-Play-v0"
+}

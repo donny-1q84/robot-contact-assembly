@@ -105,10 +105,11 @@ Local-first implementation target:
 
 - parameterize the successful scripted insertion setup by socket pose, seed, and
   small reset perturbations;
-- produce a manifest format for each attempted trace;
-- classify each run as strict success, near success, or fail-closed;
-- only after local checks are ready, run a small paid trace-only batch with a
-  fixed budget and immediate cleanup.
+- fill the planned traces from
+  `artifacts/manifests/success_trace_variations_2026-06-25.json`;
+- classify each run as strict success, near success, fail-closed, or missing;
+- only after reviewing the manifest and confirming `SAFE_NO_VISIBLE_PAID_INSTANCE`,
+  run a small paid trace-only batch with a fixed budget and immediate cleanup.
 
 Useful pass condition for the next batch:
 
@@ -183,12 +184,28 @@ python3 scripts/audit_trace_frame_alignment.py artifacts/deliverables/2026-06-21
 ffprobe -hide_banner -v error -select_streams v:0 -show_entries stream=width,height,nb_frames,duration,codec_name -of default=noprint_wrappers=1 artifacts/deliverables/2026-06-23-isaac-trace-replay-video/isaac_trace_replay_trimmed.mp4
 ```
 
-Then implement:
+Implemented in the local follow-up:
 
 ```text
-successful-trace variation manifest and local classification tooling
+scripts/create_success_variation_manifest.py
+scripts/classify_success_variation_results.py
 tests in scripts/test_local_gates.py for the variation manifest / classifier
-docs/current_project_handoff.md update for the next dataset-preparation branch
+artifacts/manifests/success_trace_variations_2026-06-25.json
+artifacts/analysis/success_trace_variation_classification_2026-06-25.json
+artifacts/analysis/success_trace_variation_classification_2026-06-25.md
 ```
 
-Only after that should a new remote run be considered.
+Regenerate and reclassify the current local contract with:
+
+```bash
+python3 scripts/create_success_variation_manifest.py \
+  --output artifacts/manifests/success_trace_variations_2026-06-25.json \
+  --output-trace-root artifacts/videos/success_variations/2026-06-25
+python3 scripts/classify_success_variation_results.py \
+  artifacts/manifests/success_trace_variations_2026-06-25.json \
+  --output-json artifacts/analysis/success_trace_variation_classification_2026-06-25.json \
+  --output-md artifacts/analysis/success_trace_variation_classification_2026-06-25.md
+```
+
+Only after reviewing that contract should a new fixed-budget trace-only remote
+run be considered.

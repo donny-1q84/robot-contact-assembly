@@ -1305,6 +1305,97 @@ def run_success_deliverable_bundle_tests() -> None:
         assert_contains(result, "checksum mismatch", "checksum mismatch failure detail")
 
 
+def run_success_variation_manifest_tests() -> None:
+    source_trace = (
+        REPO_ROOT
+        / "artifacts"
+        / "deliverables"
+        / "2026-06-21-peg-in-hole-success-trace"
+        / "video_trace.json"
+    )
+    with tempfile.TemporaryDirectory(prefix="rca-success-variation-tests-") as tmp_dir_raw:
+        tmp_dir = Path(tmp_dir_raw)
+        manifest_path = tmp_dir / "success_variations.json"
+        results_root = tmp_dir / "results"
+        report_json = tmp_dir / "classification.json"
+        report_md = tmp_dir / "classification.md"
+
+        result = run(
+            [
+                "python3",
+                "scripts/create_success_variation_manifest.py",
+                "--output",
+                str(manifest_path),
+                "--output-trace-root",
+                str(results_root),
+            ]
+        )
+        assert_status(result, 0, "success variation manifest generator exits cleanly")
+        assert_contains(result, "[success-variations] wrote manifest", "success variation manifest output")
+
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        cases = {case["case_id"]: case for case in manifest["cases"]}
+        if len(cases) != 9:
+            raise AssertionError(f"expected 9 variation cases, got {len(cases)}")
+        if cases["baseline_replay"]["status"] != "available":
+            raise AssertionError("baseline replay must be available as the positive control")
+        if cases["socket_x_pos_25mm_negative_control"]["expected"] != "fail_closed":
+            raise AssertionError("large socket perturbation must be marked as a fail-closed negative control")
+        if manifest["remote_run_policy"]["paid_compute_allowed"] is not False:
+            raise AssertionError("variation manifest must not allow paid compute by default")
+
+        result = run(
+            [
+                "python3",
+                "scripts/classify_success_variation_results.py",
+                str(manifest_path),
+                "--output-json",
+                str(report_json),
+                "--output-md",
+                str(report_md),
+            ]
+        )
+        assert_status(result, 0, "success variation classifier handles baseline-only manifest")
+        assert_contains(result, "strict_success=1", "baseline-only classifier strict success count")
+        assert_contains(result, "missing=8", "baseline-only classifier missing count")
+        report = json.loads(report_json.read_text(encoding="utf-8"))
+        counts = report["summary"]["classification_counts"]
+        if counts != {"missing": 8, "strict_success": 1}:
+            raise AssertionError(f"unexpected baseline-only classification counts: {counts}")
+        if "baseline_replay" not in report_md.read_text(encoding="utf-8"):
+            raise AssertionError("classification markdown should include the baseline case row")
+
+        bad_trace = tmp_dir / "bad_video_trace.json"
+        payload = json.loads(source_trace.read_text(encoding="utf-8"))
+        if isinstance(payload.get("summary"), dict):
+            payload["summary"]["success_step"] = None
+            payload["summary"]["final_success_rate"] = 0.0
+            payload["summary"]["best_lateral"] = 0.050
+        for step in payload.get("steps", []):
+            if isinstance(step, dict):
+                step["success"] = False
+                step["lateral"] = 0.050
+        bad_trace.write_text(json.dumps(payload), encoding="utf-8")
+
+        cases["seed_43_nominal"]["trace_json"] = str(bad_trace)
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        result = run(
+            [
+                "python3",
+                "scripts/classify_success_variation_results.py",
+                str(manifest_path),
+                "--output-json",
+                str(report_json),
+            ]
+        )
+        assert_status(result, 0, "success variation classifier handles a bad trace")
+        assert_contains(result, "fail_closed=1", "bad-trace classifier fail-closed count")
+        report = json.loads(report_json.read_text(encoding="utf-8"))
+        by_case = {case["case_id"]: case for case in report["results"]}
+        if by_case["seed_43_nominal"]["classification"] != "fail_closed":
+            raise AssertionError(f"bad trace should fail closed: {by_case['seed_43_nominal']}")
+
+
 def write_action_response_trace(
     path: Path,
     *,
@@ -1426,6 +1517,7 @@ def main() -> int:
     run_trace_video_renderer_static_tests()
     run_trace_frame_alignment_tests()
     run_success_deliverable_bundle_tests()
+    run_success_variation_manifest_tests()
 
     with tempfile.TemporaryDirectory(prefix="rca-gate-tests-") as tmp_dir_raw:
         tmp_dir = Path(tmp_dir_raw)

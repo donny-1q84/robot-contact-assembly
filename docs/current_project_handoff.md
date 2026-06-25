@@ -18,7 +18,7 @@ published on the draft GitHub PR:
 ```text
 PR: https://github.com/donny-1q84/robot-contact-assembly/pull/1
 branch: codex/contact-smoke-gate-pass
-latest pushed commit: 65c8b64 Add Isaac trace replay video deliverable
+latest pushed commit before variation-tooling follow-up: 0ce7091 Add success deliverable bundle gate
 ```
 
 Current evidence is enough to close the old contact-smoke / single-success-trace
@@ -34,10 +34,25 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
 3. keep the local negative controls in `scripts/test_local_gates.py` so failed
    traces, video-only bundles, and checksum-corrupted bundles cannot pass;
 4. build successful-trace variation and dataset preparation across small
-   socket/reset perturbations.
+   socket/reset perturbations;
+5. use `scripts/create_success_variation_manifest.py` and
+   `scripts/classify_success_variation_results.py` to keep the next paid batch
+   bounded, classifiable, and negative-control checked before opening compute.
+
+The first local variation contract is:
+
+```text
+manifest: artifacts/manifests/success_trace_variations_2026-06-25.json
+classification_json: artifacts/analysis/success_trace_variation_classification_2026-06-25.json
+classification_md: artifacts/analysis/success_trace_variation_classification_2026-06-25.md
+result: 1 strict_success positive control, 8 missing planned cases
+negative_control: socket_x_pos_25mm_negative_control expected fail_closed
+paid_compute_allowed: false
+```
 
 Do not open another paid GPU run for a prettier video, old Abs IK/JointPos
-sweeps, RL/BC, or VLM work until the validator and negative controls exist.
+sweeps, RL/BC, or VLM work until the variation manifest/classifier has been
+reviewed and a fixed-budget trace-only batch plan is explicit.
 
 Detailed plan:
 
