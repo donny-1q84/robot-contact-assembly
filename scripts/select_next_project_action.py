@@ -279,19 +279,24 @@ def build_report(
     balance_eur: float | None,
     api_credit_output: Path | None,
     skip_phase2: bool,
+    credit_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     manifest_path = _resolve(DEFAULT_MANIFEST)
     request_path = _resolve(DEFAULT_REQUEST)
     contract_path = _resolve(DEFAULT_CONTRACT)
     dataset_path = _resolve(DEFAULT_DATASET)
     commands = _commands(balance_eur)
-    credit = credit_diagnosis.build_report(
-        config_path=_resolve(DEFAULT_CONFIG),
-        manifest_path=manifest_path,
-        run_packet_path=_resolve(DEFAULT_RUN_PACKET),
-        balance_eur=balance_eur,
-        api_credit_output=api_credit_output,
-        command_timeout_seconds=60,
+    credit = (
+        credit_report
+        if credit_report is not None
+        else credit_diagnosis.build_report(
+            config_path=_resolve(DEFAULT_CONFIG),
+            manifest_path=manifest_path,
+            run_packet_path=_resolve(DEFAULT_RUN_PACKET),
+            balance_eur=balance_eur,
+            api_credit_output=api_credit_output,
+            command_timeout_seconds=60,
+        )
     )
     variation = _variation_report(manifest_path)
     dataset = _dataset_status(manifest_path)

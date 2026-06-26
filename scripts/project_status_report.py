@@ -17,10 +17,15 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 from typing import Iterable
 
 
+sys.dont_write_bytecode = True
 REPO_ROOT = Path(__file__).resolve().parents[1]
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
+
 FAILING_STATUSES = {"BLOCKED", "STALE", "MISSING", "FAIL"}
 BREV_LIFECYCLE_HOLD_FILE = Path(
     os.environ.get(
@@ -41,6 +46,9 @@ class Check:
     name: str
     status: str
     detail: str
+
+
+_BREV_CREDIT_DIAGNOSIS_RESULT: subprocess.CompletedProcess[str] | None = None
 
 
 def run_git(*args: str) -> str:
@@ -66,6 +74,25 @@ def run_script(*args: str) -> subprocess.CompletedProcess[str]:
         stderr=subprocess.STDOUT,
         check=False,
     )
+
+
+def brev_credit_diagnosis_result() -> subprocess.CompletedProcess[str]:
+    global _BREV_CREDIT_DIAGNOSIS_RESULT
+    if _BREV_CREDIT_DIAGNOSIS_RESULT is None:
+        _BREV_CREDIT_DIAGNOSIS_RESULT = run_script(
+            "python3",
+            "scripts/diagnose_brev_credit_blocker.py",
+            "--no-output",
+        )
+    return _BREV_CREDIT_DIAGNOSIS_RESULT
+
+
+def brev_credit_diagnosis_facts() -> dict:
+    result = brev_credit_diagnosis_result()
+    marker = "[brev-credit-diagnosis] facts="
+    if marker not in result.stdout:
+        raise ValueError("Could not parse scripts/diagnose_brev_credit_blocker.py output.")
+    return _json_prefix(result.stdout.split(marker, 1)[1])
 
 
 def current_source_payload_sha256() -> str:
@@ -475,16 +502,8 @@ def brev_credit_review_status() -> Check:
 
 
 def brev_credit_blocker_diagnosis_status() -> Check:
-    result = run_script("python3", "scripts/diagnose_brev_credit_blocker.py", "--no-output")
-    marker = "[brev-credit-diagnosis] facts="
-    if marker not in result.stdout:
-        return Check(
-            "Brev credit blocker diagnosis",
-            "FAIL",
-            "Could not parse scripts/diagnose_brev_credit_blocker.py output.",
-        )
     try:
-        facts = _json_prefix(result.stdout.split(marker, 1)[1])
+        facts = brev_credit_diagnosis_facts()
     except (json.JSONDecodeError, ValueError) as exc:
         return Check("Brev credit blocker diagnosis", "FAIL", f"Brev credit diagnosis JSON parse failed: {exc}")
 
@@ -507,18 +526,17 @@ def brev_credit_blocker_diagnosis_status() -> Check:
 
 
 def next_project_action_status() -> Check:
-    result = run_script("python3", "scripts/select_next_project_action.py", "--skip-phase2-contact-gate", "--no-output")
-    marker = "[next-project-action] facts="
-    if marker not in result.stdout:
-        return Check(
-            "Next project action",
-            "FAIL",
-            "Could not parse scripts/select_next_project_action.py output.",
-        )
     try:
-        facts = _json_prefix(result.stdout.split(marker, 1)[1])
-    except (json.JSONDecodeError, ValueError) as exc:
-        return Check("Next project action", "FAIL", f"Next-action selector JSON parse failed: {exc}")
+        import select_next_project_action as next_action_selector  # noqa: PLC0415
+
+        facts = next_action_selector.build_report(
+            balance_eur=None,
+            api_credit_output=None,
+            skip_phase2=True,
+            credit_report=brev_credit_diagnosis_facts(),
+        )
+    except (json.JSONDecodeError, ValueError, RuntimeError) as exc:
+        return Check("Next project action", "FAIL", f"Next-action selector failed: {exc}")
 
     decision = facts.get("decision") if isinstance(facts.get("decision"), dict) else {}
     side_effects = facts.get("side_effects") if isinstance(facts.get("side_effects"), dict) else {}
