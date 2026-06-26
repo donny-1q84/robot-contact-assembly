@@ -4883,6 +4883,9 @@ def run_success_variation_manifest_tests() -> None:
                 lifecycle_module._run = original_run
             return status, calls
 
+        status, calls = exercise_lifecycle({"prepare": 5})
+        if status != 5 or calls != ["prepare", "disarm", "safety"]:
+            raise AssertionError(f"paid lifecycle prepare failure should disarm and safety-check: {status=} {calls=}")
         status, calls = exercise_lifecycle({"preflight": 6})
         if status != 6 or calls != ["prepare", "preflight", "disarm", "safety"]:
             raise AssertionError(f"paid lifecycle preflight failure should disarm and safety-check: {status=} {calls=}")
@@ -4923,6 +4926,7 @@ def run_success_variation_manifest_tests() -> None:
             "brev_paid_safety_status.sh",
             "[success-variation-lifecycle] facts=",
             "cleanup_guards",
+            "prepare failure disarms local paid env",
             "KeyboardInterrupt disarms local paid env",
             "writes_recovery_plan",
             "finalize_success_variation_batch.sh",

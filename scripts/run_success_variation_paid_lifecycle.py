@@ -174,6 +174,7 @@ def _dry_run_report(args: argparse.Namespace, commands: dict[str, list[str]]) ->
         ],
         "commands": commands,
         "cleanup_guards": [
+            "prepare failure disarms local paid env and reruns Brev safety",
             "preflight failure disarms local paid env and reruns Brev safety",
             "run failure disarms local paid env, reruns Brev safety, and writes a recovery plan",
             "KeyboardInterrupt disarms local paid env, reruns Brev safety, and writes a recovery plan",
@@ -219,6 +220,7 @@ def _execute_lifecycle(args: argparse.Namespace, commands: dict[str, list[str]])
 
     prepare_status = _run("prepare", commands["prepare"])
     if prepare_status != 0:
+        _post_run_cleanup(commands)
         return prepare_status
 
     cleanup_required = False
