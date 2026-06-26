@@ -1395,6 +1395,12 @@ def run_v0_skill_api_contract_tests() -> None:
     adapter_report, _ = json.JSONDecoder().raw_decode(
         result.stdout.split("[v0-robot-adapter] facts=", 1)[1].lstrip()
     )
+    if adapter_report["ready_for_hardware_execution"] is not False:
+        raise AssertionError(f"adapter checker must never approve direct hardware execution: {adapter_report}")
+    if adapter_report["manual_hardware_approval_required"] is not True:
+        raise AssertionError(f"adapter checker must require manual hardware approval: {adapter_report}")
+    if adapter_report["review_scope"] != "named_robot_low_speed_review_only":
+        raise AssertionError(f"adapter checker must scope readiness to named low-speed review: {adapter_report}")
     adapter_effects = adapter_report["side_effects"]
     for key in (
         "writes_adapter_report",
@@ -1418,6 +1424,8 @@ def run_v0_skill_api_contract_tests() -> None:
     portability_boundary, _ = json.JSONDecoder().raw_decode(
         result.stdout.split("[v0-portability-boundary] facts=", 1)[1].lstrip()
     )
+    if portability_boundary["ready_for_hardware_execution"] is not False:
+        raise AssertionError(f"portability boundary must never approve direct hardware execution: {portability_boundary}")
     boundary_effects = portability_boundary["side_effects"]
     for key in (
         "writes_boundary_report",
@@ -1448,6 +1456,10 @@ def run_v0_skill_api_contract_tests() -> None:
         result.stdout.split("[v0-portability-review] facts=", 1)[1].lstrip()
     )
     default_workplan = portability_review_default["adapter_workplan"]
+    if portability_review_default["ready_for_hardware_execution"] is not False:
+        raise AssertionError(f"portability review must never approve direct hardware execution: {portability_review_default}")
+    if default_workplan["ready_for_hardware_execution"] is not False:
+        raise AssertionError(f"portability workplan must keep direct hardware execution false: {default_workplan}")
     if default_workplan["direct_drop_in_answer"] != "NO_DIRECT_DROP_IN":
         raise AssertionError(f"portability workplan must reject direct drop-in: {default_workplan}")
     if "model_sources" not in default_workplan["required_evidence_groups"]:
@@ -1991,6 +2003,7 @@ def run_v0_skill_api_contract_tests() -> None:
     for expected_snippet in (
         "external-arm portability",
         "ready_for_external_robot cannot be true while adapter evidence blockers remain",
+        "ready_for_hardware_execution",
         "low_speed_hardware_contact_trial",
         "command_contract",
         "frame_contract",
@@ -2007,6 +2020,7 @@ def run_v0_skill_api_contract_tests() -> None:
         "PASS_SAFE_BLOCKED",
         "placeholders are not accepted",
         "not ready for hardware execution",
+        "not autonomous hardware execution approval",
         "not direct drop-in precision on another robot arm",
         "It does not call Brev, Isaac, ROS, a",
     ):
@@ -2018,6 +2032,7 @@ def run_v0_skill_api_contract_tests() -> None:
         "v0_cross_robot_portability_boundary",
         "universal_drop_in_ready",
         "READY_FOR_NAMED_ROBOT_LOW_SPEED_REVIEW",
+        "ready_for_hardware_execution",
         "BLOCKED_NOT_DROP_IN",
         "not direct drop-in precision on another robot arm",
         "It does not call Brev, Isaac, ROS, a",
@@ -2035,6 +2050,8 @@ def run_v0_skill_api_contract_tests() -> None:
         "required_evidence_groups",
         "minimum_ordered_steps",
         "not a universal robot-arm policy",
+        "not autonomous hardware execution approval",
+        "ready_for_hardware_execution",
         "PASS_SAFE_BLOCKED",
         "writes_target_adapter_manifest",
         "named external-robot adapter contract",
@@ -2084,6 +2101,7 @@ def run_v0_skill_api_contract_tests() -> None:
 
         premature_adapter = json.loads(robot_adapter_path.read_text(encoding="utf-8"))
         premature_adapter["ready_for_external_robot"] = True
+        premature_adapter["ready_for_hardware_execution"] = True
         premature_adapter["target_robot"]["robot_id"] = "demo_arm"
         premature_adapter["not_claims"].remove("not direct drop-in precision on another robot arm")
         premature_adapter_path = tmp_dir / "premature_external_robot_adapter.json"
@@ -2091,6 +2109,7 @@ def run_v0_skill_api_contract_tests() -> None:
         result = run(["python3", str(robot_adapter_checker_path), str(premature_adapter_path)])
         assert_status(result, 1, "V0 robot adapter checker rejects premature ready claim")
         assert_contains(result, "ready_for_external_robot cannot be true", "premature adapter ready failure detail")
+        assert_contains(result, "ready_for_hardware_execution must remain false", "premature adapter hardware execution failure detail")
         assert_contains(result, "not direct drop-in precision", "premature adapter non-claim failure detail")
 
         planned_adapter_preview_path = tmp_dir / "planned_external_robot_adapter_preview.json"
@@ -2172,6 +2191,10 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError(f"planned adapter has wrong robot id: {planned_adapter['target_robot']}")
         if planned_adapter["ready_for_external_robot"] is not False:
             raise AssertionError("planned adapter must not claim hardware readiness")
+        if planned_adapter["ready_for_hardware_execution"] is not False:
+            raise AssertionError("planned adapter must not claim direct hardware execution")
+        if planned_adapter["manual_hardware_approval_required"] is not True:
+            raise AssertionError("planned adapter must require manual hardware approval")
         if planned_adapter["ros2_interfaces"]["joint_trajectory_action"]["validated"] is not False:
             raise AssertionError("planned adapter must leave ROS 2 interface validation blocked")
         for section in ("command_contract", "frame_contract", "runtime_guards"):
@@ -2927,6 +2950,10 @@ def run_success_variation_manifest_tests() -> None:
         portability = json.loads(portability_json.read_text(encoding="utf-8"))
         if portability["universal_drop_in_ready"] is not False:
             raise AssertionError(f"portability gate must never claim arbitrary-arm drop-in readiness: {portability}")
+        if portability["ready_for_hardware_execution"] is not False:
+            raise AssertionError(f"portability gate must never claim direct hardware execution readiness: {portability}")
+        if portability["ready_for_named_robot_low_speed_review"] is not True:
+            raise AssertionError(f"portability gate should only allow named low-speed review readiness: {portability}")
         if portability["target_robot_id"] != "demo_arm_ready_fixture":
             raise AssertionError(f"portability gate should name the ready adapter robot: {portability}")
         if portability["side_effects"]["writes_boundary_report"] is not True:
@@ -2966,12 +2993,18 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"portability review must reject drop-in claims: {portability_review_packet}")
         if portability_review_packet["universal_drop_in_ready"] is not False:
             raise AssertionError(f"portability review must never claim arbitrary-arm readiness: {portability_review_packet}")
+        if portability_review_packet["ready_for_hardware_execution"] is not False:
+            raise AssertionError(f"portability review must never claim direct hardware execution readiness: {portability_review_packet}")
+        if portability_review_packet["ready_for_named_robot_low_speed_review"] is not True:
+            raise AssertionError(f"portability review should only allow named low-speed review readiness: {portability_review_packet}")
         if portability_review_packet["named_robot_ready"] is not True:
             raise AssertionError(f"portability review should allow named ready adapter review: {portability_review_packet}")
         if portability_review_packet["adapter_workplan"]["status"] != "READY_FOR_NAMED_ROBOT_LOW_SPEED_REVIEW":
             raise AssertionError(f"ready portability workplan should be ready only for named low-speed review: {portability_review_packet}")
         if portability_review_packet["adapter_workplan"]["direct_drop_in_answer"] != "NO_DIRECT_DROP_IN":
             raise AssertionError(f"ready portability workplan must still reject direct drop-in: {portability_review_packet}")
+        if portability_review_packet["adapter_workplan"]["ready_for_hardware_execution"] is not False:
+            raise AssertionError(f"ready portability workplan must still reject direct hardware execution: {portability_review_packet}")
         if portability_review_packet["side_effects"]["writes_review_artifacts"] is not True:
             raise AssertionError(f"portability review should disclose review artifact writes: {portability_review_packet}")
         for key in ("writes_target_adapter_manifest", "creates_paid_instance", "runs_remote_code", "starts_isaac", "calls_ros_or_robot"):
@@ -6893,6 +6926,7 @@ def main() -> int:
         )
         assert_contains(result, "direct_drop_in_answer=NO_DIRECT_DROP_IN", "status report portability review non-drop-in detail")
         assert_contains(result, "universal_drop_in_ready=False", "status report portability non-claim detail")
+        assert_contains(result, "ready_for_hardware_execution=False", "status report portability hardware-execution non-claim detail")
         assert_contains(
             result,
             "target_adapter_preview=NOT_PROVIDED",

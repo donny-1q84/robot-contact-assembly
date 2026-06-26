@@ -43,6 +43,7 @@ DEFAULT_OUTPUT_MD = DEFAULT_OUTPUT_DIR / "README.md"
 REUSE_SUMMARY = "language/request and skill-target layers are reusable; robot execution is adapter-specific"
 TARGET_PREVIEW_NOT_CLAIMS = [
     "not ready for hardware execution",
+    "not autonomous hardware execution approval",
     "not verified on this robot",
     "not sim-to-real",
     "not direct drop-in precision on another robot arm",
@@ -231,6 +232,9 @@ def _target_adapter_preview(
         "target_robot": adapter["target_robot"],
         "planned_adapter_name": adapter["adapter_name"],
         "ready_for_external_robot": adapter["ready_for_external_robot"],
+        "ready_for_hardware_execution": False,
+        "manual_hardware_approval_required": True,
+        "review_scope": "named_robot_low_speed_review_only",
         "adapter_contract_status": checker.get("status"),
         "blocker_count": len(blockers),
         "top_blockers": blockers[:8],
@@ -284,6 +288,10 @@ def _adapter_workplan(boundary: dict[str, Any], target_preview: dict[str, Any]) 
             else "BLOCKED_NOT_DROP_IN"
         ),
         "direct_drop_in_answer": "NO_DIRECT_DROP_IN",
+        "ready_for_named_robot_low_speed_review": boundary.get("ready_for_named_robot_low_speed_review"),
+        "ready_for_hardware_execution": False,
+        "manual_hardware_approval_required": True,
+        "review_scope": boundary.get("review_scope"),
         "execution_boundary": boundary["portability_boundary"],
         "target_preview_status": target_preview.get("status"),
         "target_robot": target_preview.get("target_robot"),
@@ -300,6 +308,7 @@ def _adapter_workplan(boundary: dict[str, Any], target_preview: dict[str, Any]) 
             "not a universal robot-arm policy",
             "not direct drop-in precision on another robot arm",
             "not ready without named robot calibration and revalidation",
+            "not autonomous hardware execution approval",
             "not hardware execution approval",
         ],
     }
@@ -350,6 +359,10 @@ def build_packet(
         "reuse_summary": REUSE_SUMMARY,
         "universal_drop_in_ready": False,
         "named_robot_ready": boundary["named_robot_ready"],
+        "ready_for_named_robot_low_speed_review": boundary["ready_for_named_robot_low_speed_review"],
+        "ready_for_hardware_execution": False,
+        "manual_hardware_approval_required": True,
+        "review_scope": boundary["review_scope"],
         "target_robot_id": boundary["target_robot_id"],
         "portability_boundary": boundary["portability_boundary"],
         "inputs": {
@@ -376,6 +389,7 @@ def build_packet(
             "confirm URDF/USD, joint limits, TCP, fixture frames, and controller units are robot-specific",
             "confirm low-speed contact safety and abort behavior before hardware contact",
             "confirm strict success variations and fail-closed negative control are rerun for the named robot",
+            "confirm a separate human hardware approval exists before any non-review robot execution",
         ],
         "side_effects": {
             "writes_review_artifacts": True,
@@ -389,6 +403,7 @@ def build_packet(
         + [
             "not a robot driver",
             "not hardware execution approval",
+            "not autonomous hardware execution approval",
             "not evidence that arbitrary robot arms can be used without adaptation",
         ],
         "boundary_report": boundary,
@@ -407,6 +422,8 @@ def _render_markdown(packet: dict[str, Any]) -> str:
         f"- reuse_summary: {packet['reuse_summary']}",
         f"- universal_drop_in_ready: {str(packet['universal_drop_in_ready']).lower()}",
         f"- named_robot_ready: {str(packet['named_robot_ready']).lower()}",
+        f"- ready_for_hardware_execution: {str(packet['ready_for_hardware_execution']).lower()}",
+        f"- review_scope: {packet['review_scope']}",
         f"- target_robot_id: {packet['target_robot_id']}",
         f"- next_action: {packet['gate_summary']['next_action']}",
         "",
@@ -441,6 +458,8 @@ def _render_markdown(packet: dict[str, Any]) -> str:
             "",
             f"- status: {workplan.get('status')}",
             f"- direct_drop_in_answer: {workplan.get('direct_drop_in_answer')}",
+            f"- ready_for_hardware_execution: {str(workplan.get('ready_for_hardware_execution')).lower()}",
+            f"- review_scope: {workplan.get('review_scope')}",
             f"- execution_boundary: {workplan.get('execution_boundary')}",
             "",
             "Minimum ordered steps:",

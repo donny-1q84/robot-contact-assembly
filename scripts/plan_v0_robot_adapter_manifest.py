@@ -98,6 +98,9 @@ def build_adapter(
     adapter = _load_json(template_path)
     adapter["adapter_name"] = f"v0_external_robot_adapter_{robot_id}"
     adapter["ready_for_external_robot"] = False
+    adapter["ready_for_hardware_execution"] = False
+    adapter["manual_hardware_approval_required"] = True
+    adapter["review_scope"] = "named_robot_low_speed_review_only"
     adapter["target_robot"] = {
         "robot_id": robot_id,
         "robot_family": robot_family,
@@ -166,6 +169,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "side_effects": _side_effects(writes_adapter_manifest=adapter is not None and not args.no_output),
         "not_claims": [
             "not ready for hardware execution",
+            "not autonomous hardware execution approval",
             "not verified on this robot",
             "not sim-to-real",
             "not direct drop-in precision on another robot arm",

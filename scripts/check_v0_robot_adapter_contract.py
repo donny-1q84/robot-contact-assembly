@@ -97,6 +97,7 @@ REQUIRED_REVALIDATION = {
     "low_speed_hardware_contact_trial",
 }
 REQUIRED_ALWAYS_NOT_CLAIMS = {
+    "not autonomous hardware execution approval",
     "not universal cross-robot-ready",
     "not direct drop-in precision on another robot arm",
 }
@@ -265,6 +266,18 @@ def build_report(adapter_path: Path) -> dict[str, Any]:
         failures.append("ready_for_external_robot must be a boolean")
         ready = False
 
+    if adapter.get("ready_for_hardware_execution", False) is not False:
+        failures.append(
+            "ready_for_hardware_execution must remain false; this offline adapter gate only approves named low-speed review"
+        )
+
+    if adapter.get("manual_hardware_approval_required", True) is not True:
+        failures.append("manual_hardware_approval_required must be true")
+
+    review_scope = str(adapter.get("review_scope") or "named_robot_low_speed_review_only")
+    if review_scope != "named_robot_low_speed_review_only":
+        failures.append("review_scope must be named_robot_low_speed_review_only")
+
     contract_ref = adapter.get("skill_api_contract")
     if not isinstance(contract_ref, str) or not contract_ref:
         failures.append("skill_api_contract must reference configs/v0_skill_api_contract.json")
@@ -372,6 +385,11 @@ def build_report(adapter_path: Path) -> dict[str, Any]:
         "adapter_name": adapter.get("adapter_name"),
         "status": status,
         "ready_for_external_robot": bool(ready),
+        "ready_for_named_robot_low_speed_review": status == "READY",
+        "ready_for_hardware_execution": False,
+        "manual_hardware_approval_required": True,
+        "review_scope": review_scope,
+        "hardware_execution_boundary": "manual approval after named-robot low-speed review; never authorized by this offline gate",
         "skill_api_contract": _rel(contract_path),
         "skill_contract_status": contract_report.get("status"),
         "target_robot": target_robot,
