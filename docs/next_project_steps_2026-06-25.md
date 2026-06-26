@@ -458,15 +458,32 @@ visible as separate fields together with the ordered preview/write/arm/preflight
 commands. It does not arm the env or create a paid instance.
 `scripts/prepare_brev_credit_review.py --no-output` is the read-only bridge for
 the remaining external blocker: it prints the Brev organization dashboard URL,
-the missing credit-evidence status, preview and real
-`write_brev_credit_evidence.py` commands, preview and real
-`prepare_success_variation_paid_batch.py` commands, the rerun-preflight command,
-the one-shot paid lifecycle command, and the paid preflight
+the missing credit-evidence status, the read-only Brev API credit-balance
+result, preview and real `write_brev_credit_evidence.py` commands, preview and
+real `prepare_success_variation_paid_batch.py` commands, the rerun-preflight
+command, the one-shot paid lifecycle command, and the paid preflight
 `blocked_subchecks`/`unblock_plan` fields. It does not open paid compute, write
 credit evidence, or arm the local env unless the explicit follow-up commands are
-run separately. After reading the current UI balance, add
-`--balance-eur <current-brev-ui-balance>` to this review helper to get concrete
-preview/write/prepare commands instead of placeholders.
+run separately. The underlying `scripts/read_brev_credit_balance.py` helper only
+reads the current org credits endpoint through local Brev credentials; it never
+prints tokens or payment details, writes evidence, arms local env state, or
+creates instances. If that API result is `BLOCKED`, the review packet reports
+`NEEDS_BREV_CREDIT_TOPUP` even if older local/UI evidence would otherwise look
+ready. If the API check is `SKIPPED` or `UNAVAILABLE`, fall back to the current
+Brev UI balance and keep the normal evidence-writing gate. After reading the
+current acceptable UI balance, add `--balance-eur <current-brev-ui-balance>` to
+this review helper to get concrete preview/write/prepare commands instead of
+placeholders.
+
+The direct read-only API check is:
+
+```bash
+python3 scripts/read_brev_credit_balance.py --required-budget-eur 6.00
+```
+
+If it prints `BLOCKED` or `UNAVAILABLE`, do not create a paid instance. Resolve
+credits/login first, then rerun the review packet and aggregate paid lifecycle
+preflight.
 
 To preview the credit evidence payload after reading the current UI balance,
 without writing the ignored JSON file, use:

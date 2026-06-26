@@ -195,6 +195,7 @@ REQUIRED_DOC_MARKERS = {
     ),
     "scripts/create_launchable_bundle.sh": (
         ".rca_launchable_source_manifest.txt",
+        "RCA_LAUNCHABLE_TMPDIR",
         "git_dirty=",
         "source_payload_scope=",
         "source_payload_sha256=",

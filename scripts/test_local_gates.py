@@ -4214,6 +4214,8 @@ def run_success_variation_manifest_tests() -> None:
         credit_checker = credit_checker_path.read_text(encoding="utf-8")
         credit_writer_path = REPO_ROOT / "scripts" / "write_brev_credit_evidence.py"
         credit_writer = credit_writer_path.read_text(encoding="utf-8")
+        api_credit_path = REPO_ROOT / "scripts" / "read_brev_credit_balance.py"
+        api_credit_script = api_credit_path.read_text(encoding="utf-8")
         gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
 
         for expected_snippet in (
@@ -4348,6 +4350,53 @@ def run_success_variation_manifest_tests() -> None:
         if "brev create" in credit_writer or '"${BREV_BIN}" create' in credit_writer:
             raise AssertionError("Brev credit evidence writer must not create Brev instances")
 
+        for expected_snippet in (
+            "Read the current Brev organization credit balance through the Brev API",
+            "refreshes_brev_credentials_with_cli",
+            "prints_token",
+            "balance_usd",
+            "add_brev_credits_or_reduce_budget_before_paid_run",
+            "[brev-api-credit] PASS",
+            "[brev-api-credit] BLOCKED",
+            "[brev-api-credit] UNAVAILABLE",
+        ):
+            if expected_snippet not in api_credit_script:
+                raise AssertionError(f"Brev API credit helper missing snippet: {expected_snippet}")
+        if "brev create" in api_credit_script or '"${BREV_BIN}" create' in api_credit_script:
+            raise AssertionError("Brev API credit helper must not create Brev instances")
+        missing_api_credentials = tmp_dir / "missing-brev-credentials.json"
+        result = run(
+            [
+                "python3",
+                str(api_credit_path),
+                "--credentials",
+                str(missing_api_credentials),
+                "--brev-bin",
+                str(tmp_dir / "missing-brev-bin"),
+                "--required-budget-eur",
+                "6.00",
+            ]
+        )
+        assert_status(result, 0, "Brev API credit helper reports unavailable without credentials")
+        assert_contains(result, "[brev-api-credit] UNAVAILABLE", "Brev API credit helper unavailable marker")
+        assert_contains(result, "creates_paid_instance", "Brev API credit helper side-effect detail")
+        assert_contains(result, '"prints_token": false', "Brev API credit helper token safety detail")
+        assert_contains(result, "fall_back_to_current_brev_ui_balance_review", "Brev API credit helper fallback detail")
+        result = run(
+            [
+                "python3",
+                str(api_credit_path),
+                "--credentials",
+                str(missing_api_credentials),
+                "--brev-bin",
+                str(tmp_dir / "missing-brev-bin"),
+                "--required-budget-eur",
+                "6.00",
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 1, "Brev API credit helper can fail closed when unavailable")
+
         credit_dry_run_output = tmp_dir / "brev_credit_verification.local.json"
         result = run(
             [
@@ -4465,7 +4514,9 @@ def run_success_variation_manifest_tests() -> None:
 
         result = run(["python3", str(credit_review_path), "--no-output"])
         assert_status(result, 0, "Brev credit review packet reports current blocked state")
-        assert_contains(result, "NEEDS_BREV_UI_CREDIT_EVIDENCE", "Brev credit review missing evidence detail")
+        assert_contains(result, "[brev-credit-review] status=", "Brev credit review status detail")
+        assert_contains(result, "api_credit_status=", "Brev credit review API credit status detail")
+        assert_contains(result, "api_credit_balance_usd=", "Brev credit review API credit balance detail")
         assert_contains(result, "balance_preview_status=NOT_PROVIDED", "Brev credit review default balance preview detail")
         assert_contains(result, "dashboard_url=https://brev.nvidia.com/org/", "Brev credit review dashboard detail")
         assert_contains(result, "preview_credit_evidence=", "Brev credit review preview evidence command detail")
@@ -4475,6 +4526,39 @@ def run_success_variation_manifest_tests() -> None:
         assert_contains(result, "paid_lifecycle_unblock_plan", "Brev credit review paid unblock-plan detail")
         assert_contains(result, "paid_lifecycle_blocked_subchecks", "Brev credit review paid blocked-subchecks detail")
         assert_contains(result, "BLOCKED_REFRESH_CREDIT_AND_ACKS", "Brev credit review blocked unblock-plan status detail")
+        blocked_api_fixture = tmp_dir / "blocked_brev_api_credit.json"
+        blocked_api_fixture.write_text(
+            json.dumps(
+                {
+                    "check_name": "brev_api_credit_balance",
+                    "status": "BLOCKED",
+                    "balance_usd": 0.0,
+                    "required_budget_eur": 6.0,
+                    "blockers": ["Brev API credit balance 0 USD is below required budget 6.00"],
+                    "next_action": "add_brev_credits_or_reduce_budget_before_paid_run",
+                }
+            ),
+            encoding="utf-8",
+        )
+        result = run(["python3", str(credit_review_path), "--api-credit-output", str(blocked_api_fixture), "--no-output"])
+        assert_status(result, 0, "Brev credit review consumes saved blocked API credit output")
+        assert_contains(result, "NEEDS_BREV_CREDIT_TOPUP", "Brev credit review top-up status detail")
+        assert_contains(result, "api_credit_status=BLOCKED", "Brev credit review blocked API detail")
+        assert_contains(result, "api_credit_balance_usd=0.0", "Brev credit review blocked API balance detail")
+        result = run(
+            [
+                "python3",
+                str(credit_review_path),
+                "--api-credit-output",
+                str(blocked_api_fixture),
+                "--balance-eur",
+                "20.00",
+                "--no-output",
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 1, "Brev credit review blocks paid readiness when API balance is too low")
+        assert_contains(result, "NEEDS_BREV_CREDIT_TOPUP", "Brev credit review API blocker overrides UI preview")
         result = run(["python3", str(credit_review_path), "--balance-eur", "20.00", "--no-output"])
         assert_status(result, 0, "Brev credit review accepts concrete UI balance for preview commands")
         assert_contains(result, "balance_preview_status=PASS", "Brev credit review concrete balance preview detail")
@@ -4511,7 +4595,11 @@ def run_success_variation_manifest_tests() -> None:
         for expected_snippet in (
             "Prepare the Brev UI credit review before a paid success-variation run",
             "NEEDS_BREV_UI_CREDIT_EVIDENCE",
+            "NEEDS_BREV_CREDIT_TOPUP",
             "READY_FOR_PAID_LIFECYCLE",
+            "api_credit_balance",
+            "--api-credit-output",
+            "--skip-api-credit",
             "--source-status-output",
             "balance_eur_for_preview",
             "preview_credit_evidence",
@@ -4786,6 +4874,21 @@ def run_success_variation_manifest_tests() -> None:
         assert_contains(result, "Git worktree must be CLEAN", "paid lifecycle preflight dirty source detail")
         ready_credit_review_json = tmp_dir / "paid_lifecycle_preflight_ready" / "credit_review.json"
         ready_credit_review_md = tmp_dir / "paid_lifecycle_preflight_ready" / "credit_review.md"
+        ready_api_fixture = tmp_dir / "paid_lifecycle_preflight_ready" / "passing_brev_api_credit.json"
+        ready_api_fixture.write_text(
+            json.dumps(
+                {
+                    "check_name": "brev_api_credit_balance",
+                    "status": "PASS",
+                    "balance_usd": 20.0,
+                    "required_budget_eur": 6.0,
+                    "blockers": [],
+                    "failures": [],
+                    "next_action": "write_fresh_credit_evidence_from_current_balance",
+                }
+            ),
+            encoding="utf-8",
+        )
         result = run(
             [
                 "python3",
@@ -4798,6 +4901,8 @@ def run_success_variation_manifest_tests() -> None:
                 str(fake_clean_source),
                 "--run-packet",
                 str(ready_run_packet_path),
+                "--api-credit-output",
+                str(ready_api_fixture),
                 "--output-json",
                 str(ready_credit_review_json),
                 "--output-md",
@@ -6358,7 +6463,10 @@ def main() -> int:
         lifecycle_bundle_path = launchable_bundle_dir / "robot-contact-assembly-contact-smoke-gate-test.tar.gz"
         result = run(
             ["scripts/create_launchable_bundle.sh", str(lifecycle_bundle_path)],
-            env={"RCA_LAUNCHABLE_BUNDLE_DIR": str(launchable_bundle_dir)},
+            env={
+                "RCA_LAUNCHABLE_BUNDLE_DIR": str(launchable_bundle_dir),
+                "RCA_LAUNCHABLE_TMPDIR": str(tmp_dir / "launchable-lifecycle-bundle-tmp"),
+            },
         )
         assert_status(result, 0, "launchable bundle creation succeeds before lifecycle clearance")
         assert_contains(result, "[launchable-bundle] wrote", "lifecycle clearance bundle output detail")
@@ -6580,7 +6688,10 @@ def main() -> int:
         for fixture_path in sensitive_fixture_paths:
             fixture_path.write_text("synthetic-test-secret\n", encoding="utf-8")
         try:
-            result = run(["scripts/create_launchable_bundle.sh", str(bundle_path)])
+            result = run(
+                ["scripts/create_launchable_bundle.sh", str(bundle_path)],
+                env={"RCA_LAUNCHABLE_TMPDIR": str(tmp_dir / "launchable-bundle-tmp")},
+            )
             assert_status(result, 0, "launchable bundle creation succeeds offline")
             assert_contains(result, "[launchable-bundle] wrote", "launchable bundle output detail")
         finally:
@@ -6917,7 +7028,7 @@ def main() -> int:
         assert_contains(result, "Brev UI credit review | BLOCKED", "status report Brev credit review detail")
         assert_contains(
             result,
-            "packet_status=NEEDS_BREV_UI_CREDIT_EVIDENCE",
+            "packet_status=",
             "status report Brev credit review packet detail",
         )
         assert_contains(
@@ -6931,6 +7042,9 @@ def main() -> int:
             "status report preview credit command detail",
         )
         assert_contains(result, "balance_preview_status=NOT_PROVIDED", "status report balance preview detail")
+        assert_contains(result, "api_credit_status=", "status report API credit status detail")
+        assert_contains(result, "api_credit_balance_usd=", "status report API credit balance detail")
+        assert_contains(result, "api_credit_next_action=", "status report API credit next-action detail")
         assert_contains(result, "paid_unblock_plan=", "status report Brev credit unblock-plan detail")
         assert_contains(result, "ack_blockers=", "status report Brev credit ack blocker detail")
         assert_contains(

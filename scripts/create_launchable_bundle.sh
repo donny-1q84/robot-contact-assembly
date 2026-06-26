@@ -7,7 +7,9 @@ RUN_ID="$(date -u +"%Y-%m-%dT%H-%M-%SZ")"
 OUT_DIR="${RCA_LAUNCHABLE_BUNDLE_DIR:-${REPO_ROOT}/artifacts/launchable}"
 OUT_PATH="${1:-${OUT_DIR}/robot-contact-assembly-launchable-${RUN_ID}.tar.gz}"
 PRELOAD_TRACE="${RCA_LAUNCHABLE_PRELOAD_TRACE_LOCAL:-${REPO_ROOT}/artifacts/preload_traces/2026-05-17T23-32-18Z_seed_42_trace.json}"
-TMP_DIR="$(mktemp -d)"
+TMP_ROOT="${RCA_LAUNCHABLE_TMPDIR:-${TMPDIR:-/tmp}}"
+mkdir -p "${TMP_ROOT}"
+TMP_DIR="$(mktemp -d "${TMP_ROOT%/}/rca-launchable-bundle.XXXXXX")"
 SOURCE_MANIFEST="${TMP_DIR}/robot-contact-assembly/.rca_launchable_source_manifest.txt"
 
 cleanup() {

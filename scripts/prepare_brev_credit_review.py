@@ -30,6 +30,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 import check_brev_credit_evidence as credit_gate  # noqa: E402
 import check_success_variation_paid_lifecycle_preflight as paid_preflight  # noqa: E402
+import read_brev_credit_balance as api_credit_gate  # noqa: E402
 
 
 DEFAULT_CONFIG = REPO_ROOT / "configs" / "success_variation_batch_run.local.env"
@@ -68,14 +69,72 @@ def _nonnegative_float(value: str) -> float:
     return parsed
 
 
-def _status_from_preflight(preflight: dict[str, Any]) -> str:
+def _status_from_preflight(preflight: dict[str, Any], api_credit: dict[str, Any] | None = None) -> str:
+    if isinstance(api_credit, dict) and api_credit.get("status") == "BLOCKED":
+        return "NEEDS_BREV_CREDIT_TOPUP"
     if preflight.get("status") == "READY_FOR_SINGLE_PAID_LIFECYCLE":
         return "READY_FOR_PAID_LIFECYCLE"
     credit = preflight.get("credit_evidence") if isinstance(preflight.get("credit_evidence"), dict) else {}
     credit_status = credit.get("status")
+    if isinstance(api_credit, dict) and api_credit.get("status") == "PASS" and credit_status != "PASS":
+        return "NEEDS_FRESH_BREV_CREDIT_EVIDENCE_WRITE"
     if credit_status != "PASS":
         return "NEEDS_BREV_UI_CREDIT_EVIDENCE"
     return str(preflight.get("status") or "BLOCKED")
+
+
+def _load_api_credit_report(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError("Brev API credit output must be a JSON object")
+    return payload
+
+
+def _api_credit_report(
+    *,
+    required_budget_eur: float,
+    timeout_seconds: int,
+    skip_api_credit: bool,
+    api_credit_output: Path | None,
+) -> dict[str, Any]:
+    if skip_api_credit:
+        return {
+            "check_name": "brev_api_credit_balance",
+            "status": "SKIPPED",
+            "next_action": "manual_brev_ui_balance_review",
+            "side_effects": {
+                "reads_brev_api": False,
+                "writes_credit_evidence": False,
+                "creates_paid_instance": False,
+                "runs_remote_code": False,
+            },
+        }
+    if api_credit_output is not None:
+        try:
+            return _load_api_credit_report(_resolve(api_credit_output))
+        except Exception as exc:
+            return {
+                "check_name": "brev_api_credit_balance",
+                "status": "UNAVAILABLE",
+                "failures": [f"saved Brev API credit output is unreadable: {exc}"],
+                "next_action": "fall_back_to_current_brev_ui_balance_review",
+            }
+    try:
+        return api_credit_gate.build_report(
+            credentials_path=api_credit_gate.DEFAULT_CREDENTIALS,
+            brev_bin=api_credit_gate.DEFAULT_BREV_BIN,
+            api_base=api_credit_gate.DEFAULT_API_BASE,
+            organization_id=credit_gate.EXPECTED_ORG_ID,
+            required_budget_eur=required_budget_eur,
+            timeout_seconds=max(1, timeout_seconds),
+        )
+    except Exception as exc:
+        return {
+            "check_name": "brev_api_credit_balance",
+            "status": "UNAVAILABLE",
+            "failures": [f"Brev API credit check failed unexpectedly: {exc}"],
+            "next_action": "fall_back_to_current_brev_ui_balance_review",
+        }
 
 
 def build_packet(
@@ -88,6 +147,8 @@ def build_packet(
     source_status_output: Path | None,
     open_requested: bool,
     balance_eur: float | None,
+    skip_api_credit: bool = False,
+    api_credit_output: Path | None = None,
 ) -> dict[str, Any]:
     preflight = paid_preflight.build_report(
         config_path=config_path,
@@ -98,6 +159,12 @@ def build_packet(
         source_status_output=source_status_output,
     )
     budget = float(preflight.get("budget_eur") or 6.0)
+    api_credit = _api_credit_report(
+        required_budget_eur=budget,
+        timeout_seconds=min(command_timeout_seconds, 15),
+        skip_api_credit=skip_api_credit,
+        api_credit_output=api_credit_output,
+    )
     max_age = int(preflight.get("credit_max_age_minutes") or credit_gate.DEFAULT_MAX_AGE_MINUTES)
     credit_path = str(preflight.get("credit_evidence_path") or "configs/brev_credit_verification.local.json")
     balance_arg = f"{balance_eur:.2f}" if balance_eur is not None else "<current-brev-ui-balance>"
@@ -157,7 +224,7 @@ def build_packet(
     preview_prepare_paid_batch_command = [*prepare_paid_batch_command, "--dry-run"]
     return {
         "packet_name": "brev_credit_review_packet",
-        "status": _status_from_preflight(preflight),
+        "status": _status_from_preflight(preflight, api_credit),
         "organization_name": credit_gate.EXPECTED_ORG_NAME,
         "organization_id": credit_gate.EXPECTED_ORG_ID,
         "dashboard_url": BREV_ORG_DASHBOARD_URL,
@@ -167,6 +234,7 @@ def build_packet(
         "balance_eur_for_preview": round(balance_eur, 2) if balance_eur is not None else None,
         "balance_placeholder_used": balance_eur is None,
         "balance_preview": balance_preview,
+        "api_credit_balance": api_credit,
         "credit_max_age_minutes": max_age,
         "paid_lifecycle_preflight": preflight,
         "paid_lifecycle_unblock_plan": paid_unblock_plan,
@@ -181,6 +249,7 @@ def build_packet(
         },
         "instructions": [
             "Log in to Brev/NVIDIA in the browser if required.",
+            "Prefer the read-only api_credit_balance result when it is PASS or BLOCKED; fall back to the UI only if the API check is SKIPPED or UNAVAILABLE.",
             "Open the organization dashboard and read the current organization credit balance from the Brev UI.",
             "Use the current UI balance in the preview_credit_evidence command first; do not reuse an old email or memory value.",
             "Pass --balance-eur to this review helper after reading the UI if you want concrete commands instead of placeholders.",
@@ -220,9 +289,37 @@ def _render_markdown(packet: dict[str, Any]) -> str:
         f"- balance_eur_for_preview: {packet['balance_eur_for_preview']}",
         f"- balance_placeholder_used: {packet['balance_placeholder_used']}",
         "",
-        "## Instructions",
+        "## Brev API Credit Balance",
         "",
     ]
+    api_credit = (
+        packet.get("api_credit_balance")
+        if isinstance(packet.get("api_credit_balance"), dict)
+        else {}
+    )
+    lines.extend(
+        [
+            f"- status: {api_credit.get('status')}",
+            f"- balance_usd: {api_credit.get('balance_usd')}",
+            f"- required_budget_eur: {api_credit.get('required_budget_eur')}",
+            f"- next_action: {api_credit.get('next_action')}",
+        ]
+    )
+    api_blockers = api_credit.get("blockers") if isinstance(api_credit.get("blockers"), list) else []
+    if api_blockers:
+        lines.extend(["", "API blockers:"])
+        lines.extend(f"- {item}" for item in api_blockers)
+    api_failures = api_credit.get("failures") if isinstance(api_credit.get("failures"), list) else []
+    if api_failures:
+        lines.extend(["", "API failures:"])
+        lines.extend(f"- {item}" for item in api_failures)
+    lines.extend(
+        [
+            "",
+        "## Instructions",
+        "",
+        ]
+    )
     lines.extend(f"- {item}" for item in packet["instructions"])
     blocked_subchecks = (
         packet.get("paid_lifecycle_blocked_subchecks")
@@ -298,6 +395,8 @@ def main() -> int:
     parser.add_argument("--output-json", type=Path, default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--output-md", type=Path, default=DEFAULT_OUTPUT_MD)
     parser.add_argument("--balance-eur", type=_nonnegative_float)
+    parser.add_argument("--skip-api-credit", action="store_true")
+    parser.add_argument("--api-credit-output", type=Path)
     parser.add_argument("--open-dashboard", action="store_true")
     parser.add_argument("--no-output", action="store_true")
     parser.add_argument("--fail-on-blocked", action="store_true")
@@ -322,6 +421,8 @@ def main() -> int:
         source_status_output=source_status_output,
         open_requested=args.open_dashboard,
         balance_eur=args.balance_eur,
+        skip_api_credit=args.skip_api_credit,
+        api_credit_output=args.api_credit_output,
     )
 
     if args.open_dashboard:
@@ -344,6 +445,9 @@ def main() -> int:
     print("[brev-credit-review] facts=" + json.dumps(packet, indent=2, sort_keys=True))
     print("[brev-credit-review] status=" + packet["status"])
     print("[brev-credit-review] dashboard_url=" + packet["dashboard_url"])
+    api_credit = packet.get("api_credit_balance") if isinstance(packet.get("api_credit_balance"), dict) else {}
+    print("[brev-credit-review] api_credit_status=" + str(api_credit.get("status")))
+    print("[brev-credit-review] api_credit_balance_usd=" + str(api_credit.get("balance_usd")))
     print("[brev-credit-review] balance_preview_status=" + str(packet["balance_preview"]["status"]))
     print("[brev-credit-review] preview_credit_evidence=" + _command_text(packet["next_commands"]["preview_credit_evidence"]))
     print("[brev-credit-review] write_credit_evidence=" + _command_text(packet["next_commands"]["write_credit_evidence"]))
