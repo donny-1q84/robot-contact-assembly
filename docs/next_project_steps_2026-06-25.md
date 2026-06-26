@@ -499,6 +499,13 @@ python3 scripts/diagnose_brev_credit_blocker.py --no-output
 python3 scripts/diagnose_brev_credit_blocker.py --balance-eur <current-brev-ui-balance> --no-output
 ```
 
+For the single highest-priority next action from the current gates, run:
+
+```bash
+python3 scripts/select_next_project_action.py --no-output
+python3 scripts/select_next_project_action.py --balance-eur <current-brev-ui-balance> --no-output
+```
+
 If it prints `BLOCKED` or `UNAVAILABLE`, do not create a paid instance. Resolve
 credits/login first, then rerun the review packet and aggregate paid lifecycle
 preflight. The high-level paid lifecycle wrapper reruns that aggregate preflight

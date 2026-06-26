@@ -4200,6 +4200,8 @@ def run_success_variation_manifest_tests() -> None:
         credit_review_script = credit_review_path.read_text(encoding="utf-8")
         credit_diagnosis_path = REPO_ROOT / "scripts" / "diagnose_brev_credit_blocker.py"
         credit_diagnosis_script = credit_diagnosis_path.read_text(encoding="utf-8")
+        next_action_path = REPO_ROOT / "scripts" / "select_next_project_action.py"
+        next_action_script = next_action_path.read_text(encoding="utf-8")
         paid_preflight_path = REPO_ROOT / "scripts" / "check_success_variation_paid_lifecycle_preflight.py"
         paid_preflight_script = paid_preflight_path.read_text(encoding="utf-8")
         lifecycle_script = (
@@ -4444,6 +4446,21 @@ def run_success_variation_manifest_tests() -> None:
             ),
             encoding="utf-8",
         )
+        passing_api_fixture = tmp_dir / "passing_brev_api_credit.json"
+        passing_api_fixture.write_text(
+            json.dumps(
+                {
+                    "check_name": "brev_api_credit_balance",
+                    "status": "PASS",
+                    "balance_usd": 20.0,
+                    "required_budget_eur": 6.0,
+                    "blockers": [],
+                    "failures": [],
+                    "next_action": "write_fresh_credit_evidence_from_current_balance",
+                }
+            ),
+            encoding="utf-8",
+        )
 
         result = run(
             [
@@ -4652,6 +4669,46 @@ def run_success_variation_manifest_tests() -> None:
         )
         assert_contains(result, "paid_prepare_allowed=False", "Brev credit diagnosis mismatch guard detail")
 
+        result = run(
+            [
+                "python3",
+                str(next_action_path),
+                "--api-credit-output",
+                str(blocked_api_fixture),
+                "--skip-phase2-contact-gate",
+                "--no-output",
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 1, "next-action selector fails closed while Brev credit is blocked")
+        assert_contains(result, "next_action=resolve_brev_credit_blocker", "next-action selector credit blocker detail")
+        assert_contains(result, "blocking_gate=brev_credit", "next-action selector blocking gate detail")
+        assert_contains(result, "paid_compute_allowed=False", "next-action selector forbids paid compute when credit blocked")
+        result = run(
+            [
+                "python3",
+                str(next_action_path),
+                "--api-credit-output",
+                str(passing_api_fixture),
+                "--balance-eur",
+                "20.00",
+                "--skip-phase2-contact-gate",
+                "--no-output",
+            ]
+        )
+        assert_status(result, 0, "next-action selector advances to paid batch after credit passes")
+        assert_contains(
+            result,
+            "next_action=run_fixed_budget_success_variation_trace_batch",
+            "next-action selector paid batch detail",
+        )
+        assert_contains(
+            result,
+            "blocking_gate=success_variation_reproducibility",
+            "next-action selector success-variation blocker detail",
+        )
+        assert_contains(result, "paid_compute_allowed=True", "next-action selector permits paid batch only after credit passes")
+
         fake_open_log = tmp_dir / "brev_credit_review_open.log"
         fake_open_bin = tmp_dir / "fake-open-brev-credit-review.sh"
         fake_open_bin.write_text(
@@ -4710,6 +4767,21 @@ def run_success_variation_manifest_tests() -> None:
                 raise AssertionError(f"Brev credit diagnosis helper missing snippet: {expected_snippet}")
         if "brev create" in credit_diagnosis_script or '"${BREV_BIN}" create' in credit_diagnosis_script:
             raise AssertionError("Brev credit diagnosis helper must not create Brev instances")
+
+        for expected_snippet in (
+            "Select the next allowed project action",
+            "resolve_brev_credit_blocker",
+            "run_fixed_budget_success_variation_trace_batch",
+            "finalize_success_variation_dataset_then_prepare_policy_api_review",
+            "paid_compute_allowed",
+            "forbidden_until_resolved",
+            "creates_paid_instance",
+            "trains_policy",
+        ):
+            if expected_snippet not in next_action_script:
+                raise AssertionError(f"next-action selector missing snippet: {expected_snippet}")
+        if "brev create" in next_action_script or '"${BREV_BIN}" create' in next_action_script:
+            raise AssertionError("next-action selector must not create Brev instances")
 
         result = run(["python3", str(paid_preflight_path), "--no-output"])
         assert_status(result, 0, "success variation paid lifecycle preflight reports blocked current state")
@@ -7194,6 +7266,10 @@ def main() -> int:
         assert_contains(result, "diagnosis_status=", "status report Brev credit diagnosis status detail")
         assert_contains(result, "active_org_id=", "status report Brev credit diagnosis active org detail")
         assert_contains(result, "workspaces_null=", "status report Brev credit diagnosis workspace detail")
+        assert_contains(result, "Next project action | BLOCKED", "status report next-action selector detail")
+        assert_contains(result, "selector_status=BLOCKED", "status report next-action selector status detail")
+        assert_contains(result, "next_action=resolve_brev_credit_blocker", "status report next-action value detail")
+        assert_contains(result, "blocking_gate=brev_credit", "status report next-action blocking gate detail")
         assert_contains(result, "paid_unblock_plan=", "status report Brev credit unblock-plan detail")
         assert_contains(result, "ack_blockers=", "status report Brev credit ack blocker detail")
         assert_contains(
@@ -7390,6 +7466,16 @@ def main() -> int:
             result,
             "python3 scripts/diagnose_brev_credit_blocker.py --balance-eur <current-brev-ui-balance> --no-output",
             "status report concrete-balance Brev credit diagnosis command detail",
+        )
+        assert_contains(
+            result,
+            "python3 scripts/select_next_project_action.py --no-output",
+            "status report next-action selector command detail",
+        )
+        assert_contains(
+            result,
+            "python3 scripts/select_next_project_action.py --balance-eur <current-brev-ui-balance> --no-output",
+            "status report concrete-balance next-action selector command detail",
         )
         assert_contains(
             result,

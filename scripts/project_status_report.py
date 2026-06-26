@@ -506,6 +506,36 @@ def brev_credit_blocker_diagnosis_status() -> Check:
     return Check("Brev credit blocker diagnosis", "READY" if paid_prepare_allowed else "BLOCKED", detail)
 
 
+def next_project_action_status() -> Check:
+    result = run_script("python3", "scripts/select_next_project_action.py", "--skip-phase2-contact-gate", "--no-output")
+    marker = "[next-project-action] facts="
+    if marker not in result.stdout:
+        return Check(
+            "Next project action",
+            "FAIL",
+            "Could not parse scripts/select_next_project_action.py output.",
+        )
+    try:
+        facts = _json_prefix(result.stdout.split(marker, 1)[1])
+    except (json.JSONDecodeError, ValueError) as exc:
+        return Check("Next project action", "FAIL", f"Next-action selector JSON parse failed: {exc}")
+
+    decision = facts.get("decision") if isinstance(facts.get("decision"), dict) else {}
+    side_effects = facts.get("side_effects") if isinstance(facts.get("side_effects"), dict) else {}
+    allowed_commands = decision.get("allowed_commands") if isinstance(decision.get("allowed_commands"), list) else []
+    detail = (
+        f"selector_status={decision.get('status')}; next_action={decision.get('next_action')}; "
+        f"blocking_gate={decision.get('blocking_gate')}; priority={decision.get('priority')}; "
+        f"paid_compute_allowed={decision.get('paid_compute_allowed')}; "
+        f"allowed_command_count={len(allowed_commands)}; "
+        f"creates_paid_instance={side_effects.get('creates_paid_instance')}; "
+        f"writes_local_env={side_effects.get('writes_local_env')}; "
+        f"trains_policy={side_effects.get('trains_policy')}."
+    )
+    status = "READY" if decision.get("status") == "READY_FOR_NEXT_ACTION" else "BLOCKED"
+    return Check("Next project action", status, detail)
+
+
 def v0_language_instruction_suite_status() -> Check:
     result = run_script("python3", "scripts/check_v0_language_instruction_suite.py", "--no-output")
     marker = "[v0-language-suite] facts="
@@ -1122,6 +1152,7 @@ def checks() -> list[Check]:
         success_variation_paid_lifecycle_preflight_status(),
         brev_credit_review_status(),
         brev_credit_blocker_diagnosis_status(),
+        next_project_action_status(),
         v0_language_instruction_suite_status(),
         v0_language_skill_dry_run_status(),
         v0_skill_readiness_status(),
@@ -1355,6 +1386,8 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "python3 scripts/prepare_brev_credit_review.py --balance-eur <current-brev-ui-balance> --no-output",
             "python3 scripts/diagnose_brev_credit_blocker.py --no-output",
             "python3 scripts/diagnose_brev_credit_blocker.py --balance-eur <current-brev-ui-balance> --no-output",
+            "python3 scripts/select_next_project_action.py --no-output",
+            "python3 scripts/select_next_project_action.py --balance-eur <current-brev-ui-balance> --no-output",
             "# Paid-run previews; these do not create instances:",
             "python3 scripts/write_brev_credit_evidence.py --balance-eur <current-brev-ui-balance> --budget-eur 6.00 --dry-run",
             "python3 scripts/prepare_success_variation_paid_batch.py --balance-eur <current-brev-ui-balance> --force-credit --i-understand-this-arms-paid-run --dry-run",
