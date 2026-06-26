@@ -4198,6 +4198,8 @@ def run_success_variation_manifest_tests() -> None:
         ).read_text(encoding="utf-8")
         credit_review_path = REPO_ROOT / "scripts" / "prepare_brev_credit_review.py"
         credit_review_script = credit_review_path.read_text(encoding="utf-8")
+        credit_diagnosis_path = REPO_ROOT / "scripts" / "diagnose_brev_credit_blocker.py"
+        credit_diagnosis_script = credit_diagnosis_path.read_text(encoding="utf-8")
         paid_preflight_path = REPO_ROOT / "scripts" / "check_success_variation_paid_lifecycle_preflight.py"
         paid_preflight_script = paid_preflight_path.read_text(encoding="utf-8")
         lifecycle_script = (
@@ -4621,6 +4623,35 @@ def run_success_variation_manifest_tests() -> None:
         result = run(["python3", str(credit_review_path), "--no-output", "--fail-on-blocked"])
         assert_status(result, 1, "Brev credit review can fail closed while UI evidence is missing")
 
+        result = run(["python3", str(credit_diagnosis_path), "--api-credit-output", str(blocked_api_fixture), "--no-output"])
+        assert_status(result, 0, "Brev credit diagnosis reports saved blocked API state")
+        assert_contains(result, "status=API_CREDIT_BLOCKED", "Brev credit diagnosis API blocked detail")
+        assert_contains(result, "active_org_id=org-3BaYGdtoRGmgc77Z7NHHhPSD254", "Brev credit diagnosis active org detail")
+        assert_contains(result, "api_credit_status=BLOCKED", "Brev credit diagnosis API status detail")
+        assert_contains(result, "credit_consistency_status=NO_UI_BALANCE_PROVIDED", "Brev credit diagnosis default consistency detail")
+        assert_contains(result, "paid_prepare_allowed=False", "Brev credit diagnosis prepare guard detail")
+        assert_contains(result, "visible_instances=0", "Brev credit diagnosis instance safety detail")
+        result = run(
+            [
+                "python3",
+                str(credit_diagnosis_path),
+                "--api-credit-output",
+                str(blocked_api_fixture),
+                "--balance-eur",
+                "20.00",
+                "--no-output",
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 1, "Brev credit diagnosis fails closed on UI/API mismatch")
+        assert_contains(result, "status=UI_API_MISMATCH_BLOCKED", "Brev credit diagnosis UI/API mismatch detail")
+        assert_contains(
+            result,
+            "credit_consistency_status=UI_API_MISMATCH_API_BLOCKED",
+            "Brev credit diagnosis consistency mismatch detail",
+        )
+        assert_contains(result, "paid_prepare_allowed=False", "Brev credit diagnosis mismatch guard detail")
+
         fake_open_log = tmp_dir / "brev_credit_review_open.log"
         fake_open_bin = tmp_dir / "fake-open-brev-credit-review.sh"
         fake_open_bin.write_text(
@@ -4665,6 +4696,20 @@ def run_success_variation_manifest_tests() -> None:
                 raise AssertionError(f"Brev credit review helper missing snippet: {expected_snippet}")
         if "brev create" in credit_review_script or '"${BREV_BIN}" create' in credit_review_script:
             raise AssertionError("Brev credit review helper must not create Brev instances")
+
+        for expected_snippet in (
+            "Diagnose why the fixed-budget Brev paid run is still credit-blocked",
+            "UI_API_MISMATCH_BLOCKED",
+            "API_CREDIT_BLOCKED",
+            "paid_prepare_allowed",
+            "creates_paid_instance",
+            "writes_local_env",
+            "does not open a browser, write credit evidence, arm local env state",
+        ):
+            if expected_snippet not in credit_diagnosis_script:
+                raise AssertionError(f"Brev credit diagnosis helper missing snippet: {expected_snippet}")
+        if "brev create" in credit_diagnosis_script or '"${BREV_BIN}" create' in credit_diagnosis_script:
+            raise AssertionError("Brev credit diagnosis helper must not create Brev instances")
 
         result = run(["python3", str(paid_preflight_path), "--no-output"])
         assert_status(result, 0, "success variation paid lifecycle preflight reports blocked current state")
@@ -7145,6 +7190,10 @@ def main() -> int:
         assert_contains(result, "api_credit_next_action=", "status report API credit next-action detail")
         assert_contains(result, "credit_consistency=", "status report credit consistency detail")
         assert_contains(result, "paid_prepare_allowed=", "status report paid-prepare guard detail")
+        assert_contains(result, "Brev credit blocker diagnosis | BLOCKED", "status report Brev credit diagnosis detail")
+        assert_contains(result, "diagnosis_status=", "status report Brev credit diagnosis status detail")
+        assert_contains(result, "active_org_id=", "status report Brev credit diagnosis active org detail")
+        assert_contains(result, "workspaces_null=", "status report Brev credit diagnosis workspace detail")
         assert_contains(result, "paid_unblock_plan=", "status report Brev credit unblock-plan detail")
         assert_contains(result, "ack_blockers=", "status report Brev credit ack blocker detail")
         assert_contains(
@@ -7331,6 +7380,16 @@ def main() -> int:
             result,
             "python3 scripts/prepare_brev_credit_review.py --balance-eur <current-brev-ui-balance> --no-output",
             "status report concrete-balance Brev credit review command detail",
+        )
+        assert_contains(
+            result,
+            "python3 scripts/diagnose_brev_credit_blocker.py --no-output",
+            "status report Brev credit diagnosis command detail",
+        )
+        assert_contains(
+            result,
+            "python3 scripts/diagnose_brev_credit_blocker.py --balance-eur <current-brev-ui-balance> --no-output",
+            "status report concrete-balance Brev credit diagnosis command detail",
         )
         assert_contains(
             result,

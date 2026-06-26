@@ -474,6 +474,38 @@ def brev_credit_review_status() -> Check:
     return Check("Brev UI credit review", status, detail)
 
 
+def brev_credit_blocker_diagnosis_status() -> Check:
+    result = run_script("python3", "scripts/diagnose_brev_credit_blocker.py", "--no-output")
+    marker = "[brev-credit-diagnosis] facts="
+    if marker not in result.stdout:
+        return Check(
+            "Brev credit blocker diagnosis",
+            "FAIL",
+            "Could not parse scripts/diagnose_brev_credit_blocker.py output.",
+        )
+    try:
+        facts = _json_prefix(result.stdout.split(marker, 1)[1])
+    except (json.JSONDecodeError, ValueError) as exc:
+        return Check("Brev credit blocker diagnosis", "FAIL", f"Brev credit diagnosis JSON parse failed: {exc}")
+
+    active_org = facts.get("active_organization") if isinstance(facts.get("active_organization"), dict) else {}
+    api_credit = facts.get("api_credit_balance") if isinstance(facts.get("api_credit_balance"), dict) else {}
+    consistency = facts.get("credit_consistency") if isinstance(facts.get("credit_consistency"), dict) else {}
+    side_effects = facts.get("side_effects") if isinstance(facts.get("side_effects"), dict) else {}
+    paid_prepare_allowed = facts.get("paid_prepare_allowed") is True
+    detail = (
+        f"diagnosis_status={facts.get('status')}; active_org_id={active_org.get('id')}; "
+        f"expected_org_id={facts.get('expected_organization', {}).get('id') if isinstance(facts.get('expected_organization'), dict) else None}; "
+        f"api_credit_status={api_credit.get('status')}; api_credit_balance_usd={api_credit.get('balance_usd')}; "
+        f"credit_consistency={consistency.get('status')}; paid_prepare_allowed={paid_prepare_allowed}; "
+        f"visible_instances={facts.get('visible_instances')}; workspaces_null={facts.get('workspaces_null')}; "
+        f"cli_version={facts.get('cli_version')}; next_action={facts.get('next_action')}; "
+        f"creates_paid_instance={side_effects.get('creates_paid_instance')}; "
+        f"writes_local_env={side_effects.get('writes_local_env')}."
+    )
+    return Check("Brev credit blocker diagnosis", "READY" if paid_prepare_allowed else "BLOCKED", detail)
+
+
 def v0_language_instruction_suite_status() -> Check:
     result = run_script("python3", "scripts/check_v0_language_instruction_suite.py", "--no-output")
     marker = "[v0-language-suite] facts="
@@ -1089,6 +1121,7 @@ def checks() -> list[Check]:
         success_variation_post_batch_assumption_audit_status(),
         success_variation_paid_lifecycle_preflight_status(),
         brev_credit_review_status(),
+        brev_credit_blocker_diagnosis_status(),
         v0_language_instruction_suite_status(),
         v0_language_skill_dry_run_status(),
         v0_skill_readiness_status(),
@@ -1320,6 +1353,8 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "python3 scripts/plan_success_variation_recovery_batch.py artifacts/manifests/success_trace_variations_2026-06-25.json --no-output",
             "python3 scripts/prepare_brev_credit_review.py --no-output",
             "python3 scripts/prepare_brev_credit_review.py --balance-eur <current-brev-ui-balance> --no-output",
+            "python3 scripts/diagnose_brev_credit_blocker.py --no-output",
+            "python3 scripts/diagnose_brev_credit_blocker.py --balance-eur <current-brev-ui-balance> --no-output",
             "# Paid-run previews; these do not create instances:",
             "python3 scripts/write_brev_credit_evidence.py --balance-eur <current-brev-ui-balance> --budget-eur 6.00 --dry-run",
             "python3 scripts/prepare_success_variation_paid_batch.py --balance-eur <current-brev-ui-balance> --force-credit --i-understand-this-arms-paid-run --dry-run",
