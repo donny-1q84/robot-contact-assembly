@@ -4569,6 +4569,8 @@ def run_success_variation_manifest_tests() -> None:
         assert_contains(result, "[brev-credit-review] status=", "Brev credit review status detail")
         assert_contains(result, "api_credit_status=", "Brev credit review API credit status detail")
         assert_contains(result, "api_credit_balance_usd=", "Brev credit review API credit balance detail")
+        assert_contains(result, "credit_consistency_status=NO_UI_BALANCE_PROVIDED", "Brev credit review default consistency detail")
+        assert_contains(result, "paid_prepare_allowed=False", "Brev credit review default paid-prepare guard detail")
         assert_contains(result, "balance_preview_status=NOT_PROVIDED", "Brev credit review default balance preview detail")
         assert_contains(result, "dashboard_url=https://brev.nvidia.com/org/", "Brev credit review dashboard detail")
         assert_contains(result, "preview_credit_evidence=", "Brev credit review preview evidence command detail")
@@ -4597,6 +4599,12 @@ def run_success_variation_manifest_tests() -> None:
         )
         assert_status(result, 1, "Brev credit review blocks paid readiness when API balance is too low")
         assert_contains(result, "NEEDS_BREV_CREDIT_TOPUP", "Brev credit review API blocker overrides UI preview")
+        assert_contains(
+            result,
+            "credit_consistency_status=UI_API_MISMATCH_API_BLOCKED",
+            "Brev credit review detects UI/API credit mismatch",
+        )
+        assert_contains(result, "paid_prepare_allowed=False", "Brev credit review blocks prepare on UI/API mismatch")
         result = run(["python3", str(credit_review_path), "--balance-eur", "20.00", "--no-output"])
         assert_status(result, 0, "Brev credit review accepts concrete UI balance for preview commands")
         assert_contains(result, "balance_preview_status=PASS", "Brev credit review concrete balance preview detail")
@@ -4994,6 +5002,10 @@ def run_success_variation_manifest_tests() -> None:
         ready_credit_review = json.loads(ready_credit_review_json.read_text(encoding="utf-8"))
         if ready_credit_review["status"] != "READY_FOR_PAID_LIFECYCLE":
             raise AssertionError(f"Brev credit review should be ready with valid evidence: {ready_credit_review}")
+        if ready_credit_review["credit_consistency"]["status"] != "LOCAL_EVIDENCE_API_CONSISTENT_PASS":
+            raise AssertionError(f"Brev credit review should confirm UI/API consistency when ready: {ready_credit_review}")
+        if ready_credit_review["credit_consistency"]["paid_prepare_allowed"] is not True:
+            raise AssertionError(f"Brev credit review should allow prepare only after consistent pass: {ready_credit_review}")
         if ready_credit_review["side_effects"]["creates_paid_instance"] is not False:
             raise AssertionError(f"Brev credit review must not create paid instances: {ready_credit_review}")
         if ready_credit_review["paid_lifecycle_preflight"]["pre_batch_assumption_audit"]["audit_status"] != "PASS":
@@ -7131,6 +7143,8 @@ def main() -> int:
         assert_contains(result, "api_credit_status=", "status report API credit status detail")
         assert_contains(result, "api_credit_balance_usd=", "status report API credit balance detail")
         assert_contains(result, "api_credit_next_action=", "status report API credit next-action detail")
+        assert_contains(result, "credit_consistency=", "status report credit consistency detail")
+        assert_contains(result, "paid_prepare_allowed=", "status report paid-prepare guard detail")
         assert_contains(result, "paid_unblock_plan=", "status report Brev credit unblock-plan detail")
         assert_contains(result, "ack_blockers=", "status report Brev credit ack blocker detail")
         assert_contains(

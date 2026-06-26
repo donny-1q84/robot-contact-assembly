@@ -478,6 +478,12 @@ Brev UI balance and keep the normal evidence-writing gate. After reading the
 current acceptable UI balance, add `--balance-eur <current-brev-ui-balance>` to
 this review helper to get concrete preview/write/prepare commands instead of
 placeholders.
+The review packet also emits `credit_consistency`: if a provided UI balance
+covers the budget but the API balance is still `BLOCKED`, the status is
+`UI_API_MISMATCH_API_BLOCKED` and `paid_prepare_allowed=false`. Treat that as an
+org/account-credit blocker, not as permission to write local credit evidence.
+If no new `--balance-eur` is provided but fresh local credit evidence and the
+API credit gate both pass, the status is `LOCAL_EVIDENCE_API_CONSISTENT_PASS`.
 
 The direct read-only API check is:
 

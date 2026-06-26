@@ -423,6 +423,11 @@ def brev_credit_review_status() -> Check:
     packet_status = str(facts.get("status") or "BLOCKED")
     balance_preview = facts.get("balance_preview") if isinstance(facts.get("balance_preview"), dict) else {}
     api_credit = facts.get("api_credit_balance") if isinstance(facts.get("api_credit_balance"), dict) else {}
+    credit_consistency = (
+        facts.get("credit_consistency")
+        if isinstance(facts.get("credit_consistency"), dict)
+        else {}
+    )
     side_effects = facts.get("side_effects") if isinstance(facts.get("side_effects"), dict) else {}
     preflight = facts.get("paid_lifecycle_preflight") if isinstance(facts.get("paid_lifecycle_preflight"), dict) else {}
     credit = preflight.get("credit_evidence") if isinstance(preflight.get("credit_evidence"), dict) else {}
@@ -453,6 +458,8 @@ def brev_credit_review_status() -> Check:
         f"api_credit_status={api_credit.get('status')}; "
         f"api_credit_balance_usd={api_credit.get('balance_usd')}; "
         f"api_credit_next_action={api_credit.get('next_action')}; "
+        f"credit_consistency={credit_consistency.get('status')}; "
+        f"paid_prepare_allowed={credit_consistency.get('paid_prepare_allowed')}; "
         f"credit_status={credit.get('status')}; budget_eur={facts.get('budget_eur')}; "
         f"paid_unblock_plan={unblock_plan.get('status')}; "
         f"ack_blockers={len(ack_blockers)}; "

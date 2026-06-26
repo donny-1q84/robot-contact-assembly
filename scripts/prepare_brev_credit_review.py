@@ -137,6 +137,85 @@ def _api_credit_report(
         }
 
 
+def _credit_consistency(
+    *,
+    balance_preview: dict[str, Any],
+    api_credit: dict[str, Any],
+    credit_evidence: dict[str, Any],
+) -> dict[str, Any]:
+    """Compare the manually read UI balance with the authoritative API gate."""
+
+    ui_status = str(balance_preview.get("status") or "UNKNOWN")
+    api_status = str(api_credit.get("status") or "UNKNOWN")
+    ui_covers_budget = balance_preview.get("covers_budget")
+    budget = balance_preview.get("budget_eur")
+    api_balance = api_credit.get("balance_usd")
+    api_blocks = api_credit.get("blockers") if isinstance(api_credit.get("blockers"), list) else []
+    api_failures = api_credit.get("failures") if isinstance(api_credit.get("failures"), list) else []
+    evidence_status = str(credit_evidence.get("status") or "UNKNOWN")
+    evidence_balance = credit_evidence.get("balance_eur")
+
+    if ui_status == "NOT_PROVIDED":
+        if api_status == "PASS" and evidence_status == "PASS":
+            status = "LOCAL_EVIDENCE_API_CONSISTENT_PASS"
+            paid_prepare_allowed = True
+            next_action = "rerun_paid_preflight_or_single_paid_lifecycle"
+            message = "No new UI balance was provided, but fresh local credit evidence and the Brev API credit gate both pass."
+        else:
+            status = "NO_UI_BALANCE_PROVIDED"
+            paid_prepare_allowed = False
+            next_action = "read_current_brev_ui_balance_and_rerun_review"
+            message = "No current Brev UI balance was provided for comparison."
+    elif ui_covers_budget is False:
+        status = "UI_BALANCE_BELOW_BUDGET"
+        paid_prepare_allowed = False
+        next_action = "add_brev_credits_before_paid_run"
+        message = "The provided Brev UI balance does not cover the fixed run budget."
+    elif api_status == "PASS":
+        status = "CONSISTENT_PASS"
+        paid_prepare_allowed = True
+        next_action = "write_fresh_credit_evidence_and_rerun_paid_preflight"
+        message = "The provided UI balance covers the budget and the Brev API credit gate passes."
+    elif api_status == "BLOCKED":
+        status = "UI_API_MISMATCH_API_BLOCKED"
+        paid_prepare_allowed = False
+        next_action = "confirm_credits_were_added_to_this_brev_org_then_rerun_api_credit_check"
+        message = (
+            "The provided UI balance covers the budget, but the Brev API still reports insufficient "
+            "credits for this organization. Do not write credit evidence or arm paid prep until the API gate passes."
+        )
+    elif api_status in {"UNAVAILABLE", "SKIPPED"}:
+        status = f"API_{api_status}_MANUAL_UI_REVIEW_REQUIRED"
+        paid_prepare_allowed = False
+        next_action = "restore_brev_api_credit_check_or_complete_manual_review_before_paid_run"
+        message = (
+            "A UI balance was provided, but the Brev API credit check is not authoritative. "
+            "Keep paid prep blocked unless the API gate is restored or a manual review is explicitly accepted."
+        )
+    else:
+        status = "UNKNOWN_API_CREDIT_STATE"
+        paid_prepare_allowed = False
+        next_action = "debug_brev_credit_gate_before_paid_run"
+        message = "The Brev API credit status is not recognized by the review helper."
+
+    return {
+        "status": status,
+        "paid_prepare_allowed": paid_prepare_allowed,
+        "ui_balance_eur": balance_preview.get("balance_eur"),
+        "ui_covers_budget": ui_covers_budget,
+        "api_status": api_status,
+        "api_balance_usd": api_balance,
+        "local_credit_evidence_status": evidence_status,
+        "local_credit_evidence_balance_eur": evidence_balance,
+        "budget_eur": budget,
+        "mismatch": status == "UI_API_MISMATCH_API_BLOCKED",
+        "api_blockers": api_blocks,
+        "api_failures": api_failures,
+        "next_action": next_action,
+        "message": message,
+    }
+
+
 def build_packet(
     *,
     config_path: Path,
@@ -175,6 +254,16 @@ def build_packet(
         "budget_eur": budget,
         "covers_budget": None if balance_eur is None else balance_eur + 1e-9 >= budget,
     }
+    credit_evidence = (
+        preflight.get("credit_evidence")
+        if isinstance(preflight.get("credit_evidence"), dict)
+        else {}
+    )
+    credit_consistency = _credit_consistency(
+        balance_preview=balance_preview,
+        api_credit=api_credit,
+        credit_evidence=credit_evidence,
+    )
     paid_unblock_plan = (
         preflight.get("unblock_plan")
         if isinstance(preflight.get("unblock_plan"), dict)
@@ -236,6 +325,7 @@ def build_packet(
         "balance_placeholder_used": balance_eur is None,
         "balance_preview": balance_preview,
         "api_credit_balance": api_credit,
+        "credit_consistency": credit_consistency,
         "credit_max_age_minutes": max_age,
         "paid_lifecycle_preflight": preflight,
         "paid_lifecycle_unblock_plan": paid_unblock_plan,
@@ -252,6 +342,7 @@ def build_packet(
             "Log in to Brev/NVIDIA in the browser if required.",
             "Prefer the read-only api_credit_balance result when it is PASS or BLOCKED; fall back to the UI only if the API check is SKIPPED or UNAVAILABLE.",
             "Open the organization dashboard and read the current organization credit balance from the Brev UI.",
+            "If credit_consistency.status is UI_API_MISMATCH_API_BLOCKED, confirm the top-up landed in this exact organization before writing evidence or arming paid prep.",
             "Use the current UI balance in the preview_credit_evidence command first; do not reuse an old email or memory value.",
             "Pass --balance-eur to this review helper after reading the UI if you want concrete commands instead of placeholders.",
             "If the preview is correct, use the same current UI balance in the write_credit_evidence or preview_prepare_paid_batch command.",
@@ -298,12 +389,29 @@ def _render_markdown(packet: dict[str, Any]) -> str:
         if isinstance(packet.get("api_credit_balance"), dict)
         else {}
     )
+    credit_consistency = (
+        packet.get("credit_consistency")
+        if isinstance(packet.get("credit_consistency"), dict)
+        else {}
+    )
     lines.extend(
         [
             f"- status: {api_credit.get('status')}",
             f"- balance_usd: {api_credit.get('balance_usd')}",
             f"- required_budget_eur: {api_credit.get('required_budget_eur')}",
             f"- next_action: {api_credit.get('next_action')}",
+            "",
+            "## Credit Consistency",
+            "",
+            f"- status: {credit_consistency.get('status')}",
+            f"- paid_prepare_allowed: {credit_consistency.get('paid_prepare_allowed')}",
+            f"- ui_balance_eur: {credit_consistency.get('ui_balance_eur')}",
+            f"- api_balance_usd: {credit_consistency.get('api_balance_usd')}",
+            f"- local_credit_evidence_status: {credit_consistency.get('local_credit_evidence_status')}",
+            f"- local_credit_evidence_balance_eur: {credit_consistency.get('local_credit_evidence_balance_eur')}",
+            f"- mismatch: {credit_consistency.get('mismatch')}",
+            f"- next_action: {credit_consistency.get('next_action')}",
+            f"- message: {credit_consistency.get('message')}",
         ]
     )
     api_blockers = api_credit.get("blockers") if isinstance(api_credit.get("blockers"), list) else []
@@ -449,6 +557,9 @@ def main() -> int:
     api_credit = packet.get("api_credit_balance") if isinstance(packet.get("api_credit_balance"), dict) else {}
     print("[brev-credit-review] api_credit_status=" + str(api_credit.get("status")))
     print("[brev-credit-review] api_credit_balance_usd=" + str(api_credit.get("balance_usd")))
+    credit_consistency = packet.get("credit_consistency") if isinstance(packet.get("credit_consistency"), dict) else {}
+    print("[brev-credit-review] credit_consistency_status=" + str(credit_consistency.get("status")))
+    print("[brev-credit-review] paid_prepare_allowed=" + str(credit_consistency.get("paid_prepare_allowed")))
     print("[brev-credit-review] balance_preview_status=" + str(packet["balance_preview"]["status"]))
     print("[brev-credit-review] preview_credit_evidence=" + _command_text(packet["next_commands"]["preview_credit_evidence"]))
     print("[brev-credit-review] write_credit_evidence=" + _command_text(packet["next_commands"]["write_credit_evidence"]))
