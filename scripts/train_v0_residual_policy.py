@@ -110,6 +110,7 @@ def _build_plan(
         "checkpoint": _rel(checkpoint_path),
         "metadata": _rel(metadata_path),
         "sample_count": preflight.get("sample_count"),
+        "negative_control_evidence": preflight.get("negative_control_evidence"),
         "feature_schema": preflight.get("feature_schema"),
         "label_names": preflight.get("label_names"),
         "hyperparameters": {
@@ -125,6 +126,7 @@ def _build_plan(
         },
         "requires_for_real_training": [
             "same preflight remains READY immediately before training",
+            "fail-closed negative-control evidence remains outside training samples",
             "PyTorch import succeeds in the selected local/Isaac runtime",
             "checkpoint metadata records label manifest and JSONL checksums",
             "evaluation gate is added before policy promotion",
@@ -303,6 +305,7 @@ def _run_training(
         "label_dataset_manifest_sha256": _sha256(label_dataset_manifest),
         "jsonl": manifest["jsonl"],
         "jsonl_sha256": manifest["jsonl_sha256"],
+        "negative_control_evidence": preflight.get("negative_control_evidence"),
         "hidden_dim": args.hidden_dim,
         "layers": args.layers,
     }
@@ -316,6 +319,7 @@ def _run_training(
         "label_dataset_manifest_sha256": _sha256(label_dataset_manifest),
         "jsonl": manifest["jsonl"],
         "jsonl_sha256": manifest["jsonl_sha256"],
+        "negative_control_evidence": preflight.get("negative_control_evidence"),
         "preflight_status": preflight.get("status"),
         "sample_count": len(samples),
         "train_samples": int(train_idx.numel()),

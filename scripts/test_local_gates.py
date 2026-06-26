@@ -3648,6 +3648,15 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"training dry-run should preserve sample count: {training_plan}")
         if "residual_socket_offset_x_m" not in training_plan["label_names"]:
             raise AssertionError(f"training dry-run should preserve residual labels: {training_plan}")
+        training_plan_negative_evidence = training_plan.get("negative_control_evidence")
+        if not isinstance(training_plan_negative_evidence, dict):
+            raise AssertionError(f"training dry-run should carry negative-control evidence: {training_plan}")
+        if training_plan_negative_evidence.get("case_id") != "socket_x_pos_25mm_negative_control":
+            raise AssertionError(f"training dry-run should name negative-control case: {training_plan_negative_evidence}")
+        if training_plan_negative_evidence.get("classification") != "fail_closed":
+            raise AssertionError(f"training dry-run should preserve fail-closed evidence: {training_plan_negative_evidence}")
+        if training_plan_negative_evidence.get("excluded_from_training_cases") is not True:
+            raise AssertionError(f"training dry-run should preserve training exclusion: {training_plan_negative_evidence}")
         if "not trained policy" not in training_plan["not_claims"]:
             raise AssertionError(f"training dry-run must preserve not-trained non-claim: {training_plan}")
         if training_plan["side_effects"]["writes_checkpoint"] is not False:
@@ -3742,6 +3751,7 @@ def run_success_variation_manifest_tests() -> None:
             "label_dataset_manifest_sha256": hashlib.sha256(policy_label_dataset_manifest.read_bytes()).hexdigest(),
             "jsonl": str(policy_label_dataset_jsonl),
             "jsonl_sha256": hashlib.sha256(policy_label_dataset_jsonl.read_bytes()).hexdigest(),
+            "negative_control_evidence": policy_label_dataset["negative_control_evidence"],
             "sample_count": policy_label_dataset["sample_count"],
             "feature_schema": policy_label_dataset["feature_schema"],
             "label_names": policy_label_dataset["label_names"],
@@ -3778,6 +3788,15 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"eval dry-run should be ready for supervised eval: {eval_dry_run}")
         if eval_dry_run["sample_count"] != policy_label_dataset["sample_count"]:
             raise AssertionError(f"eval dry-run should preserve sample count: {eval_dry_run}")
+        eval_negative_evidence = eval_dry_run.get("negative_control_evidence")
+        if not isinstance(eval_negative_evidence, dict):
+            raise AssertionError(f"eval dry-run should carry negative-control evidence: {eval_dry_run}")
+        if eval_negative_evidence.get("case_id") != "socket_x_pos_25mm_negative_control":
+            raise AssertionError(f"eval dry-run should name negative-control case: {eval_negative_evidence}")
+        if eval_negative_evidence.get("classification") != "fail_closed":
+            raise AssertionError(f"eval dry-run should preserve fail-closed evidence: {eval_negative_evidence}")
+        if eval_negative_evidence.get("excluded_from_training_cases") is not True:
+            raise AssertionError(f"eval dry-run should preserve training exclusion: {eval_negative_evidence}")
         if "not Isaac closed-loop evaluation" not in eval_dry_run["not_claims"]:
             raise AssertionError(f"eval dry-run must preserve Isaac non-claim: {eval_dry_run}")
         if eval_dry_run["side_effects"]["writes_eval_summary"] is not True:
@@ -3793,6 +3812,27 @@ def run_success_variation_manifest_tests() -> None:
         ):
             if eval_dry_run["side_effects"][key] is not False:
                 raise AssertionError(f"eval dry-run side effect must be false for {key}: {eval_dry_run}")
+        missing_negative_metadata = tmp_dir / "policy_training" / "missing_negative_metadata.json"
+        broken_metadata_payload = dict(fake_metadata_payload)
+        broken_metadata_payload.pop("negative_control_evidence", None)
+        missing_negative_metadata.write_text(json.dumps(broken_metadata_payload, indent=2, sort_keys=True), encoding="utf-8")
+        result = run(
+            [
+                "python3",
+                "scripts/evaluate_v0_residual_policy.py",
+                "--metadata",
+                str(missing_negative_metadata),
+                "--dry-run",
+                "--no-output",
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 1, "V0 residual policy evaluator rejects metadata missing negative-control evidence")
+        assert_contains(
+            result,
+            "training metadata must preserve negative_control_evidence",
+            "missing training metadata negative evidence failure detail",
+        )
         supervised_eval_json = tmp_dir / "policy_eval" / "supervised_summary.json"
         fake_checkpoint_sha = hashlib.sha256(fake_checkpoint.read_bytes()).hexdigest()
         supervised_eval_payload = {
@@ -3803,6 +3843,7 @@ def run_success_variation_manifest_tests() -> None:
             "label_dataset_manifest": str(policy_label_dataset_manifest),
             "jsonl": str(policy_label_dataset_jsonl),
             "sample_count": policy_label_dataset["sample_count"],
+            "negative_control_evidence": policy_label_dataset["negative_control_evidence"],
             "mse": 0.0001,
             "max_abs_error": 0.001,
             "required_before_policy_promotion": [
@@ -3879,11 +3920,48 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"promotion gate must not imply external robot readiness: {policy_promotion}")
         if policy_promotion["isaac_closed_loop_eval"]["checkpoint_sha256"] != fake_checkpoint_sha:
             raise AssertionError(f"promotion gate should preserve checkpoint checksum: {policy_promotion}")
+        promotion_negative_evidence = policy_promotion["supervised_eval"].get("negative_control_evidence")
+        if not isinstance(promotion_negative_evidence, dict):
+            raise AssertionError(f"promotion gate should carry supervised negative-control evidence: {policy_promotion}")
+        if promotion_negative_evidence.get("case_id") != "socket_x_pos_25mm_negative_control":
+            raise AssertionError(f"promotion gate should name negative-control case: {promotion_negative_evidence}")
+        if promotion_negative_evidence.get("classification") != "fail_closed":
+            raise AssertionError(f"promotion gate should preserve fail-closed evidence: {promotion_negative_evidence}")
         if policy_promotion["side_effects"]["writes_promotion_report"] is not True:
             raise AssertionError(f"promotion gate should disclose local report write: {policy_promotion}")
         for key in ("writes_checkpoint", "trains_policy", "creates_paid_instance", "runs_remote_code", "starts_isaac", "calls_ros_or_robot"):
             if policy_promotion["side_effects"][key] is not False:
                 raise AssertionError(f"ready promotion gate side effect must be false for {key}: {policy_promotion}")
+        missing_negative_supervised_eval = tmp_dir / "policy_eval" / "missing_negative_supervised_summary.json"
+        broken_supervised_eval = dict(supervised_eval_payload)
+        broken_supervised_eval.pop("negative_control_evidence", None)
+        missing_negative_supervised_eval.write_text(
+            json.dumps(broken_supervised_eval, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        result = run(
+            [
+                "python3",
+                "scripts/check_v0_policy_promotion_gate.py",
+                "--manifest",
+                str(pass_manifest_path),
+                "--dataset",
+                str(dataset_json),
+                "--supervised-eval",
+                str(missing_negative_supervised_eval),
+                "--isaac-eval",
+                str(isaac_policy_eval_json),
+                "--skip-phase2-contact-gate",
+                "--no-output",
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 1, "V0 policy promotion gate rejects supervised eval missing negative evidence")
+        assert_contains(
+            result,
+            "supervised eval must preserve negative_control_evidence",
+            "missing supervised negative evidence failure detail",
+        )
         result = run(
             [
                 "python3",

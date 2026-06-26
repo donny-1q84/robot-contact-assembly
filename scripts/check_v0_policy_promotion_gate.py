@@ -115,6 +115,33 @@ def _int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _negative_control_failure(prefix: str, evidence: dict[str, Any], *, negative_control_id: str) -> str | None:
+    if not evidence:
+        return f"{prefix} must preserve negative_control_evidence"
+    if evidence.get("case_id") != negative_control_id:
+        return (
+            f"{prefix} negative_control_evidence.case_id must be {negative_control_id}, "
+            f"got {evidence.get('case_id')}"
+        )
+    if evidence.get("expected") != "fail_closed":
+        return f"{prefix} negative_control_evidence.expected must be fail_closed, got {evidence.get('expected')}"
+    if evidence.get("classification") != "fail_closed":
+        return (
+            f"{prefix} negative_control_evidence.classification must be fail_closed, "
+            f"got {evidence.get('classification')}"
+        )
+    if evidence.get("excluded_from_training_cases") is not True:
+        return f"{prefix} negative_control_evidence must preserve excluded_from_training_cases=true"
+    if not isinstance(evidence.get("trace_sha256"), str) or not evidence.get("trace_sha256"):
+        return f"{prefix} negative_control_evidence must preserve trace_sha256"
+    return None
+
+
+def _negative_trace_sha(evidence: dict[str, Any]) -> str | None:
+    value = evidence.get("trace_sha256")
+    return value if isinstance(value, str) and value else None
+
+
 def _skill_readiness(
     *,
     request_path: Path,
@@ -136,7 +163,7 @@ def _skill_readiness(
     )
 
 
-def _supervised_eval_gate(path: Path, failures: list[str]) -> dict[str, Any]:
+def _supervised_eval_gate(path: Path, failures: list[str], *, negative_control_id: str) -> dict[str, Any]:
     if not path.is_file():
         failures.append(f"supervised residual-policy evaluation summary is missing: {_rel(path)}")
         return {
@@ -145,6 +172,7 @@ def _supervised_eval_gate(path: Path, failures: list[str]) -> dict[str, Any]:
             "checkpoint": None,
             "checkpoint_sha256": None,
             "metadata": None,
+            "negative_control_evidence": None,
         }
 
     payload = _load_json(path)
@@ -156,6 +184,8 @@ def _supervised_eval_gate(path: Path, failures: list[str]) -> dict[str, Any]:
     checkpoint_path = _resolve(payload.get("checkpoint"))
     checkpoint_sha: str | None = None
     metadata: dict[str, Any] = {}
+    payload_negative = _as_dict(payload.get("negative_control_evidence"))
+    metadata_negative: dict[str, Any] = {}
 
     if metadata_path is None or not metadata_path.is_file():
         failures.append(f"supervised eval metadata is missing: {_rel(metadata_path)}")
@@ -163,6 +193,7 @@ def _supervised_eval_gate(path: Path, failures: list[str]) -> dict[str, Any]:
         metadata = _load_json(metadata_path)
         if metadata.get("status") != "TRAINED_NEEDS_EVALUATION":
             failures.append(f"training metadata status must be TRAINED_NEEDS_EVALUATION, got {metadata.get('status')}")
+        metadata_negative = _as_dict(metadata.get("negative_control_evidence"))
 
     if checkpoint_path is None or not checkpoint_path.is_file():
         failures.append(f"supervised eval checkpoint is missing: {_rel(checkpoint_path)}")
@@ -186,6 +217,19 @@ def _supervised_eval_gate(path: Path, failures: list[str]) -> dict[str, Any]:
     ):
         if required not in not_claims:
             failures.append(f"supervised eval must preserve non-claim: {required}")
+    payload_negative_failure = _negative_control_failure(
+        "supervised eval", payload_negative, negative_control_id=negative_control_id
+    )
+    if payload_negative_failure:
+        failures.append(payload_negative_failure)
+    metadata_negative_failure = _negative_control_failure(
+        "training metadata", metadata_negative, negative_control_id=negative_control_id
+    )
+    if metadata_negative_failure:
+        failures.append(metadata_negative_failure)
+    if _negative_trace_sha(payload_negative) and _negative_trace_sha(metadata_negative):
+        if _negative_trace_sha(payload_negative) != _negative_trace_sha(metadata_negative):
+            failures.append("supervised eval negative_control_evidence.trace_sha256 must match training metadata")
 
     return {
         "path": _rel(path),
@@ -194,6 +238,7 @@ def _supervised_eval_gate(path: Path, failures: list[str]) -> dict[str, Any]:
         "checkpoint_sha256": checkpoint_sha,
         "metadata": _rel(metadata_path),
         "sample_count": payload.get("sample_count"),
+        "negative_control_evidence": payload_negative or metadata_negative,
         "not_claims": not_claims,
     }
 
@@ -334,7 +379,7 @@ def build_report(
     if skip_phase2:
         warnings.append("Phase 2 contact gate check was skipped for isolated testing")
 
-    supervised = _supervised_eval_gate(supervised_eval_path, blockers)
+    supervised = _supervised_eval_gate(supervised_eval_path, blockers, negative_control_id=negative_control_id)
     isaac = _isaac_closed_loop_gate(
         isaac_eval_path,
         blockers,

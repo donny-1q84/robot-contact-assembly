@@ -28,6 +28,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_METADATA = REPO_ROOT / "artifacts" / "policies" / "v0_residual_policy" / "metadata.json"
 DEFAULT_OUTPUT_JSON = REPO_ROOT / "artifacts" / "evaluations" / "v0_residual_policy" / "summary.json"
 DEFAULT_OUTPUT_MD = REPO_ROOT / "artifacts" / "evaluations" / "v0_residual_policy" / "README.md"
+DEFAULT_NEGATIVE_CONTROL = "socket_x_pos_25mm_negative_control"
 
 READY_DRY_RUN_STATUS = "READY_FOR_LOCAL_SUPERVISED_EVAL_DRY_RUN"
 EVALUATED_STATUS = "SUPERVISED_EVAL_NEEDS_ISAAC_POLICY_GATE"
@@ -109,6 +110,33 @@ def _build_model(torch_nn, *, input_dim: int, output_dim: int, hidden_dim: int, 
     return torch_nn.Sequential(*modules)
 
 
+def _negative_control_failure(prefix: str, evidence: dict[str, Any], *, negative_control_id: str) -> str | None:
+    if not evidence:
+        return f"{prefix} must preserve negative_control_evidence"
+    if evidence.get("case_id") != negative_control_id:
+        return (
+            f"{prefix} negative_control_evidence.case_id must be {negative_control_id}, "
+            f"got {evidence.get('case_id')}"
+        )
+    if evidence.get("expected") != "fail_closed":
+        return f"{prefix} negative_control_evidence.expected must be fail_closed, got {evidence.get('expected')}"
+    if evidence.get("classification") != "fail_closed":
+        return (
+            f"{prefix} negative_control_evidence.classification must be fail_closed, "
+            f"got {evidence.get('classification')}"
+        )
+    if evidence.get("excluded_from_training_cases") is not True:
+        return f"{prefix} negative_control_evidence must preserve excluded_from_training_cases=true"
+    if not isinstance(evidence.get("trace_sha256"), str) or not evidence.get("trace_sha256"):
+        return f"{prefix} negative_control_evidence must preserve trace_sha256"
+    return None
+
+
+def _negative_trace_sha(evidence: dict[str, Any]) -> str | None:
+    value = evidence.get("trace_sha256")
+    return value if isinstance(value, str) and value else None
+
+
 def build_preflight(metadata_path: Path) -> dict[str, Any]:
     failures: list[str] = []
     warnings: list[str] = []
@@ -118,6 +146,8 @@ def build_preflight(metadata_path: Path) -> dict[str, Any]:
     label_manifest_path: Path | None = None
     jsonl_path: Path | None = None
     label_manifest: dict[str, Any] = {}
+    metadata_negative: dict[str, Any] = {}
+    manifest_negative: dict[str, Any] = {}
 
     if not metadata_path.is_file():
         failures.append(f"training metadata is missing: {_rel(metadata_path)}")
@@ -182,6 +212,30 @@ def build_preflight(metadata_path: Path) -> dict[str, Any]:
             failures.append("metadata label_names does not match label dataset manifest")
         if "not evaluated policy" not in [str(item) for item in metadata.get("not_claims", [])]:
             failures.append("metadata must preserve not evaluated policy non-claim")
+        metadata_negative = (
+            metadata.get("negative_control_evidence")
+            if isinstance(metadata.get("negative_control_evidence"), dict)
+            else {}
+        )
+        metadata_negative_failure = _negative_control_failure(
+            "training metadata", metadata_negative, negative_control_id=DEFAULT_NEGATIVE_CONTROL
+        )
+        if metadata_negative_failure:
+            failures.append(metadata_negative_failure)
+        manifest_negative = (
+            label_manifest.get("negative_control_evidence")
+            if isinstance(label_manifest.get("negative_control_evidence"), dict)
+            else {}
+        )
+        if label_manifest:
+            manifest_negative_failure = _negative_control_failure(
+                "label dataset manifest", manifest_negative, negative_control_id=DEFAULT_NEGATIVE_CONTROL
+            )
+            if manifest_negative_failure:
+                failures.append(manifest_negative_failure)
+        if _negative_trace_sha(metadata_negative) and _negative_trace_sha(manifest_negative):
+            if _negative_trace_sha(metadata_negative) != _negative_trace_sha(manifest_negative):
+                failures.append("training metadata negative_control_evidence.trace_sha256 must match label dataset manifest")
 
     status = READY_DRY_RUN_STATUS if not failures else "BLOCKED"
     return {
@@ -193,6 +247,7 @@ def build_preflight(metadata_path: Path) -> dict[str, Any]:
         "label_dataset_manifest": _rel(label_manifest_path) if label_manifest_path is not None else None,
         "jsonl": _rel(jsonl_path) if jsonl_path is not None else None,
         "sample_count": metadata.get("sample_count"),
+        "negative_control_evidence": metadata_negative or manifest_negative,
         "feature_schema": metadata.get("feature_schema") if isinstance(metadata.get("feature_schema"), list) else [],
         "label_names": metadata.get("label_names") if isinstance(metadata.get("label_names"), list) else [],
         "blockers": failures,
@@ -261,6 +316,7 @@ def _run_supervised_eval(preflight: dict[str, Any], metadata_path: Path) -> dict
         "label_dataset_manifest": _rel(label_manifest_path),
         "jsonl": _rel(jsonl_path),
         "sample_count": len(samples),
+        "negative_control_evidence": preflight.get("negative_control_evidence"),
         "mse": mse,
         "max_abs_error": max_abs,
         "per_label_mae": dict(zip(label_names, [float(value) for value in per_label_mae], strict=True)),
@@ -290,6 +346,13 @@ def _render_markdown(payload: dict[str, Any]) -> str:
         f"- label_dataset_manifest: {payload.get('label_dataset_manifest')}",
         f"- jsonl: {payload.get('jsonl')}",
         f"- sample_count: {payload.get('sample_count')}",
+        "",
+        "## Negative Control Evidence",
+        "",
+        f"- case_id: {payload.get('negative_control_evidence', {}).get('case_id')}",
+        f"- expected: {payload.get('negative_control_evidence', {}).get('expected')}",
+        f"- classification: {payload.get('negative_control_evidence', {}).get('classification')}",
+        f"- excluded_from_training_cases: {payload.get('negative_control_evidence', {}).get('excluded_from_training_cases')}",
         "",
     ]
     if "mse" in payload:
