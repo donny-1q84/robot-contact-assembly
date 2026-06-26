@@ -4428,6 +4428,21 @@ def run_success_variation_manifest_tests() -> None:
         if credit_dry_run_facts["payload_preview"]["balance_eur"] != 20.0:
             raise AssertionError(f"Brev credit writer dry-run should preview provided balance: {credit_dry_run_facts}")
 
+        blocked_api_fixture = tmp_dir / "blocked_brev_api_credit.json"
+        blocked_api_fixture.write_text(
+            json.dumps(
+                {
+                    "check_name": "brev_api_credit_balance",
+                    "status": "BLOCKED",
+                    "balance_usd": 0.0,
+                    "required_budget_eur": 6.0,
+                    "blockers": ["Brev API credit balance 0 USD is below required budget 6.00"],
+                    "next_action": "add_brev_credits_or_reduce_budget_before_paid_run",
+                }
+            ),
+            encoding="utf-8",
+        )
+
         result = run(
             [
                 "python3",
@@ -4441,6 +4456,7 @@ def run_success_variation_manifest_tests() -> None:
         assert_status(result, 0, "success variation paid prepare dry-run succeeds")
         assert_contains(result, "DRY_RUN", "paid prepare dry-run marker")
         assert_contains(result, "would not create a paid instance", "paid prepare dry-run safety detail")
+        assert_contains(result, "api_credit_check", "paid prepare API credit dry-run step detail")
         assert_contains(result, "aggregate_preflight", "paid prepare aggregate preflight label")
         assert_contains(
             result,
@@ -4456,11 +4472,14 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"paid prepare dry-run facts should report DRY_RUN: {paid_prepare_facts}")
         if paid_prepare_facts["side_effects"]["creates_paid_instance"] is not False:
             raise AssertionError(f"paid prepare dry-run must not create paid instances: {paid_prepare_facts}")
+        if paid_prepare_facts["side_effects"]["reads_brev_api"] is not False:
+            raise AssertionError(f"paid prepare dry-run must not read Brev API: {paid_prepare_facts}")
         if paid_prepare_facts["side_effects"]["writes_credit_evidence"] is not False:
             raise AssertionError(f"paid prepare dry-run must not write credit evidence: {paid_prepare_facts}")
         if paid_prepare_facts["side_effects"]["arms_local_env"] is not False:
             raise AssertionError(f"paid prepare dry-run must not arm local env: {paid_prepare_facts}")
         if [step["step"] for step in paid_prepare_facts["steps"]] != [
+            "api_credit_check",
             "write_credit_evidence",
             "arm_local_env",
             "check_only",
@@ -4469,6 +4488,7 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"paid prepare dry-run step order changed: {paid_prepare_facts}")
         cleanup_guards = "\n".join(paid_prepare_facts["cleanup_guards"])
         for expected_snippet in (
+            "Brev API credit BLOCKED or UNAVAILABLE stops before writing credit evidence or arming the local env",
             "check-only failure after arming disarms the local env",
             "aggregate preflight failure after arming disarms the local env",
             "KeyboardInterrupt after arming disarms the local env",
@@ -4476,6 +4496,34 @@ def run_success_variation_manifest_tests() -> None:
         ):
             if expected_snippet not in cleanup_guards:
                 raise AssertionError(f"paid prepare dry-run missing cleanup guard {expected_snippet}: {paid_prepare_facts}")
+        blocked_prepare_credit = tmp_dir / "blocked_prepare_credit.local.json"
+        blocked_prepare_config = tmp_dir / "blocked_prepare_success_variation.local.env"
+        result = run(
+            [
+                "python3",
+                "scripts/prepare_success_variation_paid_batch.py",
+                "--balance-eur",
+                "20.00",
+                "--budget-eur",
+                "6.00",
+                "--config",
+                str(blocked_prepare_config),
+                "--credit-output",
+                str(blocked_prepare_credit),
+                "--api-credit-output",
+                str(blocked_api_fixture),
+                "--force-credit",
+                "--i-understand-this-arms-paid-run",
+            ]
+        )
+        assert_status(result, 1, "success variation paid prepare blocks before writing when API credit is low")
+        assert_contains(result, "api_credit_status=BLOCKED", "paid prepare blocked API status detail")
+        assert_contains(result, "no credit evidence was written", "paid prepare blocked no-write detail")
+        assert_contains(result, "local env was not armed", "paid prepare blocked no-arm detail")
+        if blocked_prepare_credit.exists():
+            raise AssertionError("paid prepare must not write credit evidence when API credit is blocked")
+        if blocked_prepare_config.exists():
+            raise AssertionError("paid prepare must not create or arm local env when API credit is blocked")
         result = run(
             [
                 "python3",
@@ -4495,6 +4543,10 @@ def run_success_variation_manifest_tests() -> None:
             "run_success_variation_batch_from_config.sh",
             "check_success_variation_paid_lifecycle_preflight.py",
             "--check-only",
+            "api_credit_check",
+            "read_brev_credit_balance.py",
+            "--api-credit-output",
+            "Brev API credit BLOCKED or UNAVAILABLE stops before writing credit evidence or arming the local env",
             "aggregate_preflight",
             "READY_FOR_SINGLE_PAID_RUN",
             "would not create a paid instance",
@@ -4526,20 +4578,6 @@ def run_success_variation_manifest_tests() -> None:
         assert_contains(result, "paid_lifecycle_unblock_plan", "Brev credit review paid unblock-plan detail")
         assert_contains(result, "paid_lifecycle_blocked_subchecks", "Brev credit review paid blocked-subchecks detail")
         assert_contains(result, "BLOCKED_REFRESH_CREDIT_AND_ACKS", "Brev credit review blocked unblock-plan status detail")
-        blocked_api_fixture = tmp_dir / "blocked_brev_api_credit.json"
-        blocked_api_fixture.write_text(
-            json.dumps(
-                {
-                    "check_name": "brev_api_credit_balance",
-                    "status": "BLOCKED",
-                    "balance_usd": 0.0,
-                    "required_budget_eur": 6.0,
-                    "blockers": ["Brev API credit balance 0 USD is below required budget 6.00"],
-                    "next_action": "add_brev_credits_or_reduce_budget_before_paid_run",
-                }
-            ),
-            encoding="utf-8",
-        )
         result = run(["python3", str(credit_review_path), "--api-credit-output", str(blocked_api_fixture), "--no-output"])
         assert_status(result, 0, "Brev credit review consumes saved blocked API credit output")
         assert_contains(result, "NEEDS_BREV_CREDIT_TOPUP", "Brev credit review top-up status detail")
