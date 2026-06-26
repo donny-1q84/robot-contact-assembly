@@ -39,6 +39,7 @@ REQUIRED_CALIBRATION = {
     "base_frame_alignment",
     "tool_center_point",
     "socket_fixture_frame",
+    "calibration_error_bounds",
 }
 REQUIRED_SAFETY = {
     "joint_limit_check",
@@ -46,14 +47,21 @@ REQUIRED_SAFETY = {
     "collision_or_clearance_check",
     "controller_timeout",
     "emergency_stop_path",
+    "force_torque_limit_check",
+    "low_speed_no_contact_dry_run",
     "low_speed_contact_validation",
 }
 REQUIRED_ROS2 = {
+    "cartesian_command_or_ik",
+    "ee_pose_feedback",
+    "end_effector_command",
+    "force_torque_or_contact_feedback",
     "joint_trajectory_action",
     "joint_state_feedback",
     "skill_status",
 }
 REQUIRED_COMMAND_CONTRACT = {
+    "command_acknowledgement",
     "skill_target_schema",
     "command_frame",
     "command_units",
@@ -67,11 +75,14 @@ REQUIRED_FRAME_CONTRACT = {
     "tool_frame",
     "tcp_frame",
     "socket_frame",
+    "calibration_error_bounds",
     "transform_source",
     "timestamp_source",
 }
 REQUIRED_RUNTIME_GUARDS = {
+    "max_contact_force_n",
     "max_translation_step_m",
+    "max_tcp_speed_mps",
     "max_rotation_step_rad",
     "max_joint_delta_rad",
     "command_timeout_s",
@@ -80,7 +91,9 @@ REQUIRED_RUNTIME_GUARDS = {
     "low_speed_mode_required",
 }
 REQUIRED_POSITIVE_RUNTIME_GUARDS = {
+    "max_contact_force_n",
     "max_translation_step_m",
+    "max_tcp_speed_mps",
     "max_rotation_step_rad",
     "max_joint_delta_rad",
     "command_timeout_s",
@@ -91,9 +104,11 @@ REQUIRED_TRUE_RUNTIME_GUARDS = {
     "low_speed_mode_required",
 }
 REQUIRED_REVALIDATION = {
+    "adapter_frame_round_trip_check",
     "phase2_contact_gate_equivalent",
     "strict_success_variation_batch",
     "negative_control_fail_closed",
+    "low_speed_no_contact_dry_run",
     "low_speed_hardware_contact_trial",
 }
 REQUIRED_ALWAYS_NOT_CLAIMS = {

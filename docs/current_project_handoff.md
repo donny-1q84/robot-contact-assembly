@@ -151,9 +151,11 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    `configs/v0_external_robot_adapter.template.json` and
    `scripts/plan_v0_robot_adapter_manifest.py` plus
    `scripts/check_v0_robot_adapter_contract.py`, which must remain blocked until
-   a named robot has model, calibration, safety, ROS 2 interface, and
-   revalidation evidence. The planner can fill target-robot identity and known
-   ROS 2 interface names, but it still emits a not-ready adapter manifest. This
+   a named robot has model, calibration, safety, ROS 2 or vendor-bridge
+   interface, and revalidation evidence. The planner can fill target-robot
+   identity and known joint, Cartesian/IK, EE pose, tool-command, force/contact,
+   and status interface names, but it still emits a not-ready adapter manifest.
+   This
    planner also runs the adapter contract checker through a temporary preview
    file when `--no-output` is used, so dry-run output exposes the same
    `BLOCKED` adapter evidence gaps without leaving artifacts behind. Its JSON
@@ -161,14 +163,15 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    syntactically usable but still missing adapter evidence. This
    contract keeps language at task-parameter and skill-selection level, forbids
    raw joint/force commands from language requests, and requires robot-specific
-   model, calibration, safety, ROS 2 interface, and revalidation gates before
+   model, calibration, safety, driver-interface, and revalidation gates before
    any external-arm portability claim. `scripts/prepare_v0_portability_review.py`
    can now also accept `--target-robot-id`, `--target-robot-family`, and
    `--end-effector` to preview a named target-arm adapter inside the review
    packet without writing the adapter, calling ROS/hardware, or changing the
    non-drop-in answer; that preview should be `PASS_SAFE_BLOCKED` until the
-   named robot supplies real model, calibration, safety, interface, and
-   revalidation evidence.
+   named robot supplies real model, calibration-error bounds, low-speed
+   no-contact dry-run, safety, command/feedback interface, and revalidation
+   evidence.
 
 The first local variation contract is:
 
@@ -234,8 +237,10 @@ cross-robot-ready.
 The portability boundary is also explicit: the current artifacts can support a
 future ROS 2 / external robot adapter contract, but they do not prove direct
 drop-in precision on another robot arm. A new arm will need its own model,
-TCP/tool calibration, controller adapter, limits/gains, sensing setup, and
-validation gates before any precise contact-rich insertion claim.
+TCP/tool calibration with error bounds, joint and Cartesian/IK command adapter,
+EE-pose/tool-state/force-contact feedback, limits/gains, low-speed no-contact
+dry-run, sensing setup, and validation gates before any precise contact-rich
+insertion claim.
 
 Detailed plan:
 
@@ -4014,8 +4019,8 @@ assembly system" is still feasible, but the current milestone is lower in the
 stack. Do not move to RL/IL/VLM, public claims, or success-video capture until
 the semantic peg-in-hole trace passes. A simulator success will still not be a
 drop-in controller for arbitrary real arms; it should become a portable system
-architecture plus a robot-specific adapter, calibration, safety, and revalidation
-workflow.
+architecture plus a robot-specific command/feedback adapter, calibration,
+safety, low-speed no-contact dry-run, and revalidation workflow.
 
 A second short paid diagnostic trace after the zero-row partial writer narrowed
 the stall further:

@@ -51,10 +51,12 @@ TARGET_PREVIEW_NOT_CLAIMS = [
 ADAPTER_WORKPLAN_STEPS = [
     "name_target_robot_and_write_adapter_manifest",
     "fill_robot_model_joint_limits_tool_tcp_and_controller_sources",
-    "fill_base_tool_socket_calibration_evidence",
-    "fill_safety_timeout_workspace_collision_and_low_speed_contact_evidence",
-    "validate_ros2_or_vendor_bridge_interfaces",
+    "fill_base_tool_socket_and_calibration_error_evidence",
+    "validate_joint_cartesian_tool_state_and_force_feedback_interfaces",
+    "fill_safety_timeout_workspace_collision_force_limit_and_low_speed_contact_evidence",
+    "run_low_speed_no_contact_dry_run_before_any_contact_trial",
     "complete_v0_success_variation_batch_before_policy_or_external_robot_claims",
+    "prove_adapter_frame_round_trip_and_named_robot_negative_control",
     "rerun_adapter_contract_and_portability_boundary_gates",
     "perform_manual_low_speed_named_robot_review_only_after_all_gates_are_ready",
 ]
@@ -112,6 +114,18 @@ def _next_commands(packet: dict[str, Any]) -> dict[str, list[str]]:
             robot_family,
             "--end-effector",
             end_effector,
+            "--joint-trajectory-action",
+            "<joint_trajectory_action_or_vendor_command>",
+            "--joint-state-feedback",
+            "<joint_state_feedback>",
+            "--ee-pose-feedback",
+            "<ee_pose_feedback>",
+            "--cartesian-command-or-ik",
+            "<cartesian_command_or_ik>",
+            "--end-effector-command",
+            "<end_effector_command>",
+            "--force-torque-or-contact-feedback",
+            "<force_torque_or_contact_feedback>",
             "--no-output",
         ],
         "write_named_adapter_manifest": [
@@ -123,6 +137,18 @@ def _next_commands(packet: dict[str, Any]) -> dict[str, list[str]]:
             robot_family,
             "--end-effector",
             end_effector,
+            "--joint-trajectory-action",
+            "<joint_trajectory_action_or_vendor_command>",
+            "--joint-state-feedback",
+            "<joint_state_feedback>",
+            "--ee-pose-feedback",
+            "<ee_pose_feedback>",
+            "--cartesian-command-or-ik",
+            "<cartesian_command_or_ik>",
+            "--end-effector-command",
+            "<end_effector_command>",
+            "--force-torque-or-contact-feedback",
+            "<force_torque_or_contact_feedback>",
             "--output-json",
             _target_adapter_output_path(robot_id),
         ],
@@ -164,6 +190,10 @@ def _target_adapter_preview(
     end_effector: str | None,
     joint_trajectory_action: str | None,
     joint_state_feedback: str | None,
+    ee_pose_feedback: str | None,
+    cartesian_command_or_ik: str | None,
+    end_effector_command: str | None,
+    force_torque_or_contact_feedback: str | None,
     skill_status: str | None,
 ) -> dict[str, Any]:
     if not _provided(
@@ -172,6 +202,10 @@ def _target_adapter_preview(
         end_effector,
         joint_trajectory_action,
         joint_state_feedback,
+        ee_pose_feedback,
+        cartesian_command_or_ik,
+        end_effector_command,
+        force_torque_or_contact_feedback,
         skill_status,
     ):
         return {
@@ -218,6 +252,10 @@ def _target_adapter_preview(
         end_effector=end_effector.strip(),
         joint_trajectory_action=joint_trajectory_action,
         joint_state_feedback=joint_state_feedback,
+        ee_pose_feedback=ee_pose_feedback,
+        cartesian_command_or_ik=cartesian_command_or_ik,
+        end_effector_command=end_effector_command,
+        force_torque_or_contact_feedback=force_torque_or_contact_feedback,
         skill_status=skill_status,
     )
     with tempfile.TemporaryDirectory(prefix="rca-adapter-preview-") as tmp_dir:
@@ -330,6 +368,10 @@ def build_packet(
     end_effector: str | None,
     joint_trajectory_action: str | None,
     joint_state_feedback: str | None,
+    ee_pose_feedback: str | None,
+    cartesian_command_or_ik: str | None,
+    end_effector_command: str | None,
+    force_torque_or_contact_feedback: str | None,
     skill_status: str | None,
 ) -> dict[str, Any]:
     boundary = portability_gate.build_report(
@@ -349,6 +391,10 @@ def build_packet(
         end_effector=end_effector,
         joint_trajectory_action=joint_trajectory_action,
         joint_state_feedback=joint_state_feedback,
+        ee_pose_feedback=ee_pose_feedback,
+        cartesian_command_or_ik=cartesian_command_or_ik,
+        end_effector_command=end_effector_command,
+        force_torque_or_contact_feedback=force_torque_or_contact_feedback,
         skill_status=skill_status,
     )
     packet = {
@@ -387,6 +433,9 @@ def build_packet(
             "confirm V0 skill readiness is READY from real success-variation traces",
             "confirm the target robot has a named adapter manifest, not the template",
             "confirm URDF/USD, joint limits, TCP, fixture frames, and controller units are robot-specific",
+            "confirm joint command, Cartesian or IK, EE pose, tool command, and force/contact feedback interfaces are validated",
+            "confirm calibration error bounds and frame round-trip checks are within the named robot limits",
+            "confirm low-speed no-contact dry-run passes before any hardware contact trial",
             "confirm low-speed contact safety and abort behavior before hardware contact",
             "confirm strict success variations and fail-closed negative control are rerun for the named robot",
             "confirm a separate human hardware approval exists before any non-review robot execution",
@@ -507,6 +556,10 @@ def main() -> int:
     parser.add_argument("--end-effector")
     parser.add_argument("--joint-trajectory-action")
     parser.add_argument("--joint-state-feedback")
+    parser.add_argument("--ee-pose-feedback")
+    parser.add_argument("--cartesian-command-or-ik")
+    parser.add_argument("--end-effector-command")
+    parser.add_argument("--force-torque-or-contact-feedback")
     parser.add_argument("--skill-status")
     parser.add_argument("--output-json", type=Path, default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--output-md", type=Path, default=DEFAULT_OUTPUT_MD)
@@ -529,6 +582,10 @@ def main() -> int:
         end_effector=args.end_effector,
         joint_trajectory_action=args.joint_trajectory_action,
         joint_state_feedback=args.joint_state_feedback,
+        ee_pose_feedback=args.ee_pose_feedback,
+        cartesian_command_or_ik=args.cartesian_command_or_ik,
+        end_effector_command=args.end_effector_command,
+        force_torque_or_contact_feedback=args.force_torque_or_contact_feedback,
         skill_status=args.skill_status,
     )
 

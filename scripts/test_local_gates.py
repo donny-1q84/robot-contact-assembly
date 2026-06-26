@@ -1466,6 +1466,14 @@ def run_v0_skill_api_contract_tests() -> None:
         raise AssertionError(f"portability workplan must expose model-source evidence: {default_workplan}")
     if "low_speed_contact_validation" not in default_workplan["required_evidence_groups"]["safety_evidence"]:
         raise AssertionError(f"portability workplan must expose low-speed safety evidence: {default_workplan}")
+    if "ee_pose_feedback" not in default_workplan["required_evidence_groups"]["ros2_interfaces"]:
+        raise AssertionError(f"portability workplan must expose EE pose feedback evidence: {default_workplan}")
+    if "force_torque_or_contact_feedback" not in default_workplan["required_evidence_groups"]["ros2_interfaces"]:
+        raise AssertionError(f"portability workplan must expose force/contact feedback evidence: {default_workplan}")
+    if "calibration_error_bounds" not in default_workplan["required_evidence_groups"]["frame_contract"]:
+        raise AssertionError(f"portability workplan must expose frame calibration bounds: {default_workplan}")
+    if "low_speed_no_contact_dry_run" not in default_workplan["required_evidence_groups"]["revalidation_evidence"]:
+        raise AssertionError(f"portability workplan must expose low-speed no-contact dry-run evidence: {default_workplan}")
     if default_workplan["minimum_ordered_steps"][-1] != "perform_manual_low_speed_named_robot_review_only_after_all_gates_are_ready":
         raise AssertionError(f"portability workplan final review step changed: {default_workplan}")
     review_effects = portability_review_default["side_effects"]
@@ -2005,6 +2013,11 @@ def run_v0_skill_api_contract_tests() -> None:
         "ready_for_external_robot cannot be true while adapter evidence blockers remain",
         "ready_for_hardware_execution",
         "low_speed_hardware_contact_trial",
+        "ee_pose_feedback",
+        "cartesian_command_or_ik",
+        "force_torque_or_contact_feedback",
+        "low_speed_no_contact_dry_run",
+        "adapter_frame_round_trip_check",
         "command_contract",
         "frame_contract",
         "runtime_guards",
@@ -2018,6 +2031,9 @@ def run_v0_skill_api_contract_tests() -> None:
         raise AssertionError("V0 robot adapter checker must be offline and must not create Brev instances")
     for expected_snippet in (
         "PASS_SAFE_BLOCKED",
+        "ee_pose_feedback",
+        "cartesian_command_or_ik",
+        "force_torque_or_contact_feedback",
         "placeholders are not accepted",
         "not ready for hardware execution",
         "not autonomous hardware execution approval",
@@ -2034,6 +2050,8 @@ def run_v0_skill_api_contract_tests() -> None:
         "READY_FOR_NAMED_ROBOT_LOW_SPEED_REVIEW",
         "ready_for_hardware_execution",
         "BLOCKED_NOT_DROP_IN",
+        "joint_cartesian_tool_and_feedback_interfaces",
+        "force_torque_or_contact_feedback_thresholds",
         "not direct drop-in precision on another robot arm",
         "It does not call Brev, Isaac, ROS, a",
     ):
@@ -2049,6 +2067,8 @@ def run_v0_skill_api_contract_tests() -> None:
         "adapter_workplan",
         "required_evidence_groups",
         "minimum_ordered_steps",
+        "validate_joint_cartesian_tool_state_and_force_feedback_interfaces",
+        "run_low_speed_no_contact_dry_run_before_any_contact_trial",
         "not a universal robot-arm policy",
         "not autonomous hardware execution approval",
         "ready_for_hardware_execution",
@@ -2197,6 +2217,16 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError("planned adapter must require manual hardware approval")
         if planned_adapter["ros2_interfaces"]["joint_trajectory_action"]["validated"] is not False:
             raise AssertionError("planned adapter must leave ROS 2 interface validation blocked")
+        for interface_name in (
+            "cartesian_command_or_ik",
+            "ee_pose_feedback",
+            "end_effector_command",
+            "force_torque_or_contact_feedback",
+        ):
+            if interface_name not in planned_adapter["ros2_interfaces"]:
+                raise AssertionError(f"planned adapter missing robot interface: {interface_name}")
+            if planned_adapter["ros2_interfaces"][interface_name]["validated"] is not False:
+                raise AssertionError(f"planned adapter must leave {interface_name} validation blocked")
         for section in ("command_contract", "frame_contract", "runtime_guards"):
             if section not in planned_adapter:
                 raise AssertionError(f"planned adapter missing section: {section}")
@@ -2834,12 +2864,16 @@ def run_success_variation_manifest_tests() -> None:
             "base_frame_alignment.json",
             "tool_center_point.json",
             "socket_fixture_frame.json",
+            "calibration_error_bounds.json",
             "joint_limit_check.json",
             "workspace_limit_check.json",
             "collision_clearance_check.json",
             "controller_timeout.json",
             "emergency_stop_path.md",
+            "force_torque_limit_check.json",
+            "low_speed_no_contact_dry_run.json",
             "low_speed_contact_validation.json",
+            "adapter_frame_round_trip_check.json",
             "phase2_contact_gate_equivalent.json",
             "strict_success_variation_batch.json",
             "negative_control_fail_closed.json",
@@ -2867,6 +2901,7 @@ def run_success_variation_manifest_tests() -> None:
             "base_frame_alignment": evidence_files["base_frame_alignment.json"],
             "tool_center_point": evidence_files["tool_center_point.json"],
             "socket_fixture_frame": evidence_files["socket_fixture_frame.json"],
+            "calibration_error_bounds": evidence_files["calibration_error_bounds.json"],
             "camera_or_perception_frame_if_used": None,
             "force_or_contact_thresholds_if_used": None,
         }
@@ -2876,9 +2911,18 @@ def run_success_variation_manifest_tests() -> None:
             "collision_or_clearance_check": evidence_files["collision_clearance_check.json"],
             "controller_timeout": evidence_files["controller_timeout.json"],
             "emergency_stop_path": evidence_files["emergency_stop_path.md"],
+            "force_torque_limit_check": evidence_files["force_torque_limit_check.json"],
+            "low_speed_no_contact_dry_run": evidence_files["low_speed_no_contact_dry_run.json"],
             "low_speed_contact_validation": evidence_files["low_speed_contact_validation.json"],
         }
         ready_adapter["ros2_interfaces"] = {
+            "cartesian_command_or_ik": {
+                "interface": "/demo_arm/cartesian_servo_or_ik",
+                "validated": True,
+            },
+            "ee_pose_feedback": {"interface": "/demo_arm/tcp_pose", "validated": True},
+            "end_effector_command": {"interface": "/demo_arm/gripper/command", "validated": True},
+            "force_torque_or_contact_feedback": {"interface": "/demo_arm/wrench", "validated": True},
             "joint_trajectory_action": {
                 "interface": "/demo_arm/joint_trajectory_controller/follow_joint_trajectory",
                 "validated": True,
@@ -2888,10 +2932,11 @@ def run_success_variation_manifest_tests() -> None:
         }
         ready_adapter["command_contract"] = {
             "skill_target_schema": "configs/v0_skill_api_contract.json#skill_request_schema",
+            "command_acknowledgement": "action_result_or_vendor_ack",
             "command_frame": "socket_frame",
             "command_units": "meters_radians_seconds",
             "control_mode": "joint_trajectory_low_speed_contact",
-            "feedback_fields": ["joint_state", "skill_status", "fault_state"],
+            "feedback_fields": ["joint_state", "ee_pose", "wrench", "tool_state", "skill_status", "fault_state"],
             "abort_conditions": ["stale_state", "controller_fault", "workspace_limit"],
             "rate_limits": "max_hz=20,max_translation_step_m=0.001",
         }
@@ -2900,11 +2945,14 @@ def run_success_variation_manifest_tests() -> None:
             "tool_frame": "demo_tool0",
             "tcp_frame": "demo_tcp",
             "socket_frame": "demo_socket_fixture",
+            "calibration_error_bounds": "tcp<=0.001m,rot<=0.01rad",
             "transform_source": "calibrated_static_tf",
             "timestamp_source": "ros_clock",
         }
         ready_adapter["runtime_guards"] = {
+            "max_contact_force_n": 15.0,
             "max_translation_step_m": 0.001,
+            "max_tcp_speed_mps": 0.005,
             "max_rotation_step_rad": 0.01,
             "max_joint_delta_rad": 0.02,
             "command_timeout_s": 0.5,
@@ -2913,9 +2961,11 @@ def run_success_variation_manifest_tests() -> None:
             "low_speed_mode_required": True,
         }
         ready_adapter["revalidation_evidence"] = {
+            "adapter_frame_round_trip_check": evidence_files["adapter_frame_round_trip_check.json"],
             "phase2_contact_gate_equivalent": evidence_files["phase2_contact_gate_equivalent.json"],
             "strict_success_variation_batch": evidence_files["strict_success_variation_batch.json"],
             "negative_control_fail_closed": evidence_files["negative_control_fail_closed.json"],
+            "low_speed_no_contact_dry_run": evidence_files["low_speed_no_contact_dry_run.json"],
             "low_speed_hardware_contact_trial": evidence_files["low_speed_hardware_contact_trial.json"],
         }
         ready_adapter_path = tmp_dir / "ready_external_robot_adapter.json"
@@ -6976,7 +7026,7 @@ def main() -> int:
         )
         assert_contains(
             result,
-            "workplan_adapter_blockers=41",
+            "workplan_adapter_blockers=",
             "status report portability workplan adapter blocker detail",
         )
         assert_contains(
@@ -7052,6 +7102,16 @@ def main() -> int:
             result,
             "python3 scripts/plan_v0_robot_adapter_manifest.py --robot-id <target_robot_id>",
             "status report adapter planner command detail",
+        )
+        assert_contains(
+            result,
+            "--ee-pose-feedback <ee_pose_feedback_topic>",
+            "status report adapter planner EE pose command detail",
+        )
+        assert_contains(
+            result,
+            "--force-torque-or-contact-feedback <force_torque_or_contact_feedback>",
+            "status report adapter planner force/contact command detail",
         )
         assert_contains(
             result,

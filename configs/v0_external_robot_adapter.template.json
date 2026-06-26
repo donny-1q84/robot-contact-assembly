@@ -24,6 +24,7 @@
     "base_frame_alignment": null,
     "tool_center_point": null,
     "socket_fixture_frame": null,
+    "calibration_error_bounds": null,
     "camera_or_perception_frame_if_used": null,
     "force_or_contact_thresholds_if_used": null
   },
@@ -33,9 +34,27 @@
     "collision_or_clearance_check": null,
     "controller_timeout": null,
     "emergency_stop_path": null,
+    "force_torque_limit_check": null,
+    "low_speed_no_contact_dry_run": null,
     "low_speed_contact_validation": null
   },
   "ros2_interfaces": {
+    "cartesian_command_or_ik": {
+      "interface": null,
+      "validated": false
+    },
+    "ee_pose_feedback": {
+      "interface": null,
+      "validated": false
+    },
+    "end_effector_command": {
+      "interface": null,
+      "validated": false
+    },
+    "force_torque_or_contact_feedback": {
+      "interface": null,
+      "validated": false
+    },
     "joint_trajectory_action": {
       "interface": null,
       "validated": false
@@ -51,6 +70,7 @@
   },
   "command_contract": {
     "skill_target_schema": "configs/v0_skill_api_contract.json#skill_request_schema",
+    "command_acknowledgement": null,
     "command_frame": null,
     "command_units": "meters_radians_seconds",
     "control_mode": null,
@@ -63,11 +83,14 @@
     "tool_frame": null,
     "tcp_frame": null,
     "socket_frame": null,
+    "calibration_error_bounds": null,
     "transform_source": null,
     "timestamp_source": null
   },
   "runtime_guards": {
+    "max_contact_force_n": null,
     "max_translation_step_m": null,
+    "max_tcp_speed_mps": null,
     "max_rotation_step_rad": null,
     "max_joint_delta_rad": null,
     "command_timeout_s": null,
@@ -76,9 +99,11 @@
     "low_speed_mode_required": true
   },
   "revalidation_evidence": {
+    "adapter_frame_round_trip_check": null,
     "phase2_contact_gate_equivalent": null,
     "strict_success_variation_batch": null,
     "negative_control_fail_closed": null,
+    "low_speed_no_contact_dry_run": null,
     "low_speed_hardware_contact_trial": null
   },
   "not_claims": [

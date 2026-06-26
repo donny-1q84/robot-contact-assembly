@@ -93,6 +93,10 @@ def build_adapter(
     end_effector: str,
     joint_trajectory_action: str | None,
     joint_state_feedback: str | None,
+    ee_pose_feedback: str | None,
+    cartesian_command_or_ik: str | None,
+    end_effector_command: str | None,
+    force_torque_or_contact_feedback: str | None,
     skill_status: str | None,
 ) -> dict[str, Any]:
     adapter = _load_json(template_path)
@@ -108,6 +112,10 @@ def build_adapter(
         "end_effector": end_effector,
     }
     adapter["ros2_interfaces"] = {
+        "cartesian_command_or_ik": _interface(cartesian_command_or_ik),
+        "ee_pose_feedback": _interface(ee_pose_feedback),
+        "end_effector_command": _interface(end_effector_command),
+        "force_torque_or_contact_feedback": _interface(force_torque_or_contact_feedback),
         "joint_trajectory_action": _interface(joint_trajectory_action),
         "joint_state_feedback": _interface(joint_state_feedback),
         "skill_status": _interface(skill_status),
@@ -135,6 +143,10 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             end_effector=args.end_effector.strip(),
             joint_trajectory_action=args.joint_trajectory_action,
             joint_state_feedback=args.joint_state_feedback,
+            ee_pose_feedback=args.ee_pose_feedback,
+            cartesian_command_or_ik=args.cartesian_command_or_ik,
+            end_effector_command=args.end_effector_command,
+            force_torque_or_contact_feedback=args.force_torque_or_contact_feedback,
             skill_status=args.skill_status,
         )
         if args.no_output:
@@ -185,6 +197,10 @@ def main() -> int:
     parser.add_argument("--end-effector", required=True)
     parser.add_argument("--joint-trajectory-action")
     parser.add_argument("--joint-state-feedback")
+    parser.add_argument("--ee-pose-feedback")
+    parser.add_argument("--cartesian-command-or-ik")
+    parser.add_argument("--end-effector-command")
+    parser.add_argument("--force-torque-or-contact-feedback")
     parser.add_argument("--skill-status")
     parser.add_argument("--template", type=Path, default=DEFAULT_TEMPLATE)
     parser.add_argument("--output-json", type=Path, default=DEFAULT_OUTPUT)

@@ -161,10 +161,12 @@ Example:
 
 The ROS 2 / external robot adapter should be designed after the V0 skill API is
 stable. Portability will require a robot-specific adapter, calibration, joint
-limits, controller gains, and safety checks. The adapter manifest is a separate
-gate from the V0 skill request: it is allowed to be safely blocked as a template,
-but it must fail if someone claims hardware readiness without robot-specific
-model, calibration, safety, ROS 2, and revalidation evidence.
+limits, command/feedback interfaces, controller gains, and safety checks. The
+adapter manifest is a separate gate from the V0 skill request: it is allowed to
+be safely blocked as a template, but it must fail if someone claims hardware
+readiness without robot-specific model, calibration-error bounds, joint and
+Cartesian/IK command, EE-pose/tool-state/force-contact feedback, safety, and
+revalidation evidence.
 
 The current V0 contract is now machine-readable:
 
@@ -240,15 +242,18 @@ and local dataset/planning artifacts after the success-variation gate passes.
 The robot-adapter checker encodes the portability boundary from the other side:
 the committed template is `BLOCKED`, not `READY`, and a future named arm must
 supply concrete URDF/USD or equivalent model sources, TCP/base/fixture
-calibration, safety gates, ROS 2 interface validation, low-speed contact
-validation, and variation-style revalidation before any hardware-use claim.
-`docs/v0_robot_adapter_contract.md` adds the explicit command contract, frame
-contract, and runtime guard checklist so "portable" means a named, validated
-adapter boundary, not direct drop-in precision on arbitrary arms.
+calibration plus error bounds, joint/Cartesian/tool command interfaces, joint
+state, EE pose, tool state, force/torque or contact feedback, safety gates,
+low-speed no-contact dry-run, low-speed contact validation, and variation-style
+revalidation before any hardware-use claim. `docs/v0_robot_adapter_contract.md`
+adds the explicit command contract, frame contract, and runtime guard checklist
+so "portable" means a named, validated adapter boundary, not direct drop-in
+precision on arbitrary arms.
 `scripts/plan_v0_robot_adapter_manifest.py` turns a named target arm and any
-known ROS 2 interface names into a machine-readable adapter manifest, but still
-leaves it safely blocked until the checker sees robot-specific model,
-calibration, safety, interface-validation, and revalidation evidence. In
+known ROS 2 or vendor-bridge interface names into a machine-readable adapter
+manifest, but still leaves it safely blocked until the checker sees
+robot-specific model, calibration, safety, interface-validation, and
+revalidation evidence. In
 `--no-output` mode it still validates the planned manifest through a temporary
 contract-check file, reports top-level `status=PASS_SAFE_BLOCKED`,
 `adapter_contract_status=BLOCKED`, and the real blocker list, then deletes the
@@ -269,8 +274,8 @@ its revalidation evidence are ready. It can
 also accept `--target-robot-id`, `--target-robot-family`, and `--end-effector`
 to preview a named target-arm adapter inside the same packet; that preview is
 expected to be `PASS_SAFE_BLOCKED`, not hardware-ready, until the target robot's
-model, calibration, safety, ROS 2 interfaces, runtime guards, and revalidation
-evidence are supplied.
+model, calibration, safety, command/feedback interfaces, runtime guards, and
+revalidation evidence are supplied.
 
 ## Do Not Do Next
 
@@ -311,6 +316,10 @@ python3 scripts/plan_v0_robot_adapter_manifest.py \
   --end-effector <tool_or_gripper> \
   --joint-trajectory-action <joint_trajectory_action_or_vendor_bridge> \
   --joint-state-feedback <joint_state_feedback_topic> \
+  --ee-pose-feedback <ee_pose_feedback_topic> \
+  --cartesian-command-or-ik <cartesian_command_or_ik_interface> \
+  --end-effector-command <tool_or_gripper_command_interface> \
+  --force-torque-or-contact-feedback <force_torque_or_contact_feedback> \
   --skill-status <skill_status_topic> \
   --no-output
 python3 scripts/check_v0_robot_adapter_contract.py
@@ -320,6 +329,12 @@ python3 scripts/prepare_v0_portability_review.py \
   --target-robot-id <target_robot_id> \
   --target-robot-family <target_robot_family> \
   --end-effector <tool_or_gripper> \
+  --joint-trajectory-action <joint_trajectory_action_or_vendor_bridge> \
+  --joint-state-feedback <joint_state_feedback_topic> \
+  --ee-pose-feedback <ee_pose_feedback_topic> \
+  --cartesian-command-or-ik <cartesian_command_or_ik_interface> \
+  --end-effector-command <tool_or_gripper_command_interface> \
+  --force-torque-or-contact-feedback <force_torque_or_contact_feedback> \
   --skip-phase2-contact-gate \
   --no-output
 python3 scripts/check_success_variation_batch_plan.py artifacts/manifests/success_trace_variations_2026-06-25.json
