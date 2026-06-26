@@ -4547,6 +4547,11 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"paid lifecycle preflight should accept valid credit evidence: {ready_preflight}")
         if ready_preflight["armability"]["status"] != "PASS":
             raise AssertionError(f"paid lifecycle preflight should accept safe armability fixture: {ready_preflight}")
+        current_arming = ready_preflight["armability"].get("current_arming")
+        if not isinstance(current_arming, dict):
+            raise AssertionError(f"paid lifecycle preflight should expose current arming state: {ready_preflight}")
+        if current_arming["armed"] is not False:
+            raise AssertionError(f"ready preflight fixture should start disarmed before arming: {ready_preflight}")
         brev_safety = ready_preflight["armability"]["brev_safety"]
         if brev_safety["visible_instances"] != "0":
             raise AssertionError(f"paid lifecycle preflight should expose visible instance count: {ready_preflight}")
@@ -4581,6 +4586,7 @@ def run_success_variation_manifest_tests() -> None:
             "brev_visible_instances: 0",
             "brev_watchdog_processes: none",
             "brev_manual_delete_alerts: none",
+            "current_paid_arming: False",
         ):
             if expected_snippet not in ready_preflight_md_text:
                 raise AssertionError(f"paid lifecycle preflight markdown missing safety snippet {expected_snippet}")
@@ -4588,6 +4594,52 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError("paid lifecycle preflight README should include a clear title")
         if "Cleanup Guards" not in ready_preflight_md_text:
             raise AssertionError("paid lifecycle preflight README should include cleanup guards")
+        stale_armed_config_path = tmp_dir / "paid_lifecycle_preflight_ready" / "stale_armed_success_variation.env"
+        stale_armed_text = ready_config_text
+        stale_armed_text = stale_armed_text.replace(
+            "RCA_BREV_CREDIT_EVIDENCE_JSON=configs/brev_credit_verification.local.json",
+            f"RCA_BREV_CREDIT_EVIDENCE_JSON={ready_credit_path}",
+        )
+        stale_armed_text = stale_armed_text.replace(
+            "RCA_PAID_ARMED_AT_UTC=",
+            "RCA_PAID_ARMED_AT_UTC=2000-01-01T00:00:00Z",
+        )
+        stale_armed_text = stale_armed_text.replace("RCA_ALLOW_PAID_BREV_CREATE=0", "RCA_ALLOW_PAID_BREV_CREATE=1")
+        stale_armed_text = stale_armed_text.replace("RCA_BREV_CREDITS_VERIFIED=0", "RCA_BREV_CREDITS_VERIFIED=1")
+        stale_armed_text = stale_armed_text.replace("RCA_ACK_BREV_LIFECYCLE_RISK=0", "RCA_ACK_BREV_LIFECYCLE_RISK=1")
+        stale_armed_config_path.write_text(stale_armed_text, encoding="utf-8")
+        result = run(
+            [
+                "python3",
+                "scripts/arm_success_variation_paid_env.py",
+                "--config",
+                str(stale_armed_config_path),
+                "--brev-safety-output",
+                str(fake_safe_brev),
+                "--dry-run",
+                "--i-understand-this-arms-paid-run",
+            ]
+        )
+        assert_status(result, 1, "success variation arm gate rejects stale already-armed env")
+        assert_contains(result, "existing paid arming is too old", "stale arming direct guard detail")
+        result = run(
+            [
+                "python3",
+                str(paid_preflight_path),
+                "--config",
+                str(stale_armed_config_path),
+                "--brev-safety-output",
+                str(fake_safe_brev),
+                "--source-status-output",
+                str(fake_clean_source),
+                "--run-packet",
+                str(ready_run_packet_path),
+                "--no-output",
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 1, "success variation paid lifecycle preflight rejects stale armed env")
+        assert_contains(result, "existing paid arming is too old", "paid lifecycle preflight stale arming detail")
         result = run(
             [
                 "python3",
@@ -4657,6 +4709,7 @@ def run_success_variation_manifest_tests() -> None:
             "success-variation pre-batch assumption audit must pass before the paid lifecycle",
             "arm_success_variation_paid_env",
             "READY_FOR_SINGLE_PAID_LIFECYCLE",
+            "current_paid_arming",
             "not a paid run",
             "not armed local env",
             "writes_local_env",
@@ -5250,6 +5303,8 @@ def run_success_variation_manifest_tests() -> None:
             "RCA_BREV_CREDITS_VERIFIED",
             "RCA_ACK_BREV_LIFECYCLE_RISK",
             "RCA_PAID_ARMED_AT_UTC",
+            "current_arming",
+            "existing paid arming is too old",
             "RCA_SUCCESS_VARIATION_CASE_CALIBRATION_TIMEOUT_SECONDS",
             "RCA_SUCCESS_VARIATION_CASE_TRACE_TIMEOUT_SECONDS",
             "RCA_SUCCESS_VARIATION_REUSE_CALIBRATION",

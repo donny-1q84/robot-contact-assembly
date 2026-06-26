@@ -177,6 +177,63 @@ def _int_value(values: dict[str, str], key: str, blockers: list[str]) -> int | N
     return parsed
 
 
+def _parse_utc_timestamp(raw: str, *, key: str, blockers: list[str]) -> datetime | None:
+    if not raw:
+        blockers.append(f"{key} is required when paid acknowledgements are already armed")
+        return None
+    normalized = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        blockers.append(f"{key} is not parseable: {raw!r}")
+        return None
+    if parsed.tzinfo is None:
+        blockers.append(f"{key} must include UTC timezone")
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _current_arming_state(
+    values: dict[str, str],
+    *,
+    max_age_minutes: int | None,
+    blockers: list[str],
+) -> dict[str, Any]:
+    ack_values = {key: values.get(key, "").strip() for key in ACK_KEYS}
+    invalid_ack_values = {key: value for key, value in ack_values.items() if value not in {"0", "1"}}
+    if invalid_ack_values:
+        blockers.append("paid acknowledgement values must be 0 or 1: " + json.dumps(invalid_ack_values, sort_keys=True))
+
+    enabled = [key for key, value in ack_values.items() if value == "1"]
+    partial = bool(enabled) and len(enabled) != len(ACK_KEYS)
+    if partial:
+        blockers.append("paid acknowledgements must be all disarmed or all armed together")
+
+    armed = len(enabled) == len(ACK_KEYS)
+    armed_at_raw = values.get("RCA_PAID_ARMED_AT_UTC", "").strip()
+    age_minutes = None
+    if armed:
+        armed_at = _parse_utc_timestamp(armed_at_raw, key="RCA_PAID_ARMED_AT_UTC", blockers=blockers)
+        if armed_at is not None:
+            age_minutes = (datetime.now(timezone.utc) - armed_at).total_seconds() / 60.0
+            if age_minutes < -1:
+                blockers.append("RCA_PAID_ARMED_AT_UTC is in the future")
+            elif max_age_minutes is not None and age_minutes > max_age_minutes:
+                blockers.append(
+                    f"existing paid arming is too old: {age_minutes:.1f} minutes > "
+                    f"{max_age_minutes} minutes; disarm and re-arm"
+                )
+
+    return {
+        "ack_values": ack_values,
+        "armed": armed,
+        "partial": partial,
+        "armed_at_utc": armed_at_raw or None,
+        "age_minutes": round(age_minutes, 2) if age_minutes is not None else None,
+        "max_age_minutes": max_age_minutes,
+    }
+
+
 def _parse_brev_safety_output(text: str, *, exit_code: int) -> dict[str, Any]:
     fields: dict[str, str] = {}
     for line in text.splitlines():
@@ -241,7 +298,8 @@ def build_report(config_path: Path, *, brev_safety_output: Path | None = None) -
     if reuse_calibration not in {"0", "1"}:
         blockers.append("RCA_SUCCESS_VARIATION_REUSE_CALIBRATION must be 0 or 1")
     max_age = _int_value(values, "RCA_BREV_CREDIT_EVIDENCE_MAX_AGE_MINUTES", blockers)
-    _int_value(values, "RCA_PAID_ARMING_MAX_AGE_MINUTES", blockers)
+    arming_max_age = _int_value(values, "RCA_PAID_ARMING_MAX_AGE_MINUTES", blockers)
+    current_arming = _current_arming_state(values, max_age_minutes=arming_max_age, blockers=blockers)
 
     credit_report: dict[str, Any] | None = None
     credit_path_raw = values.get("RCA_BREV_CREDIT_EVIDENCE_JSON", "").strip()
@@ -265,6 +323,7 @@ def build_report(config_path: Path, *, brev_safety_output: Path | None = None) -
         "credit_evidence": credit_report,
         "brev_safety": safety,
         "budget_eur": budget,
+        "current_arming": current_arming,
         "armed_values": {key: "1" for key in ACK_KEYS},
         "armed_at_key": "RCA_PAID_ARMED_AT_UTC",
     }

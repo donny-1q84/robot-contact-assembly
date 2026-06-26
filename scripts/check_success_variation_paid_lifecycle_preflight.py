@@ -455,6 +455,15 @@ def _render_markdown(report: dict[str, Any]) -> str:
                 f"- brev_manual_delete_alerts: {brev_safety.get('manual_delete_alerts')}",
             ]
         )
+    current_arming = armability.get("current_arming") if isinstance(armability.get("current_arming"), dict) else {}
+    if current_arming:
+        lines.extend(
+            [
+                f"- current_paid_arming: {current_arming.get('armed')}",
+                f"- current_paid_arming_age_minutes: {current_arming.get('age_minutes')}",
+                f"- current_paid_arming_max_age_minutes: {current_arming.get('max_age_minutes')}",
+            ]
+        )
     lines.extend(
         [
             "",
