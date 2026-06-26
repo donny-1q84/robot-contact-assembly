@@ -490,14 +490,16 @@ That wrapper still requires fresh Brev UI balance evidence. It delegates to the
 prepare helper, reruns the aggregate paid lifecycle preflight with
 `--fail-on-blocked`, and only then enters the guarded config runner. If prepare
 arms the local env but the aggregate preflight fails or is interrupted, it
-disarms and runs Brev safety before exiting. After any paid run attempt it also
-disarms and safety-checks before either finalizing the dataset gate or writing
-the recovery rerun plan. Local gate tests cover the preflight-failure,
-preflight-interrupt, run-failure, finalize-failure, interrupt, and success
-cleanup paths. Add `--dry-run` before `--run` when reviewing the full wrapper:
-it emits a parseable `[success-variation-lifecycle] facts=` block with the
-prepare/preflight/run/disarm/safety/finalize/recovery command sequence,
-cleanup guards, and explicit no-side-effect flags.
+disarms and runs Brev safety before exiting. If the prepare step itself fails,
+the top-level lifecycle also disarms and reruns Brev safety as a defensive
+cleanup fallback. After any paid run attempt it disarms and safety-checks before
+either finalizing the dataset gate or writing the recovery rerun plan. Local
+gate tests cover prepare-failure, preflight-failure, preflight-interrupt,
+run-failure, finalize-failure, interrupt, and success cleanup paths. Add
+`--dry-run` before `--run` when reviewing the full wrapper: it emits a parseable
+`[success-variation-lifecycle] facts=` block with the
+prepare/preflight/run/disarm/safety/finalize/recovery command sequence, cleanup
+guards, and explicit no-side-effect flags.
 
 Before editing the ignored local env or opening paid compute, run the
 read-only assumption-and-metric audit:
@@ -572,11 +574,12 @@ python3 scripts/arm_success_variation_paid_env.py --disarm
 scripts/run_success_variation_batch_from_config.sh \
   configs/success_variation_batch_run.local.env \
   --check-only
-
-scripts/run_success_variation_batch_from_config.sh \
-  configs/success_variation_batch_run.local.env \
-  --run
 ```
+
+Do not use `scripts/run_success_variation_batch_from_config.sh ... --run` as
+the normal entrypoint. It is the lower-level runner used by
+`run_success_variation_paid_lifecycle.py`; run it directly only as a reviewed
+fallback when the high-level lifecycle wrapper cannot be used.
 
 Before creation, `scripts/check_success_variation_batch_readiness.py` checks
 the manifest/positive-control/negative-control contract, Phase 2 gate, explicit

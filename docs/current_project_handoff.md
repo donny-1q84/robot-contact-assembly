@@ -84,14 +84,16 @@ The next phase should be a local-first V0 reproducible assembly skill baseline:
    only after credit evidence and Brev safety checks pass. The armed env records
    `RCA_PAID_ARMED_AT_UTC` and
    expires by `RCA_PAID_ARMING_MAX_AGE_MINUTES` so stale acknowledgements cannot
-   be reused; `scripts/run_success_variation_batch_from_config.sh --run`
-   automatically disarms the local env on exit, and
-   `scripts/arm_success_variation_paid_env.py --disarm` is the manual fallback
-   that restores the three paid acknowledgement values to `0`. Then run
-   `scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --check-only` before
-   `scripts/recreate_brev_and_run_success_variation_batch.sh`, which delegates
-   paid preflight, watchdog, artifact pull, deletion, and empty-org confirmation
-   to the existing lifecycle wrapper. The lifecycle wrapper also bounds its
+   be reused. The normal paid entrypoint is
+   `scripts/run_success_variation_paid_lifecycle.py`, not the lower-level
+   config runner. The lifecycle wrapper delegates to the guarded config runner,
+   disarms the local env on prepare/preflight/run/finalize/interruption failure,
+   runs Brev safety checks, and then either finalizes the dataset gate or writes
+   a recovery plan. `scripts/arm_success_variation_paid_env.py --disarm` is the
+   manual fallback that restores the three paid acknowledgement values to `0`.
+   Use `scripts/run_success_variation_batch_from_config.sh ... --run` only as an
+   internal fallback after reviewing why the high-level lifecycle cannot be used.
+   The lifecycle wrapper also bounds its
    direct Brev list/delete cleanup calls with
    `RCA_FINAL_CONTACT_BREV_QUERY_TIMEOUT_SECONDS` and
    `RCA_FINAL_CONTACT_BREV_MUTATION_TIMEOUT_SECONDS`, so login or network
@@ -184,7 +186,7 @@ paid_success_variation_preflight: scripts/check_success_variation_paid_lifecycle
 brev_credit_review_packet: scripts/prepare_brev_credit_review.py exposes the Brev org dashboard URL, current credit-evidence blocker, preview/write-credit commands, preview/real prepare_success_variation_paid_batch.py commands, rerun-preflight command, and paid lifecycle command without opening paid compute by default; pass --balance-eur <current-brev-ui-balance> to replace placeholders with concrete preview commands; write_brev_credit_evidence.py --dry-run and prepare_success_variation_paid_batch.py --dry-run emit parseable facts with no write/arm/create side effects; the real prepare helper disarms the local env if check-only or aggregate preflight fails, on KeyboardInterrupt after arming, and on unexpected post-arm exceptions
 pre_batch_assumption_audit: scripts/audit_success_variation_assumptions.py --phase pre-batch --no-output is surfaced in scripts/project_status_report.py; blocked until one-run paid acknowledgements exist, while planned traces may still be missing
 post_batch_assumption_audit: scripts/audit_success_variation_assumptions.py --phase post-batch --no-output is surfaced in scripts/project_status_report.py; blocked until planned traces exist, at least five non-baseline variations classify as strict_success, and socket_x_pos_25mm_negative_control classifies fail_closed
-paid_success_variation_lifecycle: scripts/run_success_variation_paid_lifecycle.py is the one-shot paid entrypoint after current UI balance evidence; it prepares/arms local evidence, reruns the aggregate paid lifecycle preflight with fail-on-blocked before the guarded paid runner, then disarms/safety-checks before finalizing/running the offline policy-readiness pipeline or writing a recovery plan; its --dry-run emits parseable facts with command order, cleanup guards, and no-side-effect flags; preflight failure, preflight interrupt, run/finalize failures, and KeyboardInterrupt are covered by local cleanup-path tests
+paid_success_variation_lifecycle: scripts/run_success_variation_paid_lifecycle.py is the one-shot paid entrypoint after current UI balance evidence; it prepares/arms local evidence, reruns the aggregate paid lifecycle preflight with fail-on-blocked before the guarded paid runner, then disarms/safety-checks before finalizing/running the offline policy-readiness pipeline or writing a recovery plan; its --dry-run emits parseable facts with command order, cleanup guards, and no-side-effect flags; prepare failure, preflight failure, preflight interrupt, run/finalize failures, and KeyboardInterrupt are covered by local cleanup-path tests
 skill_api_contract: configs/v0_skill_api_contract.json passes local contract check
 skill_api_promotion_coverage: requires strict-success seed/reset plus socket X/Y/Z variation coverage before policy/API promotion
 success_variation_recovery: scripts/plan_success_variation_recovery_batch.py skips already satisfied traces and plans only unresolved reruns after a partial batch; --no-output emits parseable recovery facts without writing recovery JSON/shell artifacts

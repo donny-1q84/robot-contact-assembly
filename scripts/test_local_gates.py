@@ -6988,8 +6988,22 @@ def main() -> int:
         )
         assert_contains(
             result,
-            "python3 scripts/prepare_success_variation_paid_batch.py --balance-eur <current-brev-ui-balance> --force-credit --i-understand-this-arms-paid-run",
-            "status report paid prepare helper command detail",
+            "python3 scripts/run_success_variation_paid_lifecycle.py --balance-eur <current-brev-ui-balance> --dry-run",
+            "status report paid lifecycle dry-run command detail",
+        )
+        assert_contains(
+            result,
+            "Single paid entrypoint after fresh UI balance evidence; do not also run the raw config --run",
+            "status report single paid entrypoint warning detail",
+        )
+        raw_run_line = "scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --run"
+        for output_line in result.stdout.splitlines():
+            if output_line.strip() == raw_run_line:
+                raise AssertionError("status report must not expose raw success-variation --run as an executable command")
+        assert_contains(
+            result,
+            "# " + raw_run_line,
+            "status report raw runner fallback comment detail",
         )
         assert_contains(
             result,
