@@ -29,6 +29,7 @@ import arm_success_variation_paid_env as arm_gate  # noqa: E402
 import audit_success_variation_assumptions as assumption_audit  # noqa: E402
 import check_brev_credit_evidence as credit_gate  # noqa: E402
 import project_status_report as project_status  # noqa: E402
+import read_brev_credit_balance as api_credit_gate  # noqa: E402
 
 
 DEFAULT_CONFIG = REPO_ROOT / "configs" / "success_variation_batch_run.local.env"
@@ -286,6 +287,48 @@ def _blockers_from(report: dict[str, Any] | None) -> list[str]:
     return []
 
 
+def _api_credit_blockers_from(report: dict[str, Any] | None) -> list[str]:
+    blockers = _blockers_from(report)
+    if blockers:
+        return blockers
+    if not isinstance(report, dict):
+        return []
+    failures = report.get("failures")
+    if isinstance(failures, list) and failures:
+        return [str(item) for item in failures]
+    status = report.get("status")
+    if status and status != "PASS":
+        return [f"Brev API credit balance status is {status}"]
+    return []
+
+
+def _load_api_credit_report(path: Path) -> dict[str, Any]:
+    payload = json.loads(_resolve(path).read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError("Brev API credit output must be a JSON object")
+    return payload
+
+
+def _api_credit_report(
+    *,
+    required_budget_eur: float | None,
+    timeout_seconds: int,
+    api_credit_output: Path | None,
+) -> dict[str, Any] | None:
+    if required_budget_eur is None:
+        return None
+    if api_credit_output is not None:
+        return _load_api_credit_report(api_credit_output)
+    return api_credit_gate.build_report(
+        credentials_path=api_credit_gate.DEFAULT_CREDENTIALS,
+        brev_bin=api_credit_gate.DEFAULT_BREV_BIN,
+        api_base=api_credit_gate.DEFAULT_API_BASE,
+        organization_id=credit_gate.EXPECTED_ORG_ID,
+        required_budget_eur=required_budget_eur,
+        timeout_seconds=max(1, timeout_seconds),
+    )
+
+
 def _acknowledgement_blockers(pre_batch_audit: dict[str, Any] | None) -> list[str]:
     return [
         blocker
@@ -305,6 +348,7 @@ def _unblock_plan(
     budget_eur: float | None,
     credit_max_age_minutes: int | None,
     credit_report: dict[str, Any] | None,
+    api_credit_report: dict[str, Any] | None,
     arm_report: dict[str, Any] | None,
     pre_batch_audit: dict[str, Any] | None,
     lifecycle_command: list[str],
@@ -358,6 +402,7 @@ def _unblock_plan(
         "status": plan_status,
         "requires_current_brev_ui_balance": status != "READY_FOR_SINGLE_PAID_LIFECYCLE",
         "credit_evidence_blockers": _blockers_from(credit_report),
+        "api_credit_blockers": _api_credit_blockers_from(api_credit_report),
         "armability_blockers": _blockers_from(arm_report),
         "pre_batch_assumption_blockers": _blockers_from(pre_batch_audit),
         "required_acknowledgement_blockers": _acknowledgement_blockers(pre_batch_audit),
@@ -389,6 +434,7 @@ def build_report(
     command_timeout_seconds: int,
     brev_safety_output: Path | None = None,
     source_status_output: Path | None = None,
+    api_credit_output: Path | None = None,
 ) -> dict[str, Any]:
     config_path = _resolve(config_path)
     manifest_path = _resolve(manifest_path)
@@ -437,6 +483,24 @@ def build_report(
         )
         if credit_report.get("status") != "PASS":
             blockers.append("Brev UI credit evidence must pass before the paid lifecycle can be armed")
+
+    api_credit: dict[str, Any] | None = None
+    try:
+        api_credit = _api_credit_report(
+            required_budget_eur=budget,
+            timeout_seconds=min(command_timeout_seconds, 15),
+            api_credit_output=api_credit_output,
+        )
+        if isinstance(api_credit, dict) and api_credit.get("status") != "PASS":
+            blockers.append("Brev API credit balance must be readable and cover the paid lifecycle budget")
+    except Exception as exc:  # noqa: BLE001 - paid preflight must fail closed on API credit errors.
+        api_credit = {
+            "check_name": "brev_api_credit_balance",
+            "status": "UNAVAILABLE",
+            "failures": [f"Brev API credit check failed: {exc}"],
+            "next_action": "resolve_brev_api_credit_check_before_paid_run",
+        }
+        blockers.append("Brev API credit balance must be readable and cover the paid lifecycle budget")
 
     arm_report: dict[str, Any] | None = None
     if not failures and config_path.is_file():
@@ -494,6 +558,7 @@ def build_report(
     ]
     blocked_subchecks = {
         "credit_evidence_blockers": _blockers_from(credit_report),
+        "api_credit_blockers": _api_credit_blockers_from(api_credit),
         "armability_blockers": _blockers_from(arm_report),
         "pre_batch_assumption_blockers": _blockers_from(pre_batch_audit),
         "required_acknowledgement_blockers": _acknowledgement_blockers(pre_batch_audit),
@@ -509,6 +574,7 @@ def build_report(
         "budget_eur": budget,
         "credit_max_age_minutes": credit_max_age,
         "credit_evidence": credit_report,
+        "api_credit_balance": api_credit,
         "armability": arm_report,
         "batch_plan_gate": plan_report,
         "pre_batch_assumption_audit": pre_batch_audit,
@@ -520,6 +586,7 @@ def build_report(
             budget_eur=budget,
             credit_max_age_minutes=credit_max_age,
             credit_report=credit_report,
+            api_credit_report=api_credit,
             arm_report=arm_report,
             pre_batch_audit=pre_batch_audit,
             lifecycle_command=lifecycle_command,
@@ -541,6 +608,7 @@ def build_report(
             "not armed local env",
             "not clean/current source unless source_state checks are CLEAN/READY",
             "not fresh credit evidence unless credit_evidence.status is PASS",
+            "not current Brev API credit evidence unless api_credit_balance.status is PASS",
             "not assumption-audited unless pre_batch_assumption_audit.audit_status is PASS",
             "not success-variation result evidence",
         ],
@@ -561,6 +629,8 @@ def _render_markdown(report: dict[str, Any]) -> str:
         f"- budget_eur: {report['budget_eur']}",
         f"- watchdog_max_minutes: {report['lifecycle_plan']['budget']['watchdog_max_minutes']}",
         f"- estimated_max_cost_eur: {report['lifecycle_plan']['budget']['estimated_max_cost_eur']}",
+        f"- api_credit_status: {(report.get('api_credit_balance') or {}).get('status')}",
+        f"- api_credit_balance_usd: {(report.get('api_credit_balance') or {}).get('balance_usd')}",
         f"- next_action: {report['next_action']}",
         f"- pre_batch_assumption_audit: "
         f"{(report.get('pre_batch_assumption_audit') or {}).get('audit_status')}",
@@ -666,6 +736,11 @@ def main() -> int:
         type=Path,
         help="Use saved project_status_report.py output for offline tests; default checks live local source state.",
     )
+    parser.add_argument(
+        "--api-credit-output",
+        type=Path,
+        help="Use saved read_brev_credit_balance.py JSON output for offline tests; default reads live Brev API credits.",
+    )
     parser.add_argument("--output-json", type=Path, default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--output-md", type=Path, default=DEFAULT_OUTPUT_MD)
     parser.add_argument("--no-output", action="store_true")
@@ -684,6 +759,7 @@ def main() -> int:
         command_timeout_seconds=args.command_timeout_seconds,
         brev_safety_output=args.brev_safety_output,
         source_status_output=args.source_status_output,
+        api_credit_output=args.api_credit_output,
     )
     if not args.no_output:
         output_json = _resolve(args.output_json)

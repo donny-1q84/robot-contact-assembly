@@ -275,6 +275,8 @@ def success_variation_paid_lifecycle_preflight_status() -> Check:
     blockers = facts.get("blockers") if isinstance(facts.get("blockers"), list) else []
     credit = facts.get("credit_evidence") if isinstance(facts.get("credit_evidence"), dict) else {}
     credit_blockers = credit.get("blockers") if isinstance(credit.get("blockers"), list) else []
+    api_credit = facts.get("api_credit_balance") if isinstance(facts.get("api_credit_balance"), dict) else {}
+    api_credit_blockers = api_credit.get("blockers") if isinstance(api_credit.get("blockers"), list) else []
     plan = facts.get("batch_plan_gate") if isinstance(facts.get("batch_plan_gate"), dict) else {}
     lifecycle_plan = facts.get("lifecycle_plan") if isinstance(facts.get("lifecycle_plan"), dict) else {}
     lifecycle_budget = lifecycle_plan.get("budget") if isinstance(lifecycle_plan.get("budget"), dict) else {}
@@ -295,6 +297,9 @@ def success_variation_paid_lifecycle_preflight_status() -> Check:
     brev_safety = armability.get("brev_safety") if isinstance(armability.get("brev_safety"), dict) else {}
     detail = (
         f"config={facts.get('config')}; credit={credit.get('status')}; "
+        f"api_credit_status={api_credit.get('status')}; "
+        f"api_credit_balance_usd={api_credit.get('balance_usd')}; "
+        f"api_credit_next_action={api_credit.get('next_action')}; "
         f"brev_safety={brev_safety.get('status')}; "
         f"visible_instances={brev_safety.get('visible_instances')}; "
         f"watchdog_processes={brev_safety.get('watchdog_processes')}; "
@@ -304,6 +309,7 @@ def success_variation_paid_lifecycle_preflight_status() -> Check:
         f"estimated_max_cost_eur={lifecycle_budget.get('estimated_max_cost_eur')}; "
         f"blockers={len(blockers)}; "
         f"credit_blockers={len(credit_blockers)}; "
+        f"api_credit_blockers={len(api_credit_blockers)}; "
         f"armability_blockers={len(armability_blockers)}; "
         f"pre_batch_blockers={len(pre_batch_blockers)}; "
         f"ack_blockers={len(ack_blockers)}; "

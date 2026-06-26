@@ -157,6 +157,7 @@ def build_packet(
         command_timeout_seconds=command_timeout_seconds,
         brev_safety_output=brev_safety_output,
         source_status_output=source_status_output,
+        api_credit_output=api_credit_output,
     )
     budget = float(preflight.get("budget_eur") or 6.0)
     api_credit = _api_credit_report(

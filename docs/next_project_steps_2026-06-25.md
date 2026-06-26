@@ -447,11 +447,15 @@ python3 scripts/check_success_variation_paid_lifecycle_preflight.py --no-output
 ```
 
 It summarizes clean source state, current contact-smoke bundle readiness, Brev
-UI credit evidence, `SAFE_NO_VISIBLE_PAID_INSTANCE`, local env armability, and
-batch-plan readiness. It also emits a read-only `lifecycle_plan` with the
-watchdog TTL, budget, estimated hourly price, estimated max cost, manual disarm
-fallback, safety snapshot command, recovery command, and cleanup guards that
-require final `SAFE_NO_VISIBLE_PAID_INSTANCE` / `workspaces: null` evidence.
+UI credit evidence, read-only Brev API credit balance,
+`SAFE_NO_VISIBLE_PAID_INSTANCE`, local env armability, and batch-plan readiness.
+The API credit subcheck is now part of the real paid lifecycle preflight, not
+only the review helper: `api_credit_balance.status` must be `PASS`, and
+`BLOCKED` or `UNAVAILABLE` fails closed before the paid wrapper can create an
+instance. It also emits a read-only `lifecycle_plan` with the watchdog TTL,
+budget, estimated hourly price, estimated max cost, manual disarm fallback,
+safety snapshot command, recovery command, and cleanup guards that require final
+`SAFE_NO_VISIBLE_PAID_INSTANCE` / `workspaces: null` evidence.
 It also emits `blocked_subchecks` and `unblock_plan`, so the current credit,
 local-env armability, pre-batch assumption, and acknowledgement blockers are
 visible as separate fields together with the ordered preview/write/arm/preflight
@@ -483,7 +487,9 @@ python3 scripts/read_brev_credit_balance.py --required-budget-eur 6.00
 
 If it prints `BLOCKED` or `UNAVAILABLE`, do not create a paid instance. Resolve
 credits/login first, then rerun the review packet and aggregate paid lifecycle
-preflight.
+preflight. The high-level paid lifecycle wrapper reruns that aggregate preflight
+with `--fail-on-blocked`, so the API credit gate also protects the actual paid
+entrypoint.
 
 To preview the credit evidence payload after reading the current UI balance,
 without writing the ignored JSON file, use:

@@ -4626,6 +4626,8 @@ def run_success_variation_manifest_tests() -> None:
         assert_contains(result, "Brev credit evidence file is missing", "paid lifecycle preflight credit blocker detail")
         assert_contains(result, "watchdog_max_minutes", "paid lifecycle preflight watchdog plan detail")
         assert_contains(result, "estimated_max_cost_eur", "paid lifecycle preflight cost-envelope detail")
+        assert_contains(result, "api_credit_balance", "paid lifecycle preflight API credit facts detail")
+        assert_contains(result, "api_credit_blockers", "paid lifecycle preflight API blocker detail")
         assert_contains(result, "required_cleanup_guards", "paid lifecycle preflight cleanup guard detail")
         assert_contains(result, "blocked_subchecks", "paid lifecycle preflight blocked-subchecks detail")
         assert_contains(result, "unblock_plan", "paid lifecycle preflight unblock-plan detail")
@@ -4721,6 +4723,21 @@ def run_success_variation_manifest_tests() -> None:
         )
         ready_preflight_json = tmp_dir / "paid_lifecycle_preflight_ready" / "preflight.json"
         ready_preflight_md = tmp_dir / "paid_lifecycle_preflight_ready" / "README.md"
+        ready_api_fixture = tmp_dir / "paid_lifecycle_preflight_ready" / "passing_brev_api_credit.json"
+        ready_api_fixture.write_text(
+            json.dumps(
+                {
+                    "check_name": "brev_api_credit_balance",
+                    "status": "PASS",
+                    "balance_usd": 20.0,
+                    "required_budget_eur": 6.0,
+                    "blockers": [],
+                    "failures": [],
+                    "next_action": "write_fresh_credit_evidence_from_current_balance",
+                }
+            ),
+            encoding="utf-8",
+        )
         result = run(
             [
                 "python3",
@@ -4733,6 +4750,8 @@ def run_success_variation_manifest_tests() -> None:
                 str(fake_clean_source),
                 "--run-packet",
                 str(ready_run_packet_path),
+                "--api-credit-output",
+                str(ready_api_fixture),
                 "--output-json",
                 str(ready_preflight_json),
                 "--output-md",
@@ -4751,6 +4770,10 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"paid lifecycle preflight should be ready with valid offline evidence: {ready_preflight}")
         if ready_preflight["credit_evidence"]["status"] != "PASS":
             raise AssertionError(f"paid lifecycle preflight should accept valid credit evidence: {ready_preflight}")
+        if ready_preflight["api_credit_balance"]["status"] != "PASS":
+            raise AssertionError(f"paid lifecycle preflight should require passing API credit evidence: {ready_preflight}")
+        if ready_preflight["api_credit_balance"]["balance_usd"] != 20.0:
+            raise AssertionError(f"paid lifecycle preflight should expose API credit balance: {ready_preflight}")
         if ready_preflight["armability"]["status"] != "PASS":
             raise AssertionError(f"paid lifecycle preflight should accept safe armability fixture: {ready_preflight}")
         current_arming = ready_preflight["armability"].get("current_arming")
@@ -4775,6 +4798,8 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"paid lifecycle preflight should expose ready unblock-plan status: {ready_preflight}")
         if ready_preflight["blocked_subchecks"]["credit_evidence_blockers"]:
             raise AssertionError(f"ready preflight should have no credit blockers: {ready_preflight}")
+        if ready_preflight["blocked_subchecks"]["api_credit_blockers"]:
+            raise AssertionError(f"ready preflight should have no API credit blockers: {ready_preflight}")
         if ready_preflight["blocked_subchecks"]["required_acknowledgement_blockers"]:
             raise AssertionError(f"ready preflight should have no ack blockers: {ready_preflight}")
         lifecycle_plan = ready_preflight["lifecycle_plan"]
@@ -4798,6 +4823,8 @@ def run_success_variation_manifest_tests() -> None:
             "brev_visible_instances: 0",
             "brev_watchdog_processes: none",
             "brev_manual_delete_alerts: none",
+            "api_credit_status: PASS",
+            "api_credit_balance_usd: 20.0",
             "current_paid_arming: False",
             "Unblock Sequence",
             "READY_TO_RUN_SINGLE_PAID_LIFECYCLE",
@@ -4848,6 +4875,8 @@ def run_success_variation_manifest_tests() -> None:
                 str(fake_clean_source),
                 "--run-packet",
                 str(ready_run_packet_path),
+                "--api-credit-output",
+                str(ready_api_fixture),
                 "--no-output",
                 "--fail-on-blocked",
             ]
@@ -4866,29 +4895,41 @@ def run_success_variation_manifest_tests() -> None:
                 str(fake_dirty_source),
                 "--run-packet",
                 str(ready_run_packet_path),
+                "--api-credit-output",
+                str(ready_api_fixture),
                 "--no-output",
                 "--fail-on-blocked",
             ]
         )
         assert_status(result, 1, "success variation paid lifecycle preflight rejects dirty source state")
         assert_contains(result, "Git worktree must be CLEAN", "paid lifecycle preflight dirty source detail")
+        result = run(
+            [
+                "python3",
+                str(paid_preflight_path),
+                "--config",
+                str(ready_config_path),
+                "--brev-safety-output",
+                str(fake_safe_brev),
+                "--source-status-output",
+                str(fake_clean_source),
+                "--run-packet",
+                str(ready_run_packet_path),
+                "--api-credit-output",
+                str(blocked_api_fixture),
+                "--no-output",
+                "--fail-on-blocked",
+            ]
+        )
+        assert_status(result, 1, "success variation paid lifecycle preflight rejects low API credit balance")
+        assert_contains(
+            result,
+            "Brev API credit balance must be readable and cover the paid lifecycle budget",
+            "paid lifecycle preflight API credit blocker detail",
+        )
+        assert_contains(result, "api_credit_blockers", "paid lifecycle preflight API blocked-subcheck detail")
         ready_credit_review_json = tmp_dir / "paid_lifecycle_preflight_ready" / "credit_review.json"
         ready_credit_review_md = tmp_dir / "paid_lifecycle_preflight_ready" / "credit_review.md"
-        ready_api_fixture = tmp_dir / "paid_lifecycle_preflight_ready" / "passing_brev_api_credit.json"
-        ready_api_fixture.write_text(
-            json.dumps(
-                {
-                    "check_name": "brev_api_credit_balance",
-                    "status": "PASS",
-                    "balance_usd": 20.0,
-                    "required_budget_eur": 6.0,
-                    "blockers": [],
-                    "failures": [],
-                    "next_action": "write_fresh_credit_evidence_from_current_balance",
-                }
-            ),
-            encoding="utf-8",
-        )
         result = run(
             [
                 "python3",
@@ -4944,6 +4985,9 @@ def run_success_variation_manifest_tests() -> None:
             "blocked_subchecks",
             "unblock_plan",
             "required_acknowledgement_blockers",
+            "api_credit_balance",
+            "api_credit_blockers",
+            "--api-credit-output",
             "preview_credit_evidence",
             "arm_one_run_paid_local_env",
             "required_cleanup_guards",
@@ -6966,6 +7010,10 @@ def main() -> int:
             "status report Brev safety status detail",
         )
         assert_contains(result, "credit_blockers=", "status report paid lifecycle credit blocker count detail")
+        assert_contains(result, "api_credit_status=", "status report paid lifecycle API credit status detail")
+        assert_contains(result, "api_credit_balance_usd=", "status report paid lifecycle API credit balance detail")
+        assert_contains(result, "api_credit_next_action=", "status report paid lifecycle API credit next-action detail")
+        assert_contains(result, "api_credit_blockers=", "status report paid lifecycle API credit blocker count detail")
         assert_contains(result, "armability_blockers=", "status report paid lifecycle armability blocker count detail")
         assert_contains(result, "pre_batch_blockers=", "status report paid lifecycle pre-batch blocker count detail")
         assert_contains(result, "ack_blockers=", "status report paid lifecycle acknowledgement blocker count detail")
