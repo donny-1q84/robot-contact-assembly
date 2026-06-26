@@ -1435,6 +1435,7 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             f"python3 scripts/prepare_brev_credit_review.py --balance-eur {balance_arg} --no-output",
             "python3 scripts/diagnose_brev_credit_blocker.py --no-output",
             f"python3 scripts/diagnose_brev_credit_blocker.py --balance-eur {balance_arg} --no-output",
+            f"python3 scripts/prepare_brev_credit_support_packet.py --balance-eur {balance_arg} --no-output",
             "python3 scripts/select_next_project_action.py --no-output",
             f"python3 scripts/select_next_project_action.py --balance-eur {balance_arg} --no-output",
             "# Paid-run previews; these do not create instances:",

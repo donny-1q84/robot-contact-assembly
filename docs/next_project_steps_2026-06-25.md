@@ -217,6 +217,12 @@ distinguish a concrete UI/API mismatch from the default "no UI balance
 provided" state. It still does not write credit evidence, arm local env state,
 create paid instances, or treat a UI balance as permission to bypass a BLOCKED
 Brev API credit gate.
+If that status remains `UI_API_MISMATCH_API_BLOCKED`, use
+`python3 scripts/prepare_brev_credit_support_packet.py --balance-eur <current-brev-ui-balance>`
+to write a local JSON/Markdown support packet and message draft. Use
+`--no-output` for a fully read-only preview. This packet is evidence for fixing
+the credit blocker; it is not fresh credit evidence and not permission to start
+paid compute.
 `scripts/run_v0_language_skill_dry_run.py` is the local language-to-skill
 handoff report. It takes a natural-language instruction, runs the deterministic
 request planner, validates the request against the V0 contract, and connects it

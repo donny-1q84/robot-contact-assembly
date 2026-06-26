@@ -4200,6 +4200,8 @@ def run_success_variation_manifest_tests() -> None:
         credit_review_script = credit_review_path.read_text(encoding="utf-8")
         credit_diagnosis_path = REPO_ROOT / "scripts" / "diagnose_brev_credit_blocker.py"
         credit_diagnosis_script = credit_diagnosis_path.read_text(encoding="utf-8")
+        credit_support_path = REPO_ROOT / "scripts" / "prepare_brev_credit_support_packet.py"
+        credit_support_script = credit_support_path.read_text(encoding="utf-8")
         next_action_path = REPO_ROOT / "scripts" / "select_next_project_action.py"
         next_action_script = next_action_path.read_text(encoding="utf-8")
         paid_preflight_path = REPO_ROOT / "scripts" / "check_success_variation_paid_lifecycle_preflight.py"
@@ -4668,6 +4670,39 @@ def run_success_variation_manifest_tests() -> None:
             "Brev credit diagnosis consistency mismatch detail",
         )
         assert_contains(result, "paid_prepare_allowed=False", "Brev credit diagnosis mismatch guard detail")
+        result = run(
+            [
+                "python3",
+                str(credit_support_path),
+                "--api-credit-output",
+                str(blocked_api_fixture),
+                "--balance-eur",
+                "20.00",
+                "--no-output",
+            ]
+        )
+        assert_status(result, 0, "Brev credit support packet reports UI/API mismatch without writing output")
+        assert_contains(result, "[brev-credit-support] status=READY_FOR_SUPPORT_REVIEW", "Brev credit support packet status detail")
+        assert_contains(result, "UI_API_MISMATCH_API_BLOCKED", "Brev credit support packet mismatch detail")
+        assert_contains(result, "paid_prepare_allowed=False", "Brev credit support packet paid guard detail")
+        assert_contains(result, "Could you please confirm whether credits were applied", "Brev credit support message detail")
+        credit_support_report, _ = json.JSONDecoder().raw_decode(
+            result.stdout.split("[brev-credit-support] facts=", 1)[1].lstrip()
+        )
+        support_effects = credit_support_report["side_effects"]
+        for key in (
+            "writes_support_packet",
+            "writes_credit_evidence",
+            "writes_local_env",
+            "creates_paid_instance",
+            "runs_remote_code",
+            "starts_isaac",
+            "copies_artifacts",
+            "deletes_instances",
+            "prints_token",
+        ):
+            if support_effects[key] is not False:
+                raise AssertionError(f"Brev credit support packet side effect must be false for {key}: {credit_support_report}")
 
         result = run(
             [
@@ -4767,6 +4802,20 @@ def run_success_variation_manifest_tests() -> None:
                 raise AssertionError(f"Brev credit diagnosis helper missing snippet: {expected_snippet}")
         if "brev create" in credit_diagnosis_script or '"${BREV_BIN}" create' in credit_diagnosis_script:
             raise AssertionError("Brev credit diagnosis helper must not create Brev instances")
+        for expected_snippet in (
+            "Prepare a Brev credit blocker support packet",
+            "READY_FOR_SUPPORT_REVIEW",
+            "UI_API_MISMATCH_API_BLOCKED",
+            "support_message",
+            "prepare_brev_credit_support_packet.py",
+            "writes_support_packet",
+            "creates_paid_instance",
+            "not approval to bypass a blocked Brev API credit gate",
+        ):
+            if expected_snippet not in credit_support_script:
+                raise AssertionError(f"Brev credit support packet helper missing snippet: {expected_snippet}")
+        if "brev create" in credit_support_script or '"${BREV_BIN}" create' in credit_support_script:
+            raise AssertionError("Brev credit support packet helper must not create Brev instances")
 
         for expected_snippet in (
             "Select the next allowed project action",
@@ -7300,6 +7349,11 @@ def main() -> int:
             "status report with UI balance next-action command detail",
         )
         assert_contains(
+            result_with_balance,
+            "python3 scripts/prepare_brev_credit_support_packet.py --balance-eur 20.00 --no-output",
+            "status report with UI balance support packet command detail",
+        )
+        assert_contains(
             result,
             "--dry-run",
             "status report includes paid preview dry-run commands",
@@ -7493,6 +7547,11 @@ def main() -> int:
             result,
             "python3 scripts/diagnose_brev_credit_blocker.py --balance-eur <current-brev-ui-balance> --no-output",
             "status report concrete-balance Brev credit diagnosis command detail",
+        )
+        assert_contains(
+            result,
+            "python3 scripts/prepare_brev_credit_support_packet.py --balance-eur <current-brev-ui-balance> --no-output",
+            "status report Brev credit support packet command detail",
         )
         assert_contains(
             result,
