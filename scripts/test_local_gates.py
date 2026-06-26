@@ -4508,6 +4508,10 @@ def run_success_variation_manifest_tests() -> None:
         assert_contains(result, "watchdog_max_minutes", "paid lifecycle preflight watchdog plan detail")
         assert_contains(result, "estimated_max_cost_eur", "paid lifecycle preflight cost-envelope detail")
         assert_contains(result, "required_cleanup_guards", "paid lifecycle preflight cleanup guard detail")
+        assert_contains(result, "blocked_subchecks", "paid lifecycle preflight blocked-subchecks detail")
+        assert_contains(result, "unblock_plan", "paid lifecycle preflight unblock-plan detail")
+        assert_contains(result, "preview_credit_evidence", "paid lifecycle preflight credit preview command detail")
+        assert_contains(result, "arm_one_run_paid_local_env", "paid lifecycle preflight arm command detail")
         assert_contains(
             result,
             "success-variation pre-batch assumption audit must pass before the paid lifecycle",
@@ -4648,6 +4652,12 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"paid lifecycle preflight should record READY contact bundle: {ready_preflight}")
         if ready_preflight["pre_batch_assumption_audit"]["audit_status"] != "PASS":
             raise AssertionError(f"paid lifecycle preflight should enforce a passing pre-batch audit: {ready_preflight}")
+        if ready_preflight["unblock_plan"]["status"] != "READY_TO_RUN_SINGLE_PAID_LIFECYCLE":
+            raise AssertionError(f"paid lifecycle preflight should expose ready unblock-plan status: {ready_preflight}")
+        if ready_preflight["blocked_subchecks"]["credit_evidence_blockers"]:
+            raise AssertionError(f"ready preflight should have no credit blockers: {ready_preflight}")
+        if ready_preflight["blocked_subchecks"]["required_acknowledgement_blockers"]:
+            raise AssertionError(f"ready preflight should have no ack blockers: {ready_preflight}")
         lifecycle_plan = ready_preflight["lifecycle_plan"]
         if lifecycle_plan["budget"]["watchdog_max_minutes"] != 75:
             raise AssertionError(f"paid lifecycle preflight should expose watchdog TTL: {ready_preflight}")
@@ -4670,6 +4680,8 @@ def run_success_variation_manifest_tests() -> None:
             "brev_watchdog_processes: none",
             "brev_manual_delete_alerts: none",
             "current_paid_arming: False",
+            "Unblock Sequence",
+            "READY_TO_RUN_SINGLE_PAID_LIFECYCLE",
         ):
             if expected_snippet not in ready_preflight_md_text:
                 raise AssertionError(f"paid lifecycle preflight markdown missing safety snippet {expected_snippet}")
@@ -4786,6 +4798,11 @@ def run_success_variation_manifest_tests() -> None:
             "audit_success_variation_assumptions",
             "pre_batch_assumption_audit",
             "lifecycle_plan",
+            "blocked_subchecks",
+            "unblock_plan",
+            "required_acknowledgement_blockers",
+            "preview_credit_evidence",
+            "arm_one_run_paid_local_env",
             "required_cleanup_guards",
             "estimated_max_cost_eur",
             "manual_disarm_fallback",
@@ -6799,6 +6816,11 @@ def main() -> int:
             "brev_safety=",
             "status report Brev safety status detail",
         )
+        assert_contains(result, "credit_blockers=", "status report paid lifecycle credit blocker count detail")
+        assert_contains(result, "armability_blockers=", "status report paid lifecycle armability blocker count detail")
+        assert_contains(result, "pre_batch_blockers=", "status report paid lifecycle pre-batch blocker count detail")
+        assert_contains(result, "ack_blockers=", "status report paid lifecycle acknowledgement blocker count detail")
+        assert_contains(result, "unblock_plan=", "status report paid lifecycle unblock-plan detail")
         assert_contains(result, "visible_instances=", "status report visible instance detail")
         assert_contains(result, "watchdog_processes=", "status report watchdog process detail")
         assert_contains(result, "manual_delete_alerts=", "status report manual-delete alert detail")

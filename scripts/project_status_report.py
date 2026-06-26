@@ -279,6 +279,19 @@ def success_variation_paid_lifecycle_preflight_status() -> Check:
     lifecycle_plan = facts.get("lifecycle_plan") if isinstance(facts.get("lifecycle_plan"), dict) else {}
     lifecycle_budget = lifecycle_plan.get("budget") if isinstance(lifecycle_plan.get("budget"), dict) else {}
     armability = facts.get("armability") if isinstance(facts.get("armability"), dict) else {}
+    armability_blockers = armability.get("blockers") if isinstance(armability.get("blockers"), list) else []
+    blocked_subchecks = facts.get("blocked_subchecks") if isinstance(facts.get("blocked_subchecks"), dict) else {}
+    pre_batch_blockers = (
+        blocked_subchecks.get("pre_batch_assumption_blockers")
+        if isinstance(blocked_subchecks.get("pre_batch_assumption_blockers"), list)
+        else []
+    )
+    ack_blockers = (
+        blocked_subchecks.get("required_acknowledgement_blockers")
+        if isinstance(blocked_subchecks.get("required_acknowledgement_blockers"), list)
+        else []
+    )
+    unblock_plan = facts.get("unblock_plan") if isinstance(facts.get("unblock_plan"), dict) else {}
     brev_safety = armability.get("brev_safety") if isinstance(armability.get("brev_safety"), dict) else {}
     detail = (
         f"config={facts.get('config')}; credit={credit.get('status')}; "
@@ -290,7 +303,12 @@ def success_variation_paid_lifecycle_preflight_status() -> Check:
         f"watchdog_max_minutes={lifecycle_budget.get('watchdog_max_minutes')}; "
         f"estimated_max_cost_eur={lifecycle_budget.get('estimated_max_cost_eur')}; "
         f"blockers={len(blockers)}; "
-        f"credit_blockers={len(credit_blockers)}; next_action={facts.get('next_action')}."
+        f"credit_blockers={len(credit_blockers)}; "
+        f"armability_blockers={len(armability_blockers)}; "
+        f"pre_batch_blockers={len(pre_batch_blockers)}; "
+        f"ack_blockers={len(ack_blockers)}; "
+        f"unblock_plan={unblock_plan.get('status')}; "
+        f"next_action={facts.get('next_action')}."
     )
     return Check("Success variation paid lifecycle preflight", status, detail)
 

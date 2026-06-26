@@ -277,6 +277,110 @@ def _source_state(saved_output: Path | None = None) -> dict[str, Any]:
     }
 
 
+def _blockers_from(report: dict[str, Any] | None) -> list[str]:
+    if not isinstance(report, dict):
+        return []
+    blockers = report.get("blockers")
+    if isinstance(blockers, list):
+        return [str(item) for item in blockers]
+    return []
+
+
+def _acknowledgement_blockers(pre_batch_audit: dict[str, Any] | None) -> list[str]:
+    return [
+        blocker
+        for blocker in _blockers_from(pre_batch_audit)
+        if blocker.startswith("set RCA_") or "lifecycle hold is active" in blocker
+    ]
+
+
+def _command_with_balance(command: list[str], *, balance_placeholder: str) -> list[str]:
+    return [balance_placeholder if item == "<current-brev-ui-balance>" else item for item in command]
+
+
+def _unblock_plan(
+    *,
+    status: str,
+    credit_path: Path,
+    budget_eur: float | None,
+    credit_max_age_minutes: int | None,
+    credit_report: dict[str, Any] | None,
+    arm_report: dict[str, Any] | None,
+    pre_batch_audit: dict[str, Any] | None,
+    lifecycle_command: list[str],
+) -> dict[str, Any]:
+    balance_placeholder = "<current-brev-ui-balance>"
+    budget = f"{budget_eur:.2f}" if budget_eur is not None else "<budget-eur>"
+    max_age = str(credit_max_age_minutes or 60)
+    credit_preview = [
+        "python3",
+        "scripts/write_brev_credit_evidence.py",
+        "--balance-eur",
+        balance_placeholder,
+        "--budget-eur",
+        budget,
+        "--output",
+        _rel(credit_path),
+        "--max-age-minutes",
+        max_age,
+        "--force",
+        "--dry-run",
+    ]
+    credit_write = [item for item in credit_preview if item != "--dry-run"]
+    prepare_preview = [
+        "python3",
+        "scripts/prepare_success_variation_paid_batch.py",
+        "--balance-eur",
+        balance_placeholder,
+        "--budget-eur",
+        budget,
+        "--force-credit",
+        "--i-understand-this-arms-paid-run",
+        "--dry-run",
+    ]
+    prepare_write = [item for item in prepare_preview if item != "--dry-run"]
+    ordered_steps = [
+        "read_current_brev_ui_org_balance",
+        "preview_credit_evidence_payload",
+        "write_credit_evidence_only_after_current_ui_balance_matches",
+        "preview_paid_batch_local_env_arming",
+        "arm_one_run_paid_local_env",
+        "rerun_paid_lifecycle_preflight",
+        "run_single_paid_lifecycle_entrypoint_only_if_preflight_ready",
+    ]
+    if status == "READY_FOR_SINGLE_PAID_LIFECYCLE":
+        plan_status = "READY_TO_RUN_SINGLE_PAID_LIFECYCLE"
+        ordered_steps = ["run_single_paid_lifecycle_entrypoint"]
+    else:
+        plan_status = "BLOCKED_REFRESH_CREDIT_AND_ACKS"
+
+    return {
+        "status": plan_status,
+        "requires_current_brev_ui_balance": status != "READY_FOR_SINGLE_PAID_LIFECYCLE",
+        "credit_evidence_blockers": _blockers_from(credit_report),
+        "armability_blockers": _blockers_from(arm_report),
+        "pre_batch_assumption_blockers": _blockers_from(pre_batch_audit),
+        "required_acknowledgement_blockers": _acknowledgement_blockers(pre_batch_audit),
+        "ordered_steps": ordered_steps,
+        "commands": {
+            "review_credit_state": ["python3", "scripts/prepare_brev_credit_review.py", "--no-output"],
+            "preview_credit_evidence": credit_preview,
+            "write_credit_evidence_after_ui_review": credit_write,
+            "preview_paid_batch_arming": prepare_preview,
+            "arm_one_run_paid_local_env": prepare_write,
+            "rerun_paid_lifecycle_preflight": [
+                "python3",
+                "scripts/check_success_variation_paid_lifecycle_preflight.py",
+                "--no-output",
+            ],
+            "run_single_paid_lifecycle": _command_with_balance(
+                lifecycle_command,
+                balance_placeholder=balance_placeholder,
+            ),
+        },
+    }
+
+
 def build_report(
     *,
     config_path: Path,
@@ -388,6 +492,12 @@ def build_report(
         "--run",
         "--i-understand-this-can-create-paid-instance",
     ]
+    blocked_subchecks = {
+        "credit_evidence_blockers": _blockers_from(credit_report),
+        "armability_blockers": _blockers_from(arm_report),
+        "pre_batch_assumption_blockers": _blockers_from(pre_batch_audit),
+        "required_acknowledgement_blockers": _acknowledgement_blockers(pre_batch_audit),
+    }
     return {
         "preflight_name": "success_variation_paid_lifecycle_preflight",
         "status": status,
@@ -403,6 +513,17 @@ def build_report(
         "batch_plan_gate": plan_report,
         "pre_batch_assumption_audit": pre_batch_audit,
         "lifecycle_plan": lifecycle_plan,
+        "blocked_subchecks": blocked_subchecks,
+        "unblock_plan": _unblock_plan(
+            status=status,
+            credit_path=credit_path,
+            budget_eur=budget,
+            credit_max_age_minutes=credit_max_age,
+            credit_report=credit_report,
+            arm_report=arm_report,
+            pre_batch_audit=pre_batch_audit,
+            lifecycle_command=lifecycle_command,
+        ),
         "blockers": list(dict.fromkeys(blockers)),
         "failures": list(dict.fromkeys(failures)),
         "next_action": next_action,
@@ -484,6 +605,41 @@ def _render_markdown(report: dict[str, Any]) -> str:
     if report["failures"]:
         lines.extend(["", "## Failures", ""])
         lines.extend(f"- {item}" for item in report["failures"])
+    blocked_subchecks = (
+        report.get("blocked_subchecks")
+        if isinstance(report.get("blocked_subchecks"), dict)
+        else {}
+    )
+    if blocked_subchecks:
+        lines.extend(["", "## Blocked Subchecks", ""])
+        for name, values in blocked_subchecks.items():
+            values = values if isinstance(values, list) else []
+            lines.append(f"- {name}: {len(values)}")
+            lines.extend(f"  - {item}" for item in values)
+    unblock_plan = report.get("unblock_plan") if isinstance(report.get("unblock_plan"), dict) else {}
+    if unblock_plan:
+        lines.extend(
+            [
+                "",
+                "## Unblock Sequence",
+                "",
+                f"- status: {unblock_plan.get('status')}",
+                f"- requires_current_brev_ui_balance: {unblock_plan.get('requires_current_brev_ui_balance')}",
+            ]
+        )
+        ordered_steps = (
+            unblock_plan.get("ordered_steps")
+            if isinstance(unblock_plan.get("ordered_steps"), list)
+            else []
+        )
+        lines.extend(f"- {item}" for item in ordered_steps)
+        commands = unblock_plan.get("commands") if isinstance(unblock_plan.get("commands"), dict) else {}
+        if commands:
+            lines.extend(["", "```bash"])
+            for command in commands.values():
+                if isinstance(command, list):
+                    lines.append(" ".join(str(item) for item in command))
+            lines.append("```")
     lines.extend(["", "## Side Effects", ""])
     for key, value in report["side_effects"].items():
         lines.append(f"- {key}: {value}")

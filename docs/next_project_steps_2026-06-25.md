@@ -449,7 +449,10 @@ batch-plan readiness. It also emits a read-only `lifecycle_plan` with the
 watchdog TTL, budget, estimated hourly price, estimated max cost, manual disarm
 fallback, safety snapshot command, recovery command, and cleanup guards that
 require final `SAFE_NO_VISIBLE_PAID_INSTANCE` / `workspaces: null` evidence.
-It does not arm the env or create a paid instance.
+It also emits `blocked_subchecks` and `unblock_plan`, so the current credit,
+local-env armability, pre-batch assumption, and acknowledgement blockers are
+visible as separate fields together with the ordered preview/write/arm/preflight
+commands. It does not arm the env or create a paid instance.
 `scripts/prepare_brev_credit_review.py --no-output` is the read-only bridge for
 the remaining external blocker: it prints the Brev organization dashboard URL,
 the missing credit-evidence status, preview and real
