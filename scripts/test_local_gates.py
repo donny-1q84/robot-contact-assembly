@@ -4886,18 +4886,40 @@ def run_success_variation_manifest_tests() -> None:
         status, calls = exercise_lifecycle({"prepare": 5})
         if status != 5 or calls != ["prepare", "disarm", "safety"]:
             raise AssertionError(f"paid lifecycle prepare failure should disarm and safety-check: {status=} {calls=}")
+        status, calls = exercise_lifecycle({"prepare": 5, "disarm": 11})
+        if status != 11 or calls != ["prepare", "disarm", "safety"]:
+            raise AssertionError(f"paid lifecycle prepare cleanup failure should fail closed: {status=} {calls=}")
         status, calls = exercise_lifecycle({"preflight": 6})
         if status != 6 or calls != ["prepare", "preflight", "disarm", "safety"]:
             raise AssertionError(f"paid lifecycle preflight failure should disarm and safety-check: {status=} {calls=}")
+        status, calls = exercise_lifecycle({"preflight": 6, "safety": 12})
+        if status != 12 or calls != ["prepare", "preflight", "disarm", "safety"]:
+            raise AssertionError(f"paid lifecycle preflight safety failure should fail closed: {status=} {calls=}")
         status, calls = exercise_lifecycle({}, interrupt_label="preflight")
         if status != 130 or calls != ["prepare", "preflight", "disarm", "safety", "recovery"]:
             raise AssertionError(f"paid lifecycle preflight interrupt should disarm, safety-check, and recover: {status=} {calls=}")
         status, calls = exercise_lifecycle({"run": 7})
         if status != 7 or calls != ["prepare", "preflight", "run", "disarm", "safety", "recovery"]:
             raise AssertionError(f"paid lifecycle run failure should disarm, safety-check, and recover: {status=} {calls=}")
+        status, calls = exercise_lifecycle({"safety": 13})
+        if status != 13 or calls != ["prepare", "preflight", "run", "disarm", "safety", "recovery"]:
+            raise AssertionError(f"paid lifecycle post-run safety failure should recover and fail closed: {status=} {calls=}")
         status, calls = exercise_lifecycle({"finalize": 9})
         if status != 9 or calls != ["prepare", "preflight", "run", "disarm", "safety", "finalize", "recovery"]:
             raise AssertionError(f"paid lifecycle finalize failure should recover after cleanup: {status=} {calls=}")
+        status, calls = exercise_lifecycle({"safety_final": 14})
+        if status != 14 or calls != [
+            "prepare",
+            "preflight",
+            "run",
+            "disarm",
+            "safety",
+            "finalize",
+            "policy_readiness",
+            "safety_final",
+            "recovery",
+        ]:
+            raise AssertionError(f"paid lifecycle final safety failure should recover and fail closed: {status=} {calls=}")
         status, calls = exercise_lifecycle({}, interrupt_label="run")
         if status != 130 or calls != ["prepare", "preflight", "run", "disarm", "safety", "recovery"]:
             raise AssertionError(f"paid lifecycle interrupt should disarm, safety-check, and recover: {status=} {calls=}")
@@ -4927,6 +4949,7 @@ def run_success_variation_manifest_tests() -> None:
             "[success-variation-lifecycle] facts=",
             "cleanup_guards",
             "prepare failure disarms local paid env",
+            "cleanup or Brev safety failure blocks finalize/policy readiness",
             "KeyboardInterrupt disarms local paid env",
             "writes_recovery_plan",
             "finalize_success_variation_batch.sh",

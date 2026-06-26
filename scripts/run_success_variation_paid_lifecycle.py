@@ -176,9 +176,10 @@ def _dry_run_report(args: argparse.Namespace, commands: dict[str, list[str]]) ->
         "cleanup_guards": [
             "prepare failure disarms local paid env and reruns Brev safety",
             "preflight failure disarms local paid env and reruns Brev safety",
+            "cleanup or Brev safety failure blocks finalize/policy readiness",
             "run failure disarms local paid env, reruns Brev safety, and writes a recovery plan",
             "KeyboardInterrupt disarms local paid env, reruns Brev safety, and writes a recovery plan",
-            "success path reruns final Brev safety after policy-readiness handoff",
+            "success path requires final Brev safety to pass after policy-readiness handoff",
         ],
         "side_effects": {
             "writes_credit_evidence": False,
@@ -208,11 +209,14 @@ def _print_dry_run(args: argparse.Namespace, commands: dict[str, list[str]]) -> 
     print("[success-variation-lifecycle] facts=" + json.dumps(report, indent=2, sort_keys=True))
 
 
-def _post_run_cleanup(commands: dict[str, list[str]]) -> None:
+def _post_run_cleanup(commands: dict[str, list[str]]) -> int:
     """Disarm local paid acknowledgements and re-check Brev after arming or a paid run attempt."""
 
-    _run("disarm", commands["disarm"])
-    _run("safety", commands["safety"])
+    disarm_status = _run("disarm", commands["disarm"])
+    safety_status = _run("safety", commands["safety"])
+    if disarm_status != 0:
+        return disarm_status
+    return safety_status
 
 
 def _execute_lifecycle(args: argparse.Namespace, commands: dict[str, list[str]]) -> int:
@@ -220,7 +224,9 @@ def _execute_lifecycle(args: argparse.Namespace, commands: dict[str, list[str]])
 
     prepare_status = _run("prepare", commands["prepare"])
     if prepare_status != 0:
-        _post_run_cleanup(commands)
+        cleanup_status = _post_run_cleanup(commands)
+        if cleanup_status != 0:
+            return cleanup_status
         return prepare_status
 
     cleanup_required = False
@@ -229,13 +235,18 @@ def _execute_lifecycle(args: argparse.Namespace, commands: dict[str, list[str]])
         cleanup_required = True
         preflight_status = _run("preflight", commands["preflight"])
         if preflight_status != 0:
-            _post_run_cleanup(commands)
+            cleanup_status = _post_run_cleanup(commands)
             cleanup_done = True
+            if cleanup_status != 0:
+                return cleanup_status
             return preflight_status
 
         run_status = _run("run", commands["run"])
-        _post_run_cleanup(commands)
+        cleanup_status = _post_run_cleanup(commands)
         cleanup_done = True
+        if cleanup_status != 0:
+            _run("recovery", commands["recovery"])
+            return cleanup_status
 
         if run_status != 0:
             _run("recovery", commands["recovery"])
@@ -250,7 +261,10 @@ def _execute_lifecycle(args: argparse.Namespace, commands: dict[str, list[str]])
         if policy_readiness_status != 0:
             return policy_readiness_status
 
-        _run("safety_final", commands["safety"])
+        final_safety_status = _run("safety_final", commands["safety"])
+        if final_safety_status != 0:
+            _run("recovery", commands["recovery"])
+            return final_safety_status
         print("[success-variation-lifecycle] PASS")
         return 0
     except KeyboardInterrupt:
