@@ -121,6 +121,15 @@ REQUIRED_BLOCKED_NOT_CLAIMS = {
     "not verified on this robot",
     "not sim-to-real",
 }
+TRANSFER_REQUIRED_BEFORE_USE = [
+    "write a named adapter manifest for the target robot",
+    "provide robot-specific model, joint-limit, tool, TCP, and controller evidence",
+    "validate command and feedback interfaces for joint, pose, tool, status, and contact signals",
+    "prove frame calibration and adapter frame round-trip on the named robot",
+    "run low-speed no-contact dry-run before any contact trial",
+    "rerun contact gate, strict success variations, and fail-closed negative control for the named robot",
+    "obtain separate human hardware approval before robot motion beyond review",
+]
 
 
 def _side_effects(*, writes_adapter_report: bool) -> dict[str, bool]:
@@ -266,6 +275,22 @@ def _check_runtime_guards(
             blockers.append(f"runtime_guards.{key} must be true before external robot use")
 
 
+def _target_robot_named(target_robot: dict[str, Any]) -> bool:
+    robot_id = str(target_robot.get("robot_id") or "").strip()
+    robot_family = str(target_robot.get("robot_family") or "").strip()
+    end_effector = str(target_robot.get("end_effector") or "").strip()
+    values = (robot_id, robot_family, end_effector)
+    return all(values) and not any(value.startswith("replace_with_") for value in values)
+
+
+def _transfer_readiness_level(*, status: str, target_robot: dict[str, Any]) -> str:
+    if status == "READY":
+        return "L2_NAMED_ROBOT_LOW_SPEED_REVIEW_READY"
+    if _target_robot_named(target_robot):
+        return "L1_NAMED_ADAPTER_DRAFT_BLOCKED"
+    return "L0_TEMPLATE_OR_INCOMPLETE_ADAPTER"
+
+
 def build_report(adapter_path: Path) -> dict[str, Any]:
     adapter_path = _resolve(adapter_path)
     failures: list[str] = []
@@ -284,6 +309,11 @@ def build_report(adapter_path: Path) -> dict[str, Any]:
     if adapter.get("ready_for_hardware_execution", False) is not False:
         failures.append(
             "ready_for_hardware_execution must remain false; this offline adapter gate only approves named low-speed review"
+        )
+
+    if adapter.get("direct_use_ready", False) is not False:
+        failures.append(
+            "direct_use_ready must remain false; external robot use always requires named adapter, calibration, safety, revalidation, and manual approval"
         )
 
     if adapter.get("manual_hardware_approval_required", True) is not True:
@@ -389,6 +419,7 @@ def build_report(adapter_path: Path) -> dict[str, Any]:
     unique_failures = list(dict.fromkeys(failures))
     unique_blockers = list(dict.fromkeys(blockers))
     status = "FAIL" if unique_failures else ("READY" if ready and not unique_blockers else "BLOCKED")
+    transfer_readiness_level = _transfer_readiness_level(status=status, target_robot=target_robot)
     next_action = "ready_for_low_speed_external_robot_review"
     if status == "BLOCKED":
         next_action = "fill_robot_specific_model_calibration_safety_ros2_and_revalidation_evidence"
@@ -402,6 +433,9 @@ def build_report(adapter_path: Path) -> dict[str, Any]:
         "ready_for_external_robot": bool(ready),
         "ready_for_named_robot_low_speed_review": status == "READY",
         "ready_for_hardware_execution": False,
+        "direct_use_ready": False,
+        "transfer_readiness_level": transfer_readiness_level,
+        "transfer_required_before_use": TRANSFER_REQUIRED_BEFORE_USE,
         "manual_hardware_approval_required": True,
         "review_scope": review_scope,
         "hardware_execution_boundary": "manual approval after named-robot low-speed review; never authorized by this offline gate",

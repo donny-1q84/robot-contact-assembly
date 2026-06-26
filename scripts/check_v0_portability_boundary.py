@@ -56,6 +56,15 @@ ROBOT_SPECIFIC_LAYERS = [
     "low_speed_contact_safety_validation",
     "strict_success_variation_revalidation",
 ]
+TRANSFER_REQUIRED_BEFORE_USE = [
+    "named robot adapter manifest",
+    "robot-specific model, TCP, fixture, controller, and calibration evidence",
+    "validated command and feedback interfaces, including contact or force feedback",
+    "low-speed no-contact dry-run",
+    "named-robot contact gate equivalent",
+    "strict success-variation revalidation and fail-closed negative control",
+    "separate manual hardware execution approval",
+]
 
 
 def _side_effects(*, writes_boundary_report: bool) -> dict[str, bool]:
@@ -115,6 +124,17 @@ def _next_action(skill_readiness: dict[str, Any], adapter: dict[str, Any]) -> st
     return "manual_low_speed_named_robot_review_only"
 
 
+def _transfer_readiness_level(*, ready: bool, skill_readiness: dict[str, Any], adapter: dict[str, Any]) -> str:
+    if ready:
+        return "L2_NAMED_ROBOT_LOW_SPEED_REVIEW_READY"
+    if adapter.get("status") == "READY" and skill_readiness.get("status") != "READY":
+        return "L1_NAMED_ADAPTER_READY_SKILL_BLOCKED"
+    adapter_level = adapter.get("transfer_readiness_level")
+    if isinstance(adapter_level, str) and adapter_level:
+        return adapter_level
+    return "L0_TEMPLATE_OR_INCOMPLETE_ADAPTER"
+
+
 def build_report(
     *,
     request_path: Path,
@@ -140,6 +160,11 @@ def build_report(
     blockers = _blockers_from_skill(skill_readiness) + _blockers_from_adapter(adapter)
     ready = not blockers
     target_robot = adapter.get("target_robot") if isinstance(adapter.get("target_robot"), dict) else {}
+    transfer_readiness_level = _transfer_readiness_level(
+        ready=ready,
+        skill_readiness=skill_readiness,
+        adapter=adapter,
+    )
 
     return {
         "check_name": "v0_cross_robot_portability_boundary",
@@ -148,6 +173,9 @@ def build_report(
             "READY_FOR_NAMED_ROBOT_LOW_SPEED_REVIEW" if ready else "BLOCKED_NOT_DROP_IN"
         ),
         "universal_drop_in_ready": False,
+        "direct_use_ready": False,
+        "transfer_readiness_level": transfer_readiness_level,
+        "transfer_required_before_use": TRANSFER_REQUIRED_BEFORE_USE,
         "named_robot_ready": ready,
         "ready_for_named_robot_low_speed_review": ready,
         "ready_for_hardware_execution": False,

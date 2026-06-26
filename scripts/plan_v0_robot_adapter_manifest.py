@@ -103,6 +103,8 @@ def build_adapter(
     adapter["adapter_name"] = f"v0_external_robot_adapter_{robot_id}"
     adapter["ready_for_external_robot"] = False
     adapter["ready_for_hardware_execution"] = False
+    adapter["direct_use_ready"] = False
+    adapter["transfer_readiness_level"] = "L1_NAMED_ADAPTER_DRAFT_BLOCKED"
     adapter["manual_hardware_approval_required"] = True
     adapter["review_scope"] = "named_robot_low_speed_review_only"
     adapter["target_robot"] = {

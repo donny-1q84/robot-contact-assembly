@@ -107,6 +107,16 @@ def build_packet(
         "budget_eur": budget,
         "covers_budget": None if balance_eur is None else balance_eur + 1e-9 >= budget,
     }
+    paid_unblock_plan = (
+        preflight.get("unblock_plan")
+        if isinstance(preflight.get("unblock_plan"), dict)
+        else {}
+    )
+    paid_blocked_subchecks = (
+        preflight.get("blocked_subchecks")
+        if isinstance(preflight.get("blocked_subchecks"), dict)
+        else {}
+    )
     write_credit_command = [
         "python3",
         "scripts/write_brev_credit_evidence.py",
@@ -159,6 +169,8 @@ def build_packet(
         "balance_preview": balance_preview,
         "credit_max_age_minutes": max_age,
         "paid_lifecycle_preflight": preflight,
+        "paid_lifecycle_unblock_plan": paid_unblock_plan,
+        "paid_lifecycle_blocked_subchecks": paid_blocked_subchecks,
         "next_commands": {
             "preview_credit_evidence": preview_credit_command,
             "write_credit_evidence": write_credit_command,
@@ -175,6 +187,7 @@ def build_packet(
             "If the preview is correct, use the same current UI balance in the write_credit_evidence or preview_prepare_paid_batch command.",
             "Prefer the prepare_paid_batch command to write credit evidence, arm the local env, refresh the run packet, and rerun the aggregate preflight in one fail-closed step.",
             "Rerun the paid lifecycle preflight before any paid create.",
+            "Use paid_lifecycle_unblock_plan as the ordered sequence; do not skip directly to the paid lifecycle command while it is BLOCKED.",
         ],
         "side_effects": {
             "opens_dashboard": open_requested,
@@ -211,6 +224,38 @@ def _render_markdown(packet: dict[str, Any]) -> str:
         "",
     ]
     lines.extend(f"- {item}" for item in packet["instructions"])
+    blocked_subchecks = (
+        packet.get("paid_lifecycle_blocked_subchecks")
+        if isinstance(packet.get("paid_lifecycle_blocked_subchecks"), dict)
+        else {}
+    )
+    if blocked_subchecks:
+        lines.extend(["", "## Paid Lifecycle Blocked Subchecks", ""])
+        for name, values in blocked_subchecks.items():
+            values = values if isinstance(values, list) else []
+            lines.append(f"- {name}: {len(values)}")
+            lines.extend(f"  - {item}" for item in values)
+    unblock_plan = (
+        packet.get("paid_lifecycle_unblock_plan")
+        if isinstance(packet.get("paid_lifecycle_unblock_plan"), dict)
+        else {}
+    )
+    if unblock_plan:
+        lines.extend(
+            [
+                "",
+                "## Paid Lifecycle Unblock Plan",
+                "",
+                f"- status: {unblock_plan.get('status')}",
+                f"- requires_current_brev_ui_balance: {unblock_plan.get('requires_current_brev_ui_balance')}",
+            ]
+        )
+        ordered_steps = (
+            unblock_plan.get("ordered_steps")
+            if isinstance(unblock_plan.get("ordered_steps"), list)
+            else []
+        )
+        lines.extend(f"- {item}" for item in ordered_steps)
     lines.extend(
         [
             "",

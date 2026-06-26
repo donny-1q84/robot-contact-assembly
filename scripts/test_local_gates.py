@@ -2213,6 +2213,10 @@ def run_v0_skill_api_contract_tests() -> None:
             raise AssertionError("planned adapter must not claim hardware readiness")
         if planned_adapter["ready_for_hardware_execution"] is not False:
             raise AssertionError("planned adapter must not claim direct hardware execution")
+        if planned_adapter["direct_use_ready"] is not False:
+            raise AssertionError("planned adapter must not claim direct external-robot use")
+        if planned_adapter["transfer_readiness_level"] != "L1_NAMED_ADAPTER_DRAFT_BLOCKED":
+            raise AssertionError(f"planned adapter should be a blocked named-adapter draft: {planned_adapter}")
         if planned_adapter["manual_hardware_approval_required"] is not True:
             raise AssertionError("planned adapter must require manual hardware approval")
         if planned_adapter["ros2_interfaces"]["joint_trajectory_action"]["validated"] is not False:
@@ -2247,6 +2251,8 @@ def run_v0_skill_api_contract_tests() -> None:
         result = run(["python3", str(robot_adapter_checker_path), str(planned_adapter_path)])
         assert_status(result, 0, "V0 robot adapter checker accepts planned manifest as blocked")
         assert_contains(result, "[v0-robot-adapter] BLOCKED", "planned V0 robot adapter blocked detail")
+        assert_contains(result, '"direct_use_ready": false', "planned adapter direct-use non-claim detail")
+        assert_contains(result, "L1_NAMED_ADAPTER_DRAFT_BLOCKED", "planned adapter transfer readiness detail")
         assert_contains(result, "command_contract.command_frame", "planned adapter command-contract blocker detail")
         assert_contains(result, "runtime_guards.command_timeout_s", "planned adapter runtime guard blocker detail")
         assert_contains(result, "low_speed_hardware_contact_trial", "planned adapter revalidation blocker detail")
@@ -2973,6 +2979,12 @@ def run_success_variation_manifest_tests() -> None:
         result = run(["python3", "scripts/check_v0_robot_adapter_contract.py", str(ready_adapter_path), "--fail-on-blocked"])
         assert_status(result, 0, "V0 robot adapter checker accepts complete named-robot evidence fixture")
         assert_contains(result, "[v0-robot-adapter] READY", "ready V0 robot adapter detail")
+        assert_contains(result, '"direct_use_ready": false', "ready V0 adapter still rejects direct use")
+        assert_contains(
+            result,
+            '"transfer_readiness_level": "L2_NAMED_ROBOT_LOW_SPEED_REVIEW_READY"',
+            "ready V0 adapter transfer level detail",
+        )
         portability_json = tmp_dir / "portability" / "boundary.json"
         result = run(
             [
@@ -3000,6 +3012,10 @@ def run_success_variation_manifest_tests() -> None:
         portability = json.loads(portability_json.read_text(encoding="utf-8"))
         if portability["universal_drop_in_ready"] is not False:
             raise AssertionError(f"portability gate must never claim arbitrary-arm drop-in readiness: {portability}")
+        if portability["direct_use_ready"] is not False:
+            raise AssertionError(f"portability gate must never claim direct external-robot use: {portability}")
+        if portability["transfer_readiness_level"] != "L2_NAMED_ROBOT_LOW_SPEED_REVIEW_READY":
+            raise AssertionError(f"ready portability should only reach named low-speed review L2: {portability}")
         if portability["ready_for_hardware_execution"] is not False:
             raise AssertionError(f"portability gate must never claim direct hardware execution readiness: {portability}")
         if portability["ready_for_named_robot_low_speed_review"] is not True:
@@ -3043,6 +3059,10 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"portability review must reject drop-in claims: {portability_review_packet}")
         if portability_review_packet["universal_drop_in_ready"] is not False:
             raise AssertionError(f"portability review must never claim arbitrary-arm readiness: {portability_review_packet}")
+        if portability_review_packet["direct_use_ready"] is not False:
+            raise AssertionError(f"portability review must never claim direct external-robot use: {portability_review_packet}")
+        if portability_review_packet["transfer_readiness_level"] != "L2_NAMED_ROBOT_LOW_SPEED_REVIEW_READY":
+            raise AssertionError(f"portability review should surface named low-speed review L2 only: {portability_review_packet}")
         if portability_review_packet["ready_for_hardware_execution"] is not False:
             raise AssertionError(f"portability review must never claim direct hardware execution readiness: {portability_review_packet}")
         if portability_review_packet["ready_for_named_robot_low_speed_review"] is not True:
@@ -3053,6 +3073,10 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"ready portability workplan should be ready only for named low-speed review: {portability_review_packet}")
         if portability_review_packet["adapter_workplan"]["direct_drop_in_answer"] != "NO_DIRECT_DROP_IN":
             raise AssertionError(f"ready portability workplan must still reject direct drop-in: {portability_review_packet}")
+        if portability_review_packet["adapter_workplan"]["direct_use_ready"] is not False:
+            raise AssertionError(f"ready portability workplan must still reject direct use: {portability_review_packet}")
+        if portability_review_packet["adapter_workplan"]["transfer_readiness_level"] != "L2_NAMED_ROBOT_LOW_SPEED_REVIEW_READY":
+            raise AssertionError(f"ready portability workplan should surface L2 named review only: {portability_review_packet}")
         if portability_review_packet["adapter_workplan"]["ready_for_hardware_execution"] is not False:
             raise AssertionError(f"ready portability workplan must still reject direct hardware execution: {portability_review_packet}")
         if portability_review_packet["side_effects"]["writes_review_artifacts"] is not True:
@@ -3064,6 +3088,8 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError("portability review README should include a clear title")
         if "Adapter Workplan" not in portability_review_md.read_text(encoding="utf-8"):
             raise AssertionError("portability review README should include adapter workplan")
+        if "transfer_readiness_level" not in portability_review_md.read_text(encoding="utf-8"):
+            raise AssertionError("portability review README should include transfer readiness level")
         execution_plan_json = tmp_dir / "v0_skill_execution" / "plan.json"
         result = run(
             [
@@ -4446,6 +4472,9 @@ def run_success_variation_manifest_tests() -> None:
         assert_contains(result, "write_credit_evidence=", "Brev credit review follow-up command detail")
         assert_contains(result, "preview_prepare_paid_batch=", "Brev credit review preview prepare command detail")
         assert_contains(result, "prepare_success_variation_paid_batch.py", "Brev credit review prepare helper command")
+        assert_contains(result, "paid_lifecycle_unblock_plan", "Brev credit review paid unblock-plan detail")
+        assert_contains(result, "paid_lifecycle_blocked_subchecks", "Brev credit review paid blocked-subchecks detail")
+        assert_contains(result, "BLOCKED_REFRESH_CREDIT_AND_ACKS", "Brev credit review blocked unblock-plan status detail")
         result = run(["python3", str(credit_review_path), "--balance-eur", "20.00", "--no-output"])
         assert_status(result, 0, "Brev credit review accepts concrete UI balance for preview commands")
         assert_contains(result, "balance_preview_status=PASS", "Brev credit review concrete balance preview detail")
@@ -4490,6 +4519,8 @@ def run_success_variation_manifest_tests() -> None:
             "preview_prepare_paid_batch",
             "prepare_success_variation_paid_batch.py",
             "prepare_paid_batch",
+            "paid_lifecycle_unblock_plan",
+            "paid_lifecycle_blocked_subchecks",
             "check_success_variation_paid_lifecycle_preflight.py",
             "run_success_variation_paid_lifecycle.py",
             "opens_dashboard",
@@ -4783,8 +4814,15 @@ def run_success_variation_manifest_tests() -> None:
             raise AssertionError(f"Brev credit review must not create paid instances: {ready_credit_review}")
         if ready_credit_review["paid_lifecycle_preflight"]["pre_batch_assumption_audit"]["audit_status"] != "PASS":
             raise AssertionError(f"Brev credit review should preserve passing pre-batch audit: {ready_credit_review}")
-        if "Brev Credit Review Packet" not in ready_credit_review_md.read_text(encoding="utf-8"):
+        if ready_credit_review["paid_lifecycle_unblock_plan"]["status"] != "READY_TO_RUN_SINGLE_PAID_LIFECYCLE":
+            raise AssertionError(f"Brev credit review should preserve ready paid unblock-plan: {ready_credit_review}")
+        if ready_credit_review["paid_lifecycle_blocked_subchecks"]["required_acknowledgement_blockers"]:
+            raise AssertionError(f"READY Brev credit review should not have ack blockers: {ready_credit_review}")
+        ready_credit_md_text = ready_credit_review_md.read_text(encoding="utf-8")
+        if "Brev Credit Review Packet" not in ready_credit_md_text:
             raise AssertionError("Brev credit review README should include a clear title")
+        if "Paid Lifecycle Unblock Plan" not in ready_credit_md_text:
+            raise AssertionError("Brev credit review README should include the paid lifecycle unblock plan")
 
         for expected_snippet in (
             "success_variation_paid_lifecycle_preflight",
@@ -6893,6 +6931,8 @@ def main() -> int:
             "status report preview credit command detail",
         )
         assert_contains(result, "balance_preview_status=NOT_PROVIDED", "status report balance preview detail")
+        assert_contains(result, "paid_unblock_plan=", "status report Brev credit unblock-plan detail")
+        assert_contains(result, "ack_blockers=", "status report Brev credit ack blocker detail")
         assert_contains(
             result,
             "--dry-run",
@@ -7025,6 +7065,8 @@ def main() -> int:
         )
         assert_contains(result, "direct_drop_in_answer=NO_DIRECT_DROP_IN", "status report portability review non-drop-in detail")
         assert_contains(result, "universal_drop_in_ready=False", "status report portability non-claim detail")
+        assert_contains(result, "direct_use_ready=False", "status report portability direct-use non-claim detail")
+        assert_contains(result, "transfer_readiness_level=", "status report portability transfer-level detail")
         assert_contains(result, "ready_for_hardware_execution=False", "status report portability hardware-execution non-claim detail")
         assert_contains(
             result,
@@ -7040,6 +7082,11 @@ def main() -> int:
             result,
             "workplan_direct_drop_in=NO_DIRECT_DROP_IN",
             "status report portability workplan non-drop-in detail",
+        )
+        assert_contains(
+            result,
+            "workplan_transfer_level=",
+            "status report portability workplan transfer-level detail",
         )
         assert_contains(
             result,

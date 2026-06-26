@@ -246,9 +246,10 @@ calibration plus error bounds, joint/Cartesian/tool command interfaces, joint
 state, EE pose, tool state, force/torque or contact feedback, safety gates,
 low-speed no-contact dry-run, low-speed contact validation, and variation-style
 revalidation before any hardware-use claim. `docs/v0_robot_adapter_contract.md`
-adds the explicit command contract, frame contract, and runtime guard checklist
-so "portable" means a named, validated adapter boundary, not direct drop-in
-precision on arbitrary arms.
+adds the explicit command contract, frame contract, runtime guard checklist, and
+transfer readiness levels so "portable" means a named, validated adapter
+boundary with `direct_use_ready=false`, not direct drop-in precision on
+arbitrary arms.
 `scripts/plan_v0_robot_adapter_manifest.py` turns a named target arm and any
 known ROS 2 or vendor-bridge interface names into a machine-readable adapter
 manifest, but still leaves it safely blocked until the checker sees
@@ -260,17 +261,19 @@ contract-check file, reports top-level `status=PASS_SAFE_BLOCKED`,
 preview file.
 `scripts/check_v0_portability_boundary.py` is the aggregate claim gate: it
 combines V0 skill readiness with the named robot adapter status and keeps
-`universal_drop_in_ready=false` even when one named adapter is ready for
-low-speed review.
+`universal_drop_in_ready=false` and `direct_use_ready=false` even when one named
+adapter is ready for low-speed review. Its `transfer_readiness_level` is the
+machine-readable distinction between template-only L0, named-adapter blocked
+L1, and named low-speed review ready L2.
 `scripts/prepare_v0_portability_review.py` is the human-facing review packet for
 that boundary. It writes JSON/Markdown with the exact `NO_DIRECT_DROP_IN`
 answer, reusable layers, robot-specific layers, current blockers, and next
 commands without calling Brev, Isaac, ROS, a vendor SDK, or hardware. It also
-emits an `adapter_workplan` section that turns the non-drop-in answer into
-machine-readable ordered steps, required evidence groups, reusable layers, and
-robot-specific blockers. This is the audit artifact for the question "can this
-be used directly on another arm?": the answer stays no until a named adapter and
-its revalidation evidence are ready. It can
+emits `transfer_readiness_level` plus an `adapter_workplan` section that turns
+the non-drop-in answer into machine-readable ordered steps, required evidence
+groups, reusable layers, and robot-specific blockers. This is the audit artifact
+for the question "can this be used directly on another arm?": the answer stays
+no even at L2 until a separate human hardware approval exists. It can
 also accept `--target-robot-id`, `--target-robot-family`, and `--end-effector`
 to preview a named target-arm adapter inside the same packet; that preview is
 expected to be `PASS_SAFE_BLOCKED`, not hardware-ready, until the target robot's
@@ -458,7 +461,8 @@ the remaining external blocker: it prints the Brev organization dashboard URL,
 the missing credit-evidence status, preview and real
 `write_brev_credit_evidence.py` commands, preview and real
 `prepare_success_variation_paid_batch.py` commands, the rerun-preflight command,
-and the one-shot paid lifecycle command. It does not open paid compute, write
+the one-shot paid lifecycle command, and the paid preflight
+`blocked_subchecks`/`unblock_plan` fields. It does not open paid compute, write
 credit evidence, or arm the local env unless the explicit follow-up commands are
 run separately. After reading the current UI balance, add
 `--balance-eur <current-brev-ui-balance>` to this review helper to get concrete

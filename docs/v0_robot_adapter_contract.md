@@ -45,6 +45,22 @@ For a contact-rich insertion task, command-only portability is not meaningful:
 the adapter must prove it can read joint state, EE pose, tool state, and
 force/torque or contact feedback before any low-speed hardware review.
 
+## Transfer Readiness Levels
+
+- `L0_TEMPLATE_OR_INCOMPLETE_ADAPTER`: the system only has the reusable
+  language/request/skill boundary or a template adapter. It is not usable on an
+  external arm.
+- `L1_NAMED_ADAPTER_DRAFT_BLOCKED`: a target robot has been named, but model,
+  calibration, interface, safety, or revalidation evidence is still missing.
+- `L1_NAMED_ADAPTER_READY_SKILL_BLOCKED`: the named adapter evidence is ready,
+  but the V0 skill evidence is still blocked.
+- `L2_NAMED_ROBOT_LOW_SPEED_REVIEW_READY`: V0 skill readiness and the named
+  robot adapter contract are both ready. This is still only a low-speed manual
+  review gate, not hardware execution approval.
+
+All reports must keep `direct_use_ready=false`. Any future real robot run
+requires a separate human hardware approval after the L2 review gate.
+
 ## Non-Claims
 
 Passing the adapter checker for one named robot does not prove readiness for

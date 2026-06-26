@@ -419,6 +419,21 @@ def brev_credit_review_status() -> Check:
     side_effects = facts.get("side_effects") if isinstance(facts.get("side_effects"), dict) else {}
     preflight = facts.get("paid_lifecycle_preflight") if isinstance(facts.get("paid_lifecycle_preflight"), dict) else {}
     credit = preflight.get("credit_evidence") if isinstance(preflight.get("credit_evidence"), dict) else {}
+    unblock_plan = (
+        facts.get("paid_lifecycle_unblock_plan")
+        if isinstance(facts.get("paid_lifecycle_unblock_plan"), dict)
+        else {}
+    )
+    blocked_subchecks = (
+        facts.get("paid_lifecycle_blocked_subchecks")
+        if isinstance(facts.get("paid_lifecycle_blocked_subchecks"), dict)
+        else {}
+    )
+    ack_blockers = (
+        blocked_subchecks.get("required_acknowledgement_blockers")
+        if isinstance(blocked_subchecks.get("required_acknowledgement_blockers"), list)
+        else []
+    )
     commands = facts.get("next_commands") if isinstance(facts.get("next_commands"), dict) else {}
     preview_credit_command = commands.get("preview_credit_evidence")
     write_command = commands.get("write_credit_evidence")
@@ -429,6 +444,8 @@ def brev_credit_review_status() -> Check:
         f"credit_evidence_path={facts.get('credit_evidence_path')}; "
         f"balance_preview_status={balance_preview.get('status')}; "
         f"credit_status={credit.get('status')}; budget_eur={facts.get('budget_eur')}; "
+        f"paid_unblock_plan={unblock_plan.get('status')}; "
+        f"ack_blockers={len(ack_blockers)}; "
         f"writes_credit_evidence={side_effects.get('writes_credit_evidence')}; "
         f"creates_paid_instance={side_effects.get('creates_paid_instance')}; "
         f"preview_credit_command={' '.join(preview_credit_command) if isinstance(preview_credit_command, list) else '<missing>'}; "
@@ -752,6 +769,8 @@ def external_robot_adapter_status() -> Check:
         f"ready_for_external_robot={facts.get('ready_for_external_robot')}; "
         f"ready_for_named_robot_low_speed_review={facts.get('ready_for_named_robot_low_speed_review')}; "
         f"ready_for_hardware_execution={facts.get('ready_for_hardware_execution')}; "
+        f"direct_use_ready={facts.get('direct_use_ready')}; "
+        f"transfer_readiness_level={facts.get('transfer_readiness_level')}; "
         f"review_scope={facts.get('review_scope')}; "
         f"blockers={len(blockers)}; "
         f"writes_adapter_report={side_effects.get('writes_adapter_report')}; "
@@ -787,6 +806,8 @@ def cross_robot_portability_status() -> Check:
     detail = (
         f"readiness_label={facts.get('readiness_label')}; "
         f"universal_drop_in_ready={facts.get('universal_drop_in_ready')}; "
+        f"direct_use_ready={facts.get('direct_use_ready')}; "
+        f"transfer_readiness_level={facts.get('transfer_readiness_level')}; "
         f"ready_for_named_robot_low_speed_review={facts.get('ready_for_named_robot_low_speed_review')}; "
         f"ready_for_hardware_execution={facts.get('ready_for_hardware_execution')}; "
         f"review_scope={facts.get('review_scope')}; "
@@ -838,11 +859,14 @@ def v0_portability_review_packet_status() -> Check:
         f"direct_drop_in_answer={facts.get('direct_drop_in_answer')}; "
         f"named_robot_ready={facts.get('named_robot_ready')}; "
         f"universal_drop_in_ready={facts.get('universal_drop_in_ready')}; "
+        f"direct_use_ready={facts.get('direct_use_ready')}; "
+        f"transfer_readiness_level={facts.get('transfer_readiness_level')}; "
         f"ready_for_named_robot_low_speed_review={facts.get('ready_for_named_robot_low_speed_review')}; "
         f"ready_for_hardware_execution={facts.get('ready_for_hardware_execution')}; "
         f"review_scope={facts.get('review_scope')}; "
         f"workplan_status={workplan.get('status')}; "
         f"workplan_direct_drop_in={workplan.get('direct_drop_in_answer')}; "
+        f"workplan_transfer_level={workplan.get('transfer_readiness_level')}; "
         f"workplan_skill_blockers={workplan.get('current_skill_blocker_count')}; "
         f"workplan_adapter_blockers={workplan.get('current_adapter_blocker_count')}; "
         f"workplan_evidence_groups={len(evidence_groups)}; "

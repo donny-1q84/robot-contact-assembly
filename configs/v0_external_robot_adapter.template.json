@@ -5,6 +5,8 @@
   "skill_id": "peg_in_hole",
   "ready_for_external_robot": false,
   "ready_for_hardware_execution": false,
+  "direct_use_ready": false,
+  "transfer_readiness_level": "L0_TEMPLATE_OR_INCOMPLETE_ADAPTER",
   "manual_hardware_approval_required": true,
   "review_scope": "named_robot_low_speed_review_only",
   "target_robot": {
