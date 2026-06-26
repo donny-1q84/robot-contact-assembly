@@ -39,6 +39,7 @@ SUCCESS_VARIATION_MANIFEST = (
 V0_POLICY_API_REVIEW_PACKET = (
     REPO_ROOT / "artifacts" / "reviews" / "v0_policy_api" / "review_packet.json"
 )
+STATUS_BALANCE_EUR: float | None = None
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,28 @@ class Check:
 
 
 _BREV_CREDIT_DIAGNOSIS_RESULT: subprocess.CompletedProcess[str] | None = None
+
+
+def _nonnegative_float(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"must be numeric, got {value!r}") from exc
+    if parsed < 0:
+        raise argparse.ArgumentTypeError(f"must be non-negative, got {value!r}")
+    return parsed
+
+
+def _optional_balance_args() -> list[str]:
+    if STATUS_BALANCE_EUR is None:
+        return []
+    return ["--balance-eur", f"{STATUS_BALANCE_EUR:.2f}"]
+
+
+def _balance_arg_text() -> str:
+    if STATUS_BALANCE_EUR is None:
+        return "<current-brev-ui-balance>"
+    return f"{STATUS_BALANCE_EUR:.2f}"
 
 
 def run_git(*args: str) -> str:
@@ -82,6 +105,7 @@ def brev_credit_diagnosis_result() -> subprocess.CompletedProcess[str]:
         _BREV_CREDIT_DIAGNOSIS_RESULT = run_script(
             "python3",
             "scripts/diagnose_brev_credit_blocker.py",
+            *_optional_balance_args(),
             "--no-output",
         )
     return _BREV_CREDIT_DIAGNOSIS_RESULT
@@ -434,7 +458,12 @@ def success_variation_post_batch_assumption_audit_status() -> Check:
 
 
 def brev_credit_review_status() -> Check:
-    result = run_script("python3", "scripts/prepare_brev_credit_review.py", "--no-output")
+    result = run_script(
+        "python3",
+        "scripts/prepare_brev_credit_review.py",
+        *_optional_balance_args(),
+        "--no-output",
+    )
     marker = "[brev-credit-review] facts="
     if marker not in result.stdout:
         return Check(
@@ -530,7 +559,7 @@ def next_project_action_status() -> Check:
         import select_next_project_action as next_action_selector  # noqa: PLC0415
 
         facts = next_action_selector.build_report(
-            balance_eur=None,
+            balance_eur=STATUS_BALANCE_EUR,
             api_credit_output=None,
             skip_phase2=True,
             credit_report=brev_credit_diagnosis_facts(),
@@ -1333,6 +1362,7 @@ def current_decision(
 
 def render_markdown(all_checks: Iterable[Check]) -> str:
     check_list = list(all_checks)
+    balance_arg = _balance_arg_text()
     branch = run_git("branch", "--show-current") or "<unknown>"
     head = run_git("show", "-s", "--format=%h %s", "HEAD")
     contact = next((item for item in check_list if item.name == "Phase 2 contact gate"), None)
@@ -1391,6 +1421,7 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "## Commands",
             "",
             "```bash",
+            f"python3 scripts/project_status_report.py --balance-eur {balance_arg} --fail-on-blocked",
             "./scripts/brev_paid_safety_status.sh",
             "./scripts/run_local_quality_checks.sh",
             "python3 scripts/check_phase2_contact_gate.py",
@@ -1401,15 +1432,15 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "python3 scripts/audit_success_variation_assumptions.py artifacts/manifests/success_trace_variations_2026-06-25.json --phase post-batch --no-output",
             "python3 scripts/plan_success_variation_recovery_batch.py artifacts/manifests/success_trace_variations_2026-06-25.json --no-output",
             "python3 scripts/prepare_brev_credit_review.py --no-output",
-            "python3 scripts/prepare_brev_credit_review.py --balance-eur <current-brev-ui-balance> --no-output",
+            f"python3 scripts/prepare_brev_credit_review.py --balance-eur {balance_arg} --no-output",
             "python3 scripts/diagnose_brev_credit_blocker.py --no-output",
-            "python3 scripts/diagnose_brev_credit_blocker.py --balance-eur <current-brev-ui-balance> --no-output",
+            f"python3 scripts/diagnose_brev_credit_blocker.py --balance-eur {balance_arg} --no-output",
             "python3 scripts/select_next_project_action.py --no-output",
-            "python3 scripts/select_next_project_action.py --balance-eur <current-brev-ui-balance> --no-output",
+            f"python3 scripts/select_next_project_action.py --balance-eur {balance_arg} --no-output",
             "# Paid-run previews; these do not create instances:",
-            "python3 scripts/write_brev_credit_evidence.py --balance-eur <current-brev-ui-balance> --budget-eur 6.00 --dry-run",
-            "python3 scripts/prepare_success_variation_paid_batch.py --balance-eur <current-brev-ui-balance> --force-credit --i-understand-this-arms-paid-run --dry-run",
-            "python3 scripts/run_success_variation_paid_lifecycle.py --balance-eur <current-brev-ui-balance> --dry-run",
+            f"python3 scripts/write_brev_credit_evidence.py --balance-eur {balance_arg} --budget-eur 6.00 --dry-run",
+            f"python3 scripts/prepare_success_variation_paid_batch.py --balance-eur {balance_arg} --force-credit --i-understand-this-arms-paid-run --dry-run",
+            f"python3 scripts/run_success_variation_paid_lifecycle.py --balance-eur {balance_arg} --dry-run",
             "python3 scripts/check_v0_language_instruction_suite.py --no-output",
             "python3 scripts/check_v0_skill_readiness.py --skip-phase2-contact-gate",
             "python3 scripts/run_v0_language_skill_dry_run.py \"insert the peg into the left socket\" --skip-phase2-contact-gate --no-output",
@@ -1434,7 +1465,7 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
             "scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --check-only",
             "python3 scripts/check_success_variation_paid_lifecycle_preflight.py --no-output",
             "# Single paid entrypoint after fresh UI balance evidence; do not also run the raw config --run:",
-            "python3 scripts/run_success_variation_paid_lifecycle.py --balance-eur <current-brev-ui-balance> --run --i-understand-this-can-create-paid-instance",
+            f"python3 scripts/run_success_variation_paid_lifecycle.py --balance-eur {balance_arg} --run --i-understand-this-can-create-paid-instance",
             "# Fallback/cleanup only after wrapper failure or manual review:",
             "python3 scripts/arm_success_variation_paid_env.py --disarm",
             "# scripts/run_success_variation_batch_from_config.sh configs/success_variation_batch_run.local.env --run",
@@ -1461,13 +1492,23 @@ def render_markdown(all_checks: Iterable[Check]) -> str:
 
 
 def main() -> int:
+    global STATUS_BALANCE_EUR
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--balance-eur",
+        type=_nonnegative_float,
+        help=(
+            "Current Brev UI organization balance to pass through the read-only credit review, "
+            "credit blocker diagnosis, and next-action selector."
+        ),
+    )
     parser.add_argument(
         "--fail-on-blocked",
         action="store_true",
         help="Exit nonzero if any check is BLOCKED, STALE, or MISSING.",
     )
     args = parser.parse_args()
+    STATUS_BALANCE_EUR = args.balance_eur
 
     all_checks = checks()
     print(render_markdown(all_checks), end="")

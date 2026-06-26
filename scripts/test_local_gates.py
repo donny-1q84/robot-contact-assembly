@@ -7274,6 +7274,33 @@ def main() -> int:
         assert_contains(result, "ack_blockers=", "status report Brev credit ack blocker detail")
         assert_contains(
             result,
+            "python3 scripts/project_status_report.py --balance-eur <current-brev-ui-balance> --fail-on-blocked",
+            "status report self-command balance placeholder detail",
+        )
+        result_with_balance = run(["python3", "scripts/project_status_report.py", "--balance-eur", "20.00", "--fail-on-blocked"])
+        assert_status(result_with_balance, 2, "status report with UI balance still fails closed while project gates are blocked")
+        assert_contains(
+            result_with_balance,
+            "balance_preview_status=PASS",
+            "status report with UI balance passes balance preview through credit review",
+        )
+        assert_contains(
+            result_with_balance,
+            "preview_credit_command=python3 scripts/write_brev_credit_evidence.py --balance-eur 20.00",
+            "status report with UI balance passes concrete balance to credit review commands",
+        )
+        assert_contains(
+            result_with_balance,
+            "python3 scripts/project_status_report.py --balance-eur 20.00 --fail-on-blocked",
+            "status report with UI balance self-command detail",
+        )
+        assert_contains(
+            result_with_balance,
+            "python3 scripts/select_next_project_action.py --balance-eur 20.00 --no-output",
+            "status report with UI balance next-action command detail",
+        )
+        assert_contains(
+            result,
             "--dry-run",
             "status report includes paid preview dry-run commands",
         )
