@@ -3,6 +3,9 @@ set -euo pipefail
 
 ENV_NAME="${1:-isaac-l40s}"
 REMOTE_ROOT="${2:-/home/ubuntu/projects/robot-contact-assembly}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+"${SCRIPT_DIR}/remote_operation_preflight.sh"
 
 echo "[bootstrap] creating remote project layout on ${ENV_NAME}:${REMOTE_ROOT}"
 /Users/Shenghan/bin/brev exec "${ENV_NAME}" "mkdir -p '${REMOTE_ROOT}/repo' '${REMOTE_ROOT}/artifacts' '${REMOTE_ROOT}/third_party'"

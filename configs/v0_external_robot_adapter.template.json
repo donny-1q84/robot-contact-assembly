@@ -1,0 +1,119 @@
+{
+  "adapter_name": "v0_external_robot_adapter_template",
+  "version": "2026-06-25",
+  "skill_api_contract": "configs/v0_skill_api_contract.json",
+  "skill_id": "peg_in_hole",
+  "ready_for_external_robot": false,
+  "ready_for_hardware_execution": false,
+  "direct_use_ready": false,
+  "transfer_readiness_level": "L0_TEMPLATE_OR_INCOMPLETE_ADAPTER",
+  "manual_hardware_approval_required": true,
+  "review_scope": "named_robot_low_speed_review_only",
+  "target_robot": {
+    "robot_id": "replace_with_robot_id",
+    "robot_family": "replace_with_robot_family",
+    "control_stack": "ros2_joint_trajectory_or_vendor_bridge",
+    "end_effector": "replace_with_tool_or_gripper"
+  },
+  "model_sources": {
+    "robot_urdf_or_usd": null,
+    "joint_limits": null,
+    "tool_geometry": null,
+    "tcp_transform": null,
+    "controller_interface_spec": null
+  },
+  "calibration_evidence": {
+    "base_frame_alignment": null,
+    "tool_center_point": null,
+    "socket_fixture_frame": null,
+    "calibration_error_bounds": null,
+    "camera_or_perception_frame_if_used": null,
+    "force_or_contact_thresholds_if_used": null
+  },
+  "safety_evidence": {
+    "joint_limit_check": null,
+    "workspace_limit_check": null,
+    "collision_or_clearance_check": null,
+    "controller_timeout": null,
+    "emergency_stop_path": null,
+    "force_torque_limit_check": null,
+    "low_speed_no_contact_dry_run": null,
+    "low_speed_contact_validation": null
+  },
+  "ros2_interfaces": {
+    "cartesian_command_or_ik": {
+      "interface": null,
+      "validated": false
+    },
+    "ee_pose_feedback": {
+      "interface": null,
+      "validated": false
+    },
+    "end_effector_command": {
+      "interface": null,
+      "validated": false
+    },
+    "force_torque_or_contact_feedback": {
+      "interface": null,
+      "validated": false
+    },
+    "joint_trajectory_action": {
+      "interface": null,
+      "validated": false
+    },
+    "joint_state_feedback": {
+      "interface": null,
+      "validated": false
+    },
+    "skill_status": {
+      "interface": null,
+      "validated": false
+    }
+  },
+  "command_contract": {
+    "skill_target_schema": "configs/v0_skill_api_contract.json#skill_request_schema",
+    "command_acknowledgement": null,
+    "command_frame": null,
+    "command_units": "meters_radians_seconds",
+    "control_mode": null,
+    "feedback_fields": null,
+    "abort_conditions": null,
+    "rate_limits": null
+  },
+  "frame_contract": {
+    "base_frame": null,
+    "tool_frame": null,
+    "tcp_frame": null,
+    "socket_frame": null,
+    "calibration_error_bounds": null,
+    "transform_source": null,
+    "timestamp_source": null
+  },
+  "runtime_guards": {
+    "max_contact_force_n": null,
+    "max_translation_step_m": null,
+    "max_tcp_speed_mps": null,
+    "max_rotation_step_rad": null,
+    "max_joint_delta_rad": null,
+    "command_timeout_s": null,
+    "stale_state_timeout_s": null,
+    "abort_on_fault": true,
+    "low_speed_mode_required": true
+  },
+  "revalidation_evidence": {
+    "adapter_frame_round_trip_check": null,
+    "phase2_contact_gate_equivalent": null,
+    "strict_success_variation_batch": null,
+    "negative_control_fail_closed": null,
+    "low_speed_no_contact_dry_run": null,
+    "low_speed_hardware_contact_trial": null
+  },
+  "not_claims": [
+    "not ready for hardware execution",
+    "not autonomous hardware execution approval",
+    "not verified on this robot",
+    "not sim-to-real",
+    "not universal cross-robot-ready",
+    "not direct drop-in precision on another robot arm"
+  ]
+}

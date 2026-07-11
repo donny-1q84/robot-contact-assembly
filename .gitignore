@@ -1,8 +1,11 @@
 .DS_Store
 __pycache__/
 *.pyc
+*.egg-info/
 .venv/
 .pytest_cache/
+configs/*.local.env
+configs/brev_credit_verification.local.json
 artifacts/
 checkpoints/
 videos/

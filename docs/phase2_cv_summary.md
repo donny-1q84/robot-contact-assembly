@@ -1,20 +1,25 @@
 # Phase 2 CV Summary
 
+## Current Status - Superseded by 2026-06-18 Audit
+
+Do not use this document as a resume/CV claim in its current form. The 2026-06-11 contact-physics audit invalidated the older "shallow true-contact" and strict near-miss metrics as proof of real peg-vs-wall reaction. They remain useful historical controller diagnostics, but they are not completion evidence.
+
+Before any public-facing Phase 2 claim, first pass `./scripts/run_launchable_contact_physics_smoke.sh` on an Isaac runtime, pull/archive the log with `./scripts/pull_contact_smoke_log.sh <launchable-env-name> /workspace/robot-contact-assembly`, and confirm `python3 scripts/check_phase2_contact_gate.py` reports PASS. Then regenerate one short trace under the validated dynamic-peg/wall-filtered-force task and rewrite this summary from the new evidence.
+
 ## One-line project description
 
-Extended the Isaac Lab peg-in-hole precursor into a physical peg/socket contact shell, validated contact sensing and guarded remote GPU execution, and produced a reproducible shallow true-contact scripted success plus strict-gate failure analysis.
+Historical pre-audit wording: extended the Isaac Lab peg-in-hole precursor into a physical peg/socket contact shell, validated guarded remote GPU execution, and produced a shallow contact-labeled scripted result plus strict-gate failure analysis.
 
 ## Resume-ready bullets
 
-- Upgraded a proxy peg-in-hole task into a true contact environment with explicit peg geometry, guide-socket collision walls, socket-frame success checks, and contact-force observations.
-- Built guarded Brev GPU workflows with live price comparison, remote Isaac runtime installation, artifact pullback, instance deletion, and final empty-org verification to control experiment cost.
-- Achieved a reproducible shallow true-contact scripted success under `xy<5mm`, `z<45mm`, `rot<0.20rad`, and `contact>=0.5`, then diagnosed why stricter contact-retention gates still failed.
-- Implemented and evaluated multiple final-contact controller variants, including passive strict rotation, early contact retention, XY-hold retention, and force-aware XY correction, with fixed-seed JSON traces for each run.
-- Bootstrapped a learned contact-policy path by extracting scripted traces into BC datasets, training MLP checkpoints, and evaluating both reset and staged handoff policies in the true-contact environment.
+- Not ready for public use until the contact-physics smoke passes and a fresh trace is regenerated.
+- Safe historical claim: built guarded Brev/Launchable GPU workflows with live price comparison, remote Isaac runtime installation, artifact pullback, instance deletion, and final empty-org verification.
+- Safe historical claim: implemented and evaluated multiple final-contact controller variants with fixed-seed JSON traces, all currently treated as diagnostics.
+- Unsafe until regenerated: "true-contact success", contact-force-based success labels, BC/reset-candidate labels, and any claim that the task has proven wall-reaction insertion.
 
 ## Key measured result
 
-Shallow true-contact success:
+Historical shallow contact label, now invalidated as physical-contact proof:
 
 ```text
 run:          2026-05-17T19-47-06Z
@@ -49,13 +54,13 @@ conclusion:           BC pipeline works, but small-window one-step BC destabiliz
 
 ## Honest scope statement
 
-This is not yet a final industrial peg-in-hole insertion policy. The current Phase 2 milestone proves that the contact shell, sensor path, scripted controller, fixed-seed evaluation, artifact capture, and cloud cleanup workflow work end-to-end. The remaining technical problem is strict final-contact control: lateral centering, contact retention, and final orientation correction trade off during the last few millimeters.
+This is not yet a final industrial peg-in-hole insertion policy, and the current Phase 2 milestone does not yet prove real physical contact. The immediate blocker is runtime validation of the dynamic-peg / socket-wall contact model. Only after that smoke passes should final-contact control, BC, RL, or public claims be reopened.
 
 ## Interview framing
 
 - Why Phase 2 matters: it converts the Phase 1 proxy task into a physically meaningful contact task instead of continuing to tune rewards on a non-contact shell.
-- What worked: contact geometry, socket-frame metrics, force observations, reproducible GPU gates, and a shallow contact success.
-- What failed: hand-coded contact-retention heuristics got very close but did not satisfy the strict gate.
+- What worked: guarded GPU gates, trace/artifact capture, and a concrete diagnosis of invalid old contact metrics.
+- What failed: old contact-force labels did not prove socket-wall reaction, so pre-audit controller/BC results cannot be used as completion evidence.
 - What the learned-policy smoke showed: the data/checkpoint/eval pipeline works, but naive one-step BC is not enough for post-handoff contact stabilization.
 - What the failure means: the remaining blocker is coupled contact control, not environment setup or quaternion/frame debugging.
-- What comes next: generate richer post-contact demonstrations and train either a residual learned correction policy or a temporally conditioned imitation policy for the last contact-retention phase.
+- What comes next: pass the contact-physics smoke, regenerate one short validated trace, then decide whether richer demonstrations or learned correction policies are justified.

@@ -1,0 +1,56 @@
+{
+  "suite_name": "v0_language_instruction_suite",
+  "description": "Offline regression suite for the deterministic V0 language-to-skill boundary.",
+  "controller_mode": "scripted_success_baseline",
+  "max_attempts": 1,
+  "cases": [
+    {
+      "case_id": "insert_left_socket",
+      "instruction": "insert the peg into the left socket",
+      "expected_status": "PASS",
+      "expected_socket_id": "left_socket"
+    },
+    {
+      "case_id": "insert_right_socket",
+      "instruction": "insert the peg into the right socket",
+      "expected_status": "PASS",
+      "expected_socket_id": "right_socket"
+    },
+    {
+      "case_id": "insert_center_socket",
+      "instruction": "insert the peg into the center socket",
+      "expected_status": "PASS",
+      "expected_socket_id": "center_socket"
+    },
+    {
+      "case_id": "reject_low_level_joint_command",
+      "instruction": "move joint 4 down by 2 degrees",
+      "expected_status": "FAIL",
+      "expected_failure_contains": "high-level insert skill"
+    },
+    {
+      "case_id": "reject_substring_socket_alias",
+      "instruction": "insert the peg into the bright socket",
+      "expected_status": "FAIL",
+      "expected_failure_contains": "supported socket target"
+    },
+    {
+      "case_id": "reject_force_command_without_socket",
+      "instruction": "push the peg down with force",
+      "expected_status": "FAIL",
+      "expected_failure_contains": "high-level insert skill"
+    }
+  ],
+  "forbidden_request_tokens": [
+    "raw_joint_targets",
+    "direct_cartesian_servo_commands",
+    "direct_force_commands"
+  ],
+  "not_claims": [
+    "not learned policy",
+    "not sim-to-real",
+    "not cross-robot-ready",
+    "not a direct low-level VLM controller",
+    "not an LLM or VLM evaluation"
+  ]
+}

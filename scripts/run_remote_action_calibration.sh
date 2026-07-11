@@ -12,16 +12,19 @@ SEED="${6:-42}"
 TIMEOUT_SECONDS="${7:-600}"
 EXTRA_AGENT_ARGS="${8:-}"
 RETRY_COUNT="${RCA_ACTION_CALIBRATION_RETRIES:-1}"
+VALIDATE_ACTION_CALIBRATION="${RCA_VALIDATE_ACTION_CALIBRATION:-1}"
 
 TIMESTAMP_UTC="$(date -u +"%Y-%m-%dT%H-%M-%SZ")"
 REMOTE_CALIBRATION_DIR="/workspace/artifacts/calibration/relative_ik_action/${TIMESTAMP_UTC}"
 SUMMARY_PATH="${REMOTE_CALIBRATION_DIR}/seed_${SEED}.json"
 LATEST_SUMMARY_PATH="/workspace/artifacts/calibration/relative_ik_action/latest_seed_${SEED}.json"
+CHECK_PATH="${REMOTE_CALIBRATION_DIR}/seed_${SEED}_action_calibration_check.log"
 
 echo "[action-calibration] env=${RCA_ENV_NAME} task=${TASK_NAME} steps_per_probe=${STEPS_PER_PROBE}"
 echo "[action-calibration] seed=${SEED}"
 echo "[action-calibration] timeout_seconds=${TIMEOUT_SECONDS}"
 echo "[action-calibration] retries=${RETRY_COUNT}"
+echo "[action-calibration] validate_action_calibration=${VALIDATE_ACTION_CALIBRATION}"
 if [[ -n "${EXTRA_AGENT_ARGS}" ]]; then
   echo "[action-calibration] extra_agent_args=${EXTRA_AGENT_ARGS}"
 fi
@@ -67,8 +70,15 @@ if [[ ${status} -ne 0 ]]; then
   exit "${status}"
 fi
 
+if [[ "${VALIDATE_ACTION_CALIBRATION}" == "1" ]]; then
+  rca_remote_repo_exec "set -o pipefail && /isaac-sim/kit/python/bin/python3 scripts/check_action_calibration_summary.py '${SUMMARY_PATH}' 2>&1 | tee '${CHECK_PATH}'"
+fi
+
 echo "[action-calibration] summaries:"
 rca_remote_container_exec "cp '${SUMMARY_PATH}' '${LATEST_SUMMARY_PATH}'"
 echo "[action-calibration] latest summary: ${LATEST_SUMMARY_PATH}"
+if [[ "${VALIDATE_ACTION_CALIBRATION}" == "1" ]]; then
+  echo "[action-calibration] calibration_check: ${CHECK_PATH}"
+fi
 rca_remote_container_exec "ls -1 '${REMOTE_CALIBRATION_DIR}'"
 echo "[action-calibration] output dir: ${REMOTE_CALIBRATION_DIR}"

@@ -32,6 +32,11 @@ def main() -> int:
     args = parser.parse_args()
 
     repo_root = pathlib.Path(args.repo_root).resolve()
+    preflight = repo_root / "scripts" / "remote_operation_preflight.sh"
+    completed = subprocess.run([str(preflight)], text=True)
+    if completed.returncode != 0:
+        return completed.returncode
+
     local_path = pathlib.Path(args.local_file)
     if not local_path.is_absolute():
         local_path = repo_root / local_path

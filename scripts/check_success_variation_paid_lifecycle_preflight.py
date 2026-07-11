@@ -1,0 +1,786 @@
+#!/usr/bin/env python3
+"""Check the success-variation paid lifecycle preflight without arming or running.
+
+This aggregates the local evidence needed before the one-shot paid lifecycle:
+clean source state, current contact-smoke bundle, credit evidence, Brev
+empty-org safety, local env armability, the success-variation batch plan, and
+the pre-batch assumption-and-metric audit. It does not write the local env,
+create a Brev instance, run the batch, copy artifacts, start Isaac, or execute
+remote code.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+import subprocess
+import sys
+from typing import Any
+
+
+sys.dont_write_bytecode = True
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
+
+import arm_success_variation_paid_env as arm_gate  # noqa: E402
+import audit_success_variation_assumptions as assumption_audit  # noqa: E402
+import check_brev_credit_evidence as credit_gate  # noqa: E402
+import project_status_report as project_status  # noqa: E402
+import read_brev_credit_balance as api_credit_gate  # noqa: E402
+
+
+DEFAULT_CONFIG = REPO_ROOT / "configs" / "success_variation_batch_run.local.env"
+DEFAULT_MANIFEST = REPO_ROOT / "artifacts" / "manifests" / "success_trace_variations_2026-06-25.json"
+DEFAULT_RUN_PACKET = REPO_ROOT / "artifacts" / "analysis" / "success_variation_run_packet_2026-06-25.json"
+DEFAULT_OUTPUT_JSON = REPO_ROOT / "artifacts" / "analysis" / "success_variation_paid_lifecycle_preflight.json"
+DEFAULT_OUTPUT_MD = REPO_ROOT / "artifacts" / "analysis" / "success_variation_paid_lifecycle_preflight.md"
+DEFAULT_DASHBOARD_URL = "https://brev.nvidia.com/org/org-3BaYGdtoRGmgc77Z7NHHhPSD254/environments"
+
+
+def _rel(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _resolve(path: Path) -> Path:
+    path = path.expanduser()
+    if path.is_absolute():
+        return path
+    return REPO_ROOT / path
+
+
+def _read_env(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for line_no, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            raise RuntimeError(f"invalid env line {line_no}: {raw_line}")
+        key, value = line.split("=", 1)
+        if not (key.startswith("RCA_") or key == "BREV_BIN"):
+            raise RuntimeError(f"disallowed env key on line {line_no}: {key}")
+        values[key] = value
+    return values
+
+
+def _float_env(values: dict[str, str], key: str, blockers: list[str]) -> float | None:
+    raw = values.get(key, "").strip()
+    if not raw:
+        blockers.append(f"{key} is missing")
+        return None
+    try:
+        parsed = float(raw)
+    except ValueError:
+        blockers.append(f"{key} must be numeric, got {raw!r}")
+        return None
+    if parsed <= 0.0:
+        blockers.append(f"{key} must be positive, got {raw!r}")
+        return None
+    return parsed
+
+
+def _int_env(values: dict[str, str], key: str, default: int, blockers: list[str]) -> int | None:
+    raw = values.get(key, str(default)).strip()
+    try:
+        parsed = int(raw)
+    except ValueError:
+        blockers.append(f"{key} must be an integer, got {raw!r}")
+        return None
+    if parsed <= 0:
+        blockers.append(f"{key} must be positive, got {raw!r}")
+        return None
+    return parsed
+
+
+def _bool_env(values: dict[str, str], key: str, default: str) -> bool:
+    return values.get(key, default).strip() == "1"
+
+
+def _lifecycle_plan(
+    *,
+    values: dict[str, str],
+    config_path: Path,
+    manifest_path: Path,
+    run_packet_path: Path,
+    credit_path: Path,
+    budget_eur: float | None,
+    credit_max_age_minutes: int | None,
+    blockers: list[str],
+) -> dict[str, Any]:
+    hourly = _float_env(values, "RCA_PAID_ESTIMATED_EUR_PER_HOUR", blockers) if values else None
+    watchdog_minutes = _int_env(values, "RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES", 75, blockers) if values else None
+    arm_max_age_minutes = _int_env(values, "RCA_PAID_ARMING_MAX_AGE_MINUTES", 15, blockers) if values else None
+    estimated_max_cost = None
+    if hourly is not None and watchdog_minutes is not None:
+        estimated_max_cost = round(hourly * watchdog_minutes / 60.0, 4)
+
+    return {
+        "instance": {
+            "name": values.get("RCA_SUCCESS_VARIATION_ENV_NAME", "rca-success-variation-batch-vm"),
+            "type": values.get("RCA_SUCCESS_VARIATION_INSTANCE_TYPE", "g6e.xlarge"),
+            "remote_root": values.get("RCA_SUCCESS_VARIATION_REMOTE_ROOT"),
+            "compose_root": values.get("RCA_SUCCESS_VARIATION_COMPOSE_ROOT"),
+        },
+        "budget": {
+            "budget_eur": budget_eur,
+            "estimated_eur_per_hour": hourly,
+            "watchdog_max_minutes": watchdog_minutes,
+            "estimated_max_cost_eur": estimated_max_cost,
+            "credit_evidence_max_age_minutes": credit_max_age_minutes,
+            "arming_max_age_minutes": arm_max_age_minutes,
+        },
+        "timeouts": {
+            "setup_reserve_seconds": _int_env(values, "RCA_SUCCESS_VARIATION_SETUP_RESERVE_SECONDS", 900, blockers)
+            if values
+            else None,
+            "per_case_calibration_timeout_seconds": _int_env(
+                values, "RCA_SUCCESS_VARIATION_CASE_CALIBRATION_TIMEOUT_SECONDS", 300, blockers
+            )
+            if values
+            else None,
+            "per_case_trace_timeout_seconds": _int_env(
+                values, "RCA_SUCCESS_VARIATION_CASE_TRACE_TIMEOUT_SECONDS", 300, blockers
+            )
+            if values
+            else None,
+            "trace_timeout_kill_seconds": _int_env(
+                values, "RCA_SUCCESS_VARIATION_TRACE_TIMEOUT_KILL_SECONDS", 60, blockers
+            )
+            if values
+            else None,
+            "timeout_margin_seconds": _int_env(values, "RCA_SUCCESS_VARIATION_TIMEOUT_MARGIN_SECONDS", 300, blockers)
+            if values
+            else None,
+            "auto_disarm": _bool_env(values, "RCA_SUCCESS_VARIATION_AUTO_DISARM", "1") if values else None,
+        },
+        "commands": {
+            "preview_prepare_without_create": [
+                "python3",
+                "scripts/prepare_success_variation_paid_batch.py",
+                "--balance-eur",
+                "<current-brev-ui-balance>",
+                "--budget-eur",
+                f"{budget_eur:.2f}" if budget_eur is not None else "<budget-eur>",
+                "--force-credit",
+                "--i-understand-this-arms-paid-run",
+                "--dry-run",
+            ],
+            "run_single_paid_lifecycle": [
+                "python3",
+                "scripts/run_success_variation_paid_lifecycle.py",
+                "--balance-eur",
+                "<current-brev-ui-balance>",
+                "--run",
+                "--i-understand-this-can-create-paid-instance",
+            ],
+            "manual_disarm_fallback": [
+                "python3",
+                "scripts/arm_success_variation_paid_env.py",
+                "--config",
+                _rel(config_path),
+                "--output",
+                _rel(config_path),
+                "--disarm",
+            ],
+            "safety_snapshot": ["./scripts/brev_paid_safety_status.sh"],
+            "finalize_after_artifacts": ["scripts/finalize_success_variation_batch.sh", _rel(manifest_path)],
+            "recovery_after_failure": [
+                "python3",
+                "scripts/plan_success_variation_recovery_batch.py",
+                _rel(manifest_path),
+            ],
+        },
+        "required_cleanup_guards": [
+            "guarded wrapper starts a target-specific watchdog before paid lifecycle work",
+            "run_success_variation_batch_from_config.sh --run auto-disarms local paid acknowledgements on exit",
+            "run_success_variation_paid_lifecycle.py disarms and reruns brev_paid_safety_status.sh after preflight, run, interruption, or failure",
+            "final safety evidence must show SAFE_NO_VISIBLE_PAID_INSTANCE / workspaces null before claiming cleanup",
+            "watchdog writes manual_delete_required.txt and opens the Brev dashboard when CLI queries fail repeatedly or login expires",
+        ],
+        "evidence_paths": {
+            "credit_evidence": _rel(credit_path),
+            "config": _rel(config_path),
+            "manifest": _rel(manifest_path),
+            "run_packet": _rel(run_packet_path),
+            "dashboard_url": DEFAULT_DASHBOARD_URL,
+        },
+        "side_effects": {
+            "writes_local_env": False,
+            "creates_paid_instance": False,
+            "runs_remote_code": False,
+            "starts_isaac": False,
+            "copies_artifacts": False,
+            "deletes_instances": False,
+        },
+    }
+
+
+def _run_capture(args: list[str], timeout_seconds: int) -> dict[str, Any]:
+    try:
+        completed = subprocess.run(
+            args,
+            cwd=REPO_ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "args": args,
+            "exit_code": 124,
+            "timed_out": True,
+            "output_tail": (exc.stdout or "")[-4000:] if isinstance(exc.stdout, str) else "",
+        }
+    return {
+        "args": args,
+        "exit_code": int(completed.returncode),
+        "timed_out": False,
+        "output_tail": completed.stdout[-4000:],
+    }
+
+
+def _status_from_saved_project_report(text: str, check_name: str) -> tuple[str | None, str]:
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped.startswith("|"):
+            continue
+        parts = [part.strip() for part in stripped.strip("|").split("|")]
+        if len(parts) >= 3 and parts[0] == check_name:
+            return parts[1], parts[2]
+    return None, f"{check_name} status is missing from saved project status output"
+
+
+def _source_state(saved_output: Path | None = None) -> dict[str, Any]:
+    if saved_output is not None:
+        text = _resolve(saved_output).read_text(encoding="utf-8")
+        git_status, git_detail = _status_from_saved_project_report(text, "Git worktree")
+        bundle_status, bundle_detail = _status_from_saved_project_report(text, "Contact-smoke bundle")
+        return {
+            "source": "saved_project_status_output",
+            "git_worktree": {"status": git_status, "detail": git_detail},
+            "contact_smoke_bundle": {"status": bundle_status, "detail": bundle_detail},
+        }
+
+    git_check = project_status.dirty_tree_status()
+    bundle_check = project_status.latest_contact_smoke_bundle_status()
+    return {
+        "source": "live_local_project_status",
+        "git_worktree": {"status": git_check.status, "detail": git_check.detail},
+        "contact_smoke_bundle": {"status": bundle_check.status, "detail": bundle_check.detail},
+    }
+
+
+def _blockers_from(report: dict[str, Any] | None) -> list[str]:
+    if not isinstance(report, dict):
+        return []
+    blockers = report.get("blockers")
+    if isinstance(blockers, list):
+        return [str(item) for item in blockers]
+    return []
+
+
+def _api_credit_blockers_from(report: dict[str, Any] | None) -> list[str]:
+    blockers = _blockers_from(report)
+    if blockers:
+        return blockers
+    if not isinstance(report, dict):
+        return []
+    failures = report.get("failures")
+    if isinstance(failures, list) and failures:
+        return [str(item) for item in failures]
+    status = report.get("status")
+    if status and status != "PASS":
+        return [f"Brev API credit balance status is {status}"]
+    return []
+
+
+def _load_api_credit_report(path: Path) -> dict[str, Any]:
+    payload = json.loads(_resolve(path).read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError("Brev API credit output must be a JSON object")
+    return payload
+
+
+def _api_credit_report(
+    *,
+    required_budget_eur: float | None,
+    timeout_seconds: int,
+    api_credit_output: Path | None,
+) -> dict[str, Any] | None:
+    if required_budget_eur is None:
+        return None
+    if api_credit_output is not None:
+        return _load_api_credit_report(api_credit_output)
+    return api_credit_gate.build_report(
+        credentials_path=api_credit_gate.DEFAULT_CREDENTIALS,
+        brev_bin=api_credit_gate.DEFAULT_BREV_BIN,
+        api_base=api_credit_gate.DEFAULT_API_BASE,
+        organization_id=credit_gate.EXPECTED_ORG_ID,
+        required_budget_eur=required_budget_eur,
+        timeout_seconds=max(1, timeout_seconds),
+    )
+
+
+def _acknowledgement_blockers(pre_batch_audit: dict[str, Any] | None) -> list[str]:
+    return [
+        blocker
+        for blocker in _blockers_from(pre_batch_audit)
+        if blocker.startswith("set RCA_") or "lifecycle hold is active" in blocker
+    ]
+
+
+def _command_with_balance(command: list[str], *, balance_placeholder: str) -> list[str]:
+    return [balance_placeholder if item == "<current-brev-ui-balance>" else item for item in command]
+
+
+def _unblock_plan(
+    *,
+    status: str,
+    credit_path: Path,
+    budget_eur: float | None,
+    credit_max_age_minutes: int | None,
+    credit_report: dict[str, Any] | None,
+    api_credit_report: dict[str, Any] | None,
+    arm_report: dict[str, Any] | None,
+    pre_batch_audit: dict[str, Any] | None,
+    lifecycle_command: list[str],
+) -> dict[str, Any]:
+    balance_placeholder = "<current-brev-ui-balance>"
+    budget = f"{budget_eur:.2f}" if budget_eur is not None else "<budget-eur>"
+    max_age = str(credit_max_age_minutes or 60)
+    credit_preview = [
+        "python3",
+        "scripts/write_brev_credit_evidence.py",
+        "--balance-eur",
+        balance_placeholder,
+        "--budget-eur",
+        budget,
+        "--output",
+        _rel(credit_path),
+        "--max-age-minutes",
+        max_age,
+        "--force",
+        "--dry-run",
+    ]
+    credit_write = [item for item in credit_preview if item != "--dry-run"]
+    prepare_preview = [
+        "python3",
+        "scripts/prepare_success_variation_paid_batch.py",
+        "--balance-eur",
+        balance_placeholder,
+        "--budget-eur",
+        budget,
+        "--force-credit",
+        "--i-understand-this-arms-paid-run",
+        "--dry-run",
+    ]
+    prepare_write = [item for item in prepare_preview if item != "--dry-run"]
+    ordered_steps = [
+        "read_current_brev_ui_org_balance",
+        "preview_credit_evidence_payload",
+        "write_credit_evidence_only_after_current_ui_balance_matches",
+        "preview_paid_batch_local_env_arming",
+        "arm_one_run_paid_local_env",
+        "rerun_paid_lifecycle_preflight",
+        "run_single_paid_lifecycle_entrypoint_only_if_preflight_ready",
+    ]
+    if status == "READY_FOR_SINGLE_PAID_LIFECYCLE":
+        plan_status = "READY_TO_RUN_SINGLE_PAID_LIFECYCLE"
+        ordered_steps = ["run_single_paid_lifecycle_entrypoint"]
+    else:
+        plan_status = "BLOCKED_REFRESH_CREDIT_AND_ACKS"
+
+    return {
+        "status": plan_status,
+        "requires_current_brev_ui_balance": status != "READY_FOR_SINGLE_PAID_LIFECYCLE",
+        "credit_evidence_blockers": _blockers_from(credit_report),
+        "api_credit_blockers": _api_credit_blockers_from(api_credit_report),
+        "armability_blockers": _blockers_from(arm_report),
+        "pre_batch_assumption_blockers": _blockers_from(pre_batch_audit),
+        "required_acknowledgement_blockers": _acknowledgement_blockers(pre_batch_audit),
+        "ordered_steps": ordered_steps,
+        "commands": {
+            "review_credit_state": ["python3", "scripts/prepare_brev_credit_review.py", "--no-output"],
+            "preview_credit_evidence": credit_preview,
+            "write_credit_evidence_after_ui_review": credit_write,
+            "preview_paid_batch_arming": prepare_preview,
+            "arm_one_run_paid_local_env": prepare_write,
+            "rerun_paid_lifecycle_preflight": [
+                "python3",
+                "scripts/check_success_variation_paid_lifecycle_preflight.py",
+                "--no-output",
+            ],
+            "run_single_paid_lifecycle": _command_with_balance(
+                lifecycle_command,
+                balance_placeholder=balance_placeholder,
+            ),
+        },
+    }
+
+
+def build_report(
+    *,
+    config_path: Path,
+    manifest_path: Path,
+    run_packet_path: Path,
+    command_timeout_seconds: int,
+    brev_safety_output: Path | None = None,
+    source_status_output: Path | None = None,
+    api_credit_output: Path | None = None,
+) -> dict[str, Any]:
+    config_path = _resolve(config_path)
+    manifest_path = _resolve(manifest_path)
+    run_packet_path = _resolve(run_packet_path)
+    blockers: list[str] = []
+    failures: list[str] = []
+    values: dict[str, str] = {}
+
+    if not config_path.is_file():
+        blockers.append(f"local env config is missing: {_rel(config_path)}")
+    else:
+        try:
+            values = _read_env(config_path)
+        except Exception as exc:  # noqa: BLE001 - config errors should fail closed.
+            failures.append(f"local env config could not be parsed: {exc}")
+
+    if not manifest_path.is_file():
+        blockers.append(f"success-variation manifest is missing: {_rel(manifest_path)}")
+
+    source_state = _source_state(source_status_output)
+    if source_state["git_worktree"].get("status") != "CLEAN":
+        blockers.append("Git worktree must be CLEAN before the paid lifecycle can be armed")
+    if source_state["contact_smoke_bundle"].get("status") != "READY":
+        blockers.append("current contact-smoke bundle must be READY before the paid lifecycle can be armed")
+
+    budget = _float_env(values, "RCA_PAID_BUDGET_EUR", blockers) if values else None
+    credit_max_age = _int_env(values, "RCA_BREV_CREDIT_EVIDENCE_MAX_AGE_MINUTES", 60, blockers) if values else None
+    credit_path_raw = values.get("RCA_BREV_CREDIT_EVIDENCE_JSON", "configs/brev_credit_verification.local.json")
+    credit_path = _resolve(Path(credit_path_raw))
+    lifecycle_plan = _lifecycle_plan(
+        values=values,
+        config_path=config_path,
+        manifest_path=manifest_path,
+        run_packet_path=run_packet_path,
+        credit_path=credit_path,
+        budget_eur=budget,
+        credit_max_age_minutes=credit_max_age,
+        blockers=blockers,
+    )
+    credit_report: dict[str, Any] | None = None
+    if budget is not None and credit_max_age is not None:
+        credit_report = credit_gate.build_report(
+            evidence_path=credit_path,
+            required_budget_eur=budget,
+            max_age_minutes=credit_max_age,
+        )
+        if credit_report.get("status") != "PASS":
+            blockers.append("Brev UI credit evidence must pass before the paid lifecycle can be armed")
+
+    api_credit: dict[str, Any] | None = None
+    try:
+        api_credit = _api_credit_report(
+            required_budget_eur=budget,
+            timeout_seconds=min(command_timeout_seconds, 15),
+            api_credit_output=api_credit_output,
+        )
+        if isinstance(api_credit, dict) and api_credit.get("status") != "PASS":
+            blockers.append("Brev API credit balance must be readable and cover the paid lifecycle budget")
+    except Exception as exc:  # noqa: BLE001 - paid preflight must fail closed on API credit errors.
+        api_credit = {
+            "check_name": "brev_api_credit_balance",
+            "status": "UNAVAILABLE",
+            "failures": [f"Brev API credit check failed: {exc}"],
+            "next_action": "resolve_brev_api_credit_check_before_paid_run",
+        }
+        blockers.append("Brev API credit balance must be readable and cover the paid lifecycle budget")
+
+    arm_report: dict[str, Any] | None = None
+    if not failures and config_path.is_file():
+        arm_report = arm_gate.build_report(config_path, brev_safety_output=brev_safety_output)
+        if arm_report.get("status") != "PASS":
+            blockers.append("local env cannot be armed for the paid lifecycle yet")
+
+    plan_report: dict[str, Any] | None = None
+    if manifest_path.is_file():
+        plan_report = _run_capture(
+            ["python3", "scripts/check_success_variation_batch_plan.py", str(manifest_path)],
+            timeout_seconds=command_timeout_seconds,
+        )
+        if plan_report["exit_code"] != 0:
+            blockers.append("success-variation batch plan gate must pass before the paid lifecycle")
+
+    pre_batch_audit: dict[str, Any] | None = None
+    if manifest_path.is_file():
+        try:
+            manifest = assumption_audit._load_json(manifest_path)
+            run_packet = (
+                assumption_audit._load_json(run_packet_path)
+                if run_packet_path.is_file()
+                else None
+            )
+            pre_batch_audit = assumption_audit._build_audit(
+                manifest_path=manifest_path,
+                manifest=manifest,
+                run_packet_path=run_packet_path if run_packet is not None else None,
+                run_packet=run_packet,
+                min_strict_successes=5,
+                negative_control_id=assumption_audit.DEFAULT_NEGATIVE_CONTROL,
+                phase="pre-batch",
+            )
+            if pre_batch_audit.get("audit_status") != "PASS":
+                blockers.append("success-variation pre-batch assumption audit must pass before the paid lifecycle")
+        except Exception as exc:  # noqa: BLE001 - preflight must fail closed on audit errors.
+            failures.append(f"pre-batch assumption audit could not run: {exc}")
+
+    status = "FAIL" if failures else ("BLOCKED" if blockers else "READY_FOR_SINGLE_PAID_LIFECYCLE")
+    next_action = "run_success_variation_paid_lifecycle_after_current_ui_balance_review"
+    if status == "BLOCKED":
+        next_action = "refresh_credit_evidence_then_rerun_paid_lifecycle_preflight"
+    elif status == "FAIL":
+        next_action = "fix_paid_lifecycle_preflight_inputs"
+
+    balance_placeholder = "<current-brev-ui-balance>"
+    lifecycle_command = [
+        "python3",
+        "scripts/run_success_variation_paid_lifecycle.py",
+        "--balance-eur",
+        balance_placeholder,
+        "--run",
+        "--i-understand-this-can-create-paid-instance",
+    ]
+    blocked_subchecks = {
+        "credit_evidence_blockers": _blockers_from(credit_report),
+        "api_credit_blockers": _api_credit_blockers_from(api_credit),
+        "armability_blockers": _blockers_from(arm_report),
+        "pre_batch_assumption_blockers": _blockers_from(pre_batch_audit),
+        "required_acknowledgement_blockers": _acknowledgement_blockers(pre_batch_audit),
+    }
+    return {
+        "preflight_name": "success_variation_paid_lifecycle_preflight",
+        "status": status,
+        "config": _rel(config_path),
+        "manifest": _rel(manifest_path),
+        "run_packet": _rel(run_packet_path),
+        "credit_evidence_path": _rel(credit_path),
+        "source_state": source_state,
+        "budget_eur": budget,
+        "credit_max_age_minutes": credit_max_age,
+        "credit_evidence": credit_report,
+        "api_credit_balance": api_credit,
+        "armability": arm_report,
+        "batch_plan_gate": plan_report,
+        "pre_batch_assumption_audit": pre_batch_audit,
+        "lifecycle_plan": lifecycle_plan,
+        "blocked_subchecks": blocked_subchecks,
+        "unblock_plan": _unblock_plan(
+            status=status,
+            credit_path=credit_path,
+            budget_eur=budget,
+            credit_max_age_minutes=credit_max_age,
+            credit_report=credit_report,
+            api_credit_report=api_credit,
+            arm_report=arm_report,
+            pre_batch_audit=pre_batch_audit,
+            lifecycle_command=lifecycle_command,
+        ),
+        "blockers": list(dict.fromkeys(blockers)),
+        "failures": list(dict.fromkeys(failures)),
+        "next_action": next_action,
+        "lifecycle_command_template": lifecycle_command,
+        "side_effects": {
+            "writes_local_env": False,
+            "creates_paid_instance": False,
+            "runs_remote_code": False,
+            "starts_isaac": False,
+            "copies_artifacts": False,
+            "deletes_instances": False,
+        },
+        "not_claims": [
+            "not a paid run",
+            "not armed local env",
+            "not clean/current source unless source_state checks are CLEAN/READY",
+            "not fresh credit evidence unless credit_evidence.status is PASS",
+            "not current Brev API credit evidence unless api_credit_balance.status is PASS",
+            "not assumption-audited unless pre_batch_assumption_audit.audit_status is PASS",
+            "not success-variation result evidence",
+        ],
+    }
+
+
+def _render_markdown(report: dict[str, Any]) -> str:
+    lines = [
+        "# Success Variation Paid Lifecycle Preflight",
+        "",
+        f"- status: {report['status']}",
+        f"- config: {report['config']}",
+        f"- manifest: {report['manifest']}",
+        f"- run_packet: {report['run_packet']}",
+        f"- credit_evidence_path: {report['credit_evidence_path']}",
+        f"- git_worktree: {report['source_state']['git_worktree']['status']}",
+        f"- contact_smoke_bundle: {report['source_state']['contact_smoke_bundle']['status']}",
+        f"- budget_eur: {report['budget_eur']}",
+        f"- watchdog_max_minutes: {report['lifecycle_plan']['budget']['watchdog_max_minutes']}",
+        f"- estimated_max_cost_eur: {report['lifecycle_plan']['budget']['estimated_max_cost_eur']}",
+        f"- api_credit_status: {(report.get('api_credit_balance') or {}).get('status')}",
+        f"- api_credit_balance_usd: {(report.get('api_credit_balance') or {}).get('balance_usd')}",
+        f"- next_action: {report['next_action']}",
+        f"- pre_batch_assumption_audit: "
+        f"{(report.get('pre_batch_assumption_audit') or {}).get('audit_status')}",
+    ]
+    armability = report.get("armability") if isinstance(report.get("armability"), dict) else {}
+    brev_safety = armability.get("brev_safety") if isinstance(armability.get("brev_safety"), dict) else {}
+    if brev_safety:
+        lines.extend(
+            [
+                f"- brev_safety_status: {brev_safety.get('status')}",
+                f"- brev_visible_instances: {brev_safety.get('visible_instances')}",
+                f"- brev_watchdog_processes: {brev_safety.get('watchdog_processes')}",
+                f"- brev_manual_delete_alerts: {brev_safety.get('manual_delete_alerts')}",
+            ]
+        )
+    current_arming = armability.get("current_arming") if isinstance(armability.get("current_arming"), dict) else {}
+    if current_arming:
+        lines.extend(
+            [
+                f"- current_paid_arming: {current_arming.get('armed')}",
+                f"- current_paid_arming_age_minutes: {current_arming.get('age_minutes')}",
+                f"- current_paid_arming_max_age_minutes: {current_arming.get('max_age_minutes')}",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "## Lifecycle Command Template",
+            "",
+            "```bash",
+            " ".join(report["lifecycle_command_template"]),
+            "```",
+            "",
+            "## Blockers",
+            "",
+        ]
+    )
+    if report["blockers"]:
+        lines.extend(f"- {item}" for item in report["blockers"])
+    else:
+        lines.append("- none")
+    if report["failures"]:
+        lines.extend(["", "## Failures", ""])
+        lines.extend(f"- {item}" for item in report["failures"])
+    blocked_subchecks = (
+        report.get("blocked_subchecks")
+        if isinstance(report.get("blocked_subchecks"), dict)
+        else {}
+    )
+    if blocked_subchecks:
+        lines.extend(["", "## Blocked Subchecks", ""])
+        for name, values in blocked_subchecks.items():
+            values = values if isinstance(values, list) else []
+            lines.append(f"- {name}: {len(values)}")
+            lines.extend(f"  - {item}" for item in values)
+    unblock_plan = report.get("unblock_plan") if isinstance(report.get("unblock_plan"), dict) else {}
+    if unblock_plan:
+        lines.extend(
+            [
+                "",
+                "## Unblock Sequence",
+                "",
+                f"- status: {unblock_plan.get('status')}",
+                f"- requires_current_brev_ui_balance: {unblock_plan.get('requires_current_brev_ui_balance')}",
+            ]
+        )
+        ordered_steps = (
+            unblock_plan.get("ordered_steps")
+            if isinstance(unblock_plan.get("ordered_steps"), list)
+            else []
+        )
+        lines.extend(f"- {item}" for item in ordered_steps)
+        commands = unblock_plan.get("commands") if isinstance(unblock_plan.get("commands"), dict) else {}
+        if commands:
+            lines.extend(["", "```bash"])
+            for command in commands.values():
+                if isinstance(command, list):
+                    lines.append(" ".join(str(item) for item in command))
+            lines.append("```")
+    lines.extend(["", "## Side Effects", ""])
+    for key, value in report["side_effects"].items():
+        lines.append(f"- {key}: {value}")
+    lines.extend(["", "## Cleanup Guards", ""])
+    lines.extend(f"- {item}" for item in report["lifecycle_plan"]["required_cleanup_guards"])
+    lines.extend(["", "## Not Claims", ""])
+    lines.extend(f"- {item}" for item in report["not_claims"])
+    return "\n".join(lines) + "\n"
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    parser.add_argument("--run-packet", type=Path, default=DEFAULT_RUN_PACKET)
+    parser.add_argument("--command-timeout-seconds", type=int, default=120)
+    parser.add_argument(
+        "--brev-safety-output",
+        type=Path,
+        help="Use saved brev_paid_safety_status.sh output for offline tests; default runs the live safety check.",
+    )
+    parser.add_argument(
+        "--source-status-output",
+        type=Path,
+        help="Use saved project_status_report.py output for offline tests; default checks live local source state.",
+    )
+    parser.add_argument(
+        "--api-credit-output",
+        type=Path,
+        help="Use saved read_brev_credit_balance.py JSON output for offline tests; default reads live Brev API credits.",
+    )
+    parser.add_argument("--output-json", type=Path, default=DEFAULT_OUTPUT_JSON)
+    parser.add_argument("--output-md", type=Path, default=DEFAULT_OUTPUT_MD)
+    parser.add_argument("--no-output", action="store_true")
+    parser.add_argument("--fail-on-blocked", action="store_true")
+    args = parser.parse_args()
+
+    if args.command_timeout_seconds <= 0:
+        print("[success-variation-paid-preflight] FAIL")
+        print("- --command-timeout-seconds must be positive")
+        return 1
+
+    report = build_report(
+        config_path=args.config,
+        manifest_path=args.manifest,
+        run_packet_path=args.run_packet,
+        command_timeout_seconds=args.command_timeout_seconds,
+        brev_safety_output=args.brev_safety_output,
+        source_status_output=args.source_status_output,
+        api_credit_output=args.api_credit_output,
+    )
+    if not args.no_output:
+        output_json = _resolve(args.output_json)
+        output_json.parent.mkdir(parents=True, exist_ok=True)
+        output_json.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+        print(f"[success-variation-paid-preflight] wrote JSON: {_rel(output_json)}")
+        output_md = _resolve(args.output_md)
+        output_md.parent.mkdir(parents=True, exist_ok=True)
+        output_md.write_text(_render_markdown(report), encoding="utf-8")
+        print(f"[success-variation-paid-preflight] wrote Markdown: {_rel(output_md)}")
+
+    print("[success-variation-paid-preflight] facts=" + json.dumps(report, indent=2, sort_keys=True))
+    print("[success-variation-paid-preflight] status=" + report["status"])
+    if report["status"] != "READY_FOR_SINGLE_PAID_LIFECYCLE":
+        print("[success-variation-paid-preflight] no paid instance was created")
+    if report["status"] == "FAIL":
+        return 1
+    if report["status"] == "BLOCKED" and args.fail_on_blocked:
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

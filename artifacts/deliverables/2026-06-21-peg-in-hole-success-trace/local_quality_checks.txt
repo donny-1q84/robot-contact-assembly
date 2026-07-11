@@ -1,0 +1,24 @@
+[local-quality] repo=/Volumes/Extreme Pro/Projects/robot-contact-assembly
+[local-quality] contact geometry constants
+[geometry-check] contact geometry constants are self-consistent
+[geometry-check] tip_rot_wxyz=(0.9101164619240488, 0.0, 0.0, 0.41435253798529015)
+[geometry-check] physical_tip_offset=(0.0, 0.0, 0.10339999999999999)
+[geometry-check] peg_root_from_tip_pos=(0.0, 0.0, 0.04)
+[local-quality] project structure
+[project-structure] passed
+[local-quality] contact physics wiring
+[contact-wiring] passed
+[local-quality] project policy compliance
+[policy-check] passed
+[local-quality] Brev support evidence consistency
+[brev-support-evidence] passed
+[brev-support-evidence] draft=/Volumes/Extreme Pro/Projects/robot-contact-assembly/docs/brev_support_followup_2026-06-20.md
+[brev-support-evidence] archive=/Volumes/Extreme Pro/Projects/robot-contact-assembly/artifacts/brev_lifecycle_incidents/2026-06-20T03-14-04Z.tar.gz
+[brev-support-evidence] sha256=b926aff0547179db8a81d3b257be719cec921a50be37863064c7df5dfa069c22
+[local-quality] local gate behavior tests
+[gate-tests] passed
+[local-quality] python syntax for tracked and untracked files
+[local-quality] shell syntax for scripts/*.sh
+[local-quality] git diff whitespace
+[local-quality] generated cache hygiene
+[local-quality] passed

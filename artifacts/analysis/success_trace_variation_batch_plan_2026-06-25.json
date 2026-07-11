@@ -1,0 +1,371 @@
+{
+  "case_count": 8,
+  "cases": [
+    {
+      "case_id": "seed_43_nominal",
+      "command": [
+        "scripts/run_remote_joint_response_socket_insertion_servo_trace.sh",
+        "isaac-l40s",
+        "/home/ubuntu/projects/robot-contact-assembly",
+        "/home/ubuntu/isaac-compose",
+        "RCA-PegInHole-Franka-JointPos-Contact-Play-v0",
+        "1",
+        "220",
+        "43"
+      ],
+      "env": {
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_ACTION_RESPONSE": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_FINAL_CONTACT_BOUNDARY": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_PEG_VIDEO_CANDIDATE": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_TRACE_FRAME_ALIGNMENT": "0",
+        "RCA_TRACE_ONLY_DIR_NAME": "seed_43_nominal",
+        "RCA_TRACE_ONLY_REMOTE_DIR": "/workspace/artifacts/videos/success_variations/2026-06-25/seed_43_nominal",
+        "RCA_TRACE_VARIATION_CASE_ID": "seed_43_nominal",
+        "RCA_TRACE_VARIATION_RESET_JOINT_NOISE_RAD": "0.000000",
+        "RCA_TRACE_VARIATION_SOCKET_DELTA_M": "0.000000,0.000000,0.000000"
+      },
+      "expected": "unknown",
+      "extra_agent_args": [],
+      "planned_trace_json": "artifacts/videos/success_variations/2026-06-25/seed_43_nominal/video_trace.json",
+      "remote_trace_dir": "/workspace/artifacts/videos/success_variations/2026-06-25/seed_43_nominal",
+      "reset_joint_noise_rad": 0.0,
+      "seed": 43,
+      "shell": "env RCA_TRACE_ONLY_REMOTE_DIR=/workspace/artifacts/videos/success_variations/2026-06-25/seed_43_nominal RCA_TRACE_ONLY_DIR_NAME=seed_43_nominal RCA_TRACE_VARIATION_CASE_ID=seed_43_nominal RCA_TRACE_VARIATION_SOCKET_DELTA_M=0.000000,0.000000,0.000000 RCA_TRACE_VARIATION_RESET_JOINT_NOISE_RAD=0.000000 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_ACTION_RESPONSE=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_FINAL_CONTACT_BOUNDARY=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_PEG_VIDEO_CANDIDATE=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_TRACE_FRAME_ALIGNMENT=0 scripts/run_remote_joint_response_socket_insertion_servo_trace.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-JointPos-Contact-Play-v0 1 220 43",
+      "socket_delta_m": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "socket_pos_m": [
+        0.52,
+        0.0,
+        0.19
+      ]
+    },
+    {
+      "case_id": "seed_44_reset_noise",
+      "command": [
+        "scripts/run_remote_joint_response_socket_insertion_servo_trace.sh",
+        "isaac-l40s",
+        "/home/ubuntu/projects/robot-contact-assembly",
+        "/home/ubuntu/isaac-compose",
+        "RCA-PegInHole-Franka-JointPos-Contact-Play-v0",
+        "1",
+        "220",
+        "44"
+      ],
+      "env": {
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_ACTION_RESPONSE": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_FINAL_CONTACT_BOUNDARY": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_PEG_VIDEO_CANDIDATE": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_TRACE_FRAME_ALIGNMENT": "0",
+        "RCA_SOCKET_INSERTION_SERVO_EXTRA_ARGS": "--reset-joint-noise-rad 0.010000",
+        "RCA_TRACE_ONLY_DIR_NAME": "seed_44_reset_noise",
+        "RCA_TRACE_ONLY_REMOTE_DIR": "/workspace/artifacts/videos/success_variations/2026-06-25/seed_44_reset_noise",
+        "RCA_TRACE_VARIATION_CASE_ID": "seed_44_reset_noise",
+        "RCA_TRACE_VARIATION_RESET_JOINT_NOISE_RAD": "0.010000",
+        "RCA_TRACE_VARIATION_SOCKET_DELTA_M": "0.000000,0.000000,0.000000"
+      },
+      "expected": "unknown",
+      "extra_agent_args": [
+        "--reset-joint-noise-rad",
+        "0.010000"
+      ],
+      "planned_trace_json": "artifacts/videos/success_variations/2026-06-25/seed_44_reset_noise/video_trace.json",
+      "remote_trace_dir": "/workspace/artifacts/videos/success_variations/2026-06-25/seed_44_reset_noise",
+      "reset_joint_noise_rad": 0.01,
+      "seed": 44,
+      "shell": "env RCA_TRACE_ONLY_REMOTE_DIR=/workspace/artifacts/videos/success_variations/2026-06-25/seed_44_reset_noise RCA_TRACE_ONLY_DIR_NAME=seed_44_reset_noise RCA_TRACE_VARIATION_CASE_ID=seed_44_reset_noise RCA_TRACE_VARIATION_SOCKET_DELTA_M=0.000000,0.000000,0.000000 RCA_TRACE_VARIATION_RESET_JOINT_NOISE_RAD=0.010000 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_ACTION_RESPONSE=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_FINAL_CONTACT_BOUNDARY=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_PEG_VIDEO_CANDIDATE=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_TRACE_FRAME_ALIGNMENT=0 'RCA_SOCKET_INSERTION_SERVO_EXTRA_ARGS=--reset-joint-noise-rad 0.010000' scripts/run_remote_joint_response_socket_insertion_servo_trace.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-JointPos-Contact-Play-v0 1 220 44",
+      "socket_delta_m": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "socket_pos_m": [
+        0.52,
+        0.0,
+        0.19
+      ]
+    },
+    {
+      "case_id": "socket_x_pos_1mm",
+      "command": [
+        "scripts/run_remote_joint_response_socket_insertion_servo_trace.sh",
+        "isaac-l40s",
+        "/home/ubuntu/projects/robot-contact-assembly",
+        "/home/ubuntu/isaac-compose",
+        "RCA-PegInHole-Franka-JointPos-Contact-Play-v0",
+        "1",
+        "220",
+        "42"
+      ],
+      "env": {
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_ACTION_RESPONSE": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_FINAL_CONTACT_BOUNDARY": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_PEG_VIDEO_CANDIDATE": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_TRACE_FRAME_ALIGNMENT": "0",
+        "RCA_SOCKET_INSERTION_SERVO_EXTRA_ARGS": "--socket-pos 0.521000,0.000000,0.190000",
+        "RCA_TRACE_ONLY_DIR_NAME": "socket_x_pos_1mm",
+        "RCA_TRACE_ONLY_REMOTE_DIR": "/workspace/artifacts/videos/success_variations/2026-06-25/socket_x_pos_1mm",
+        "RCA_TRACE_VARIATION_CASE_ID": "socket_x_pos_1mm",
+        "RCA_TRACE_VARIATION_RESET_JOINT_NOISE_RAD": "0.000000",
+        "RCA_TRACE_VARIATION_SOCKET_DELTA_M": "0.001000,0.000000,0.000000"
+      },
+      "expected": "unknown",
+      "extra_agent_args": [
+        "--socket-pos",
+        "0.521000,0.000000,0.190000"
+      ],
+      "planned_trace_json": "artifacts/videos/success_variations/2026-06-25/socket_x_pos_1mm/video_trace.json",
+      "remote_trace_dir": "/workspace/artifacts/videos/success_variations/2026-06-25/socket_x_pos_1mm",
+      "reset_joint_noise_rad": 0.0,
+      "seed": 42,
+      "shell": "env RCA_TRACE_ONLY_REMOTE_DIR=/workspace/artifacts/videos/success_variations/2026-06-25/socket_x_pos_1mm RCA_TRACE_ONLY_DIR_NAME=socket_x_pos_1mm RCA_TRACE_VARIATION_CASE_ID=socket_x_pos_1mm RCA_TRACE_VARIATION_SOCKET_DELTA_M=0.001000,0.000000,0.000000 RCA_TRACE_VARIATION_RESET_JOINT_NOISE_RAD=0.000000 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_ACTION_RESPONSE=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_FINAL_CONTACT_BOUNDARY=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_PEG_VIDEO_CANDIDATE=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_TRACE_FRAME_ALIGNMENT=0 'RCA_SOCKET_INSERTION_SERVO_EXTRA_ARGS=--socket-pos 0.521000,0.000000,0.190000' scripts/run_remote_joint_response_socket_insertion_servo_trace.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-JointPos-Contact-Play-v0 1 220 42",
+      "socket_delta_m": [
+        0.001,
+        0.0,
+        0.0
+      ],
+      "socket_pos_m": [
+        0.521,
+        0.0,
+        0.19
+      ]
+    },
+    {
+      "case_id": "socket_x_neg_1mm",
+      "command": [
+        "scripts/run_remote_joint_response_socket_insertion_servo_trace.sh",
+        "isaac-l40s",
+        "/home/ubuntu/projects/robot-contact-assembly",
+        "/home/ubuntu/isaac-compose",
+        "RCA-PegInHole-Franka-JointPos-Contact-Play-v0",
+        "1",
+        "220",
+        "42"
+      ],
+      "env": {
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_ACTION_RESPONSE": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_FINAL_CONTACT_BOUNDARY": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_PEG_VIDEO_CANDIDATE": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_TRACE_FRAME_ALIGNMENT": "0",
+        "RCA_SOCKET_INSERTION_SERVO_EXTRA_ARGS": "--socket-pos 0.519000,0.000000,0.190000",
+        "RCA_TRACE_ONLY_DIR_NAME": "socket_x_neg_1mm",
+        "RCA_TRACE_ONLY_REMOTE_DIR": "/workspace/artifacts/videos/success_variations/2026-06-25/socket_x_neg_1mm",
+        "RCA_TRACE_VARIATION_CASE_ID": "socket_x_neg_1mm",
+        "RCA_TRACE_VARIATION_RESET_JOINT_NOISE_RAD": "0.000000",
+        "RCA_TRACE_VARIATION_SOCKET_DELTA_M": "-0.001000,0.000000,0.000000"
+      },
+      "expected": "unknown",
+      "extra_agent_args": [
+        "--socket-pos",
+        "0.519000,0.000000,0.190000"
+      ],
+      "planned_trace_json": "artifacts/videos/success_variations/2026-06-25/socket_x_neg_1mm/video_trace.json",
+      "remote_trace_dir": "/workspace/artifacts/videos/success_variations/2026-06-25/socket_x_neg_1mm",
+      "reset_joint_noise_rad": 0.0,
+      "seed": 42,
+      "shell": "env RCA_TRACE_ONLY_REMOTE_DIR=/workspace/artifacts/videos/success_variations/2026-06-25/socket_x_neg_1mm RCA_TRACE_ONLY_DIR_NAME=socket_x_neg_1mm RCA_TRACE_VARIATION_CASE_ID=socket_x_neg_1mm RCA_TRACE_VARIATION_SOCKET_DELTA_M=-0.001000,0.000000,0.000000 RCA_TRACE_VARIATION_RESET_JOINT_NOISE_RAD=0.000000 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_ACTION_RESPONSE=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_FINAL_CONTACT_BOUNDARY=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_PEG_VIDEO_CANDIDATE=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_TRACE_FRAME_ALIGNMENT=0 'RCA_SOCKET_INSERTION_SERVO_EXTRA_ARGS=--socket-pos 0.519000,0.000000,0.190000' scripts/run_remote_joint_response_socket_insertion_servo_trace.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-JointPos-Contact-Play-v0 1 220 42",
+      "socket_delta_m": [
+        -0.001,
+        0.0,
+        0.0
+      ],
+      "socket_pos_m": [
+        0.519,
+        0.0,
+        0.19
+      ]
+    },
+    {
+      "case_id": "socket_y_pos_1mm",
+      "command": [
+        "scripts/run_remote_joint_response_socket_insertion_servo_trace.sh",
+        "isaac-l40s",
+        "/home/ubuntu/projects/robot-contact-assembly",
+        "/home/ubuntu/isaac-compose",
+        "RCA-PegInHole-Franka-JointPos-Contact-Play-v0",
+        "1",
+        "220",
+        "42"
+      ],
+      "env": {
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_ACTION_RESPONSE": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_FINAL_CONTACT_BOUNDARY": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_PEG_VIDEO_CANDIDATE": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_TRACE_FRAME_ALIGNMENT": "0",
+        "RCA_SOCKET_INSERTION_SERVO_EXTRA_ARGS": "--socket-pos 0.520000,0.001000,0.190000",
+        "RCA_TRACE_ONLY_DIR_NAME": "socket_y_pos_1mm",
+        "RCA_TRACE_ONLY_REMOTE_DIR": "/workspace/artifacts/videos/success_variations/2026-06-25/socket_y_pos_1mm",
+        "RCA_TRACE_VARIATION_CASE_ID": "socket_y_pos_1mm",
+        "RCA_TRACE_VARIATION_RESET_JOINT_NOISE_RAD": "0.000000",
+        "RCA_TRACE_VARIATION_SOCKET_DELTA_M": "0.000000,0.001000,0.000000"
+      },
+      "expected": "unknown",
+      "extra_agent_args": [
+        "--socket-pos",
+        "0.520000,0.001000,0.190000"
+      ],
+      "planned_trace_json": "artifacts/videos/success_variations/2026-06-25/socket_y_pos_1mm/video_trace.json",
+      "remote_trace_dir": "/workspace/artifacts/videos/success_variations/2026-06-25/socket_y_pos_1mm",
+      "reset_joint_noise_rad": 0.0,
+      "seed": 42,
+      "shell": "env RCA_TRACE_ONLY_REMOTE_DIR=/workspace/artifacts/videos/success_variations/2026-06-25/socket_y_pos_1mm RCA_TRACE_ONLY_DIR_NAME=socket_y_pos_1mm RCA_TRACE_VARIATION_CASE_ID=socket_y_pos_1mm RCA_TRACE_VARIATION_SOCKET_DELTA_M=0.000000,0.001000,0.000000 RCA_TRACE_VARIATION_RESET_JOINT_NOISE_RAD=0.000000 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_ACTION_RESPONSE=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_FINAL_CONTACT_BOUNDARY=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_PEG_VIDEO_CANDIDATE=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_TRACE_FRAME_ALIGNMENT=0 'RCA_SOCKET_INSERTION_SERVO_EXTRA_ARGS=--socket-pos 0.520000,0.001000,0.190000' scripts/run_remote_joint_response_socket_insertion_servo_trace.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-JointPos-Contact-Play-v0 1 220 42",
+      "socket_delta_m": [
+        0.0,
+        0.001,
+        0.0
+      ],
+      "socket_pos_m": [
+        0.52,
+        0.001,
+        0.19
+      ]
+    },
+    {
+      "case_id": "socket_y_neg_1mm",
+      "command": [
+        "scripts/run_remote_joint_response_socket_insertion_servo_trace.sh",
+        "isaac-l40s",
+        "/home/ubuntu/projects/robot-contact-assembly",
+        "/home/ubuntu/isaac-compose",
+        "RCA-PegInHole-Franka-JointPos-Contact-Play-v0",
+        "1",
+        "220",
+        "42"
+      ],
+      "env": {
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_ACTION_RESPONSE": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_FINAL_CONTACT_BOUNDARY": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_PEG_VIDEO_CANDIDATE": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_TRACE_FRAME_ALIGNMENT": "0",
+        "RCA_SOCKET_INSERTION_SERVO_EXTRA_ARGS": "--socket-pos 0.520000,-0.001000,0.190000",
+        "RCA_TRACE_ONLY_DIR_NAME": "socket_y_neg_1mm",
+        "RCA_TRACE_ONLY_REMOTE_DIR": "/workspace/artifacts/videos/success_variations/2026-06-25/socket_y_neg_1mm",
+        "RCA_TRACE_VARIATION_CASE_ID": "socket_y_neg_1mm",
+        "RCA_TRACE_VARIATION_RESET_JOINT_NOISE_RAD": "0.000000",
+        "RCA_TRACE_VARIATION_SOCKET_DELTA_M": "0.000000,-0.001000,0.000000"
+      },
+      "expected": "unknown",
+      "extra_agent_args": [
+        "--socket-pos",
+        "0.520000,-0.001000,0.190000"
+      ],
+      "planned_trace_json": "artifacts/videos/success_variations/2026-06-25/socket_y_neg_1mm/video_trace.json",
+      "remote_trace_dir": "/workspace/artifacts/videos/success_variations/2026-06-25/socket_y_neg_1mm",
+      "reset_joint_noise_rad": 0.0,
+      "seed": 42,
+      "shell": "env RCA_TRACE_ONLY_REMOTE_DIR=/workspace/artifacts/videos/success_variations/2026-06-25/socket_y_neg_1mm RCA_TRACE_ONLY_DIR_NAME=socket_y_neg_1mm RCA_TRACE_VARIATION_CASE_ID=socket_y_neg_1mm RCA_TRACE_VARIATION_SOCKET_DELTA_M=0.000000,-0.001000,0.000000 RCA_TRACE_VARIATION_RESET_JOINT_NOISE_RAD=0.000000 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_ACTION_RESPONSE=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_FINAL_CONTACT_BOUNDARY=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_PEG_VIDEO_CANDIDATE=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_TRACE_FRAME_ALIGNMENT=0 'RCA_SOCKET_INSERTION_SERVO_EXTRA_ARGS=--socket-pos 0.520000,-0.001000,0.190000' scripts/run_remote_joint_response_socket_insertion_servo_trace.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-JointPos-Contact-Play-v0 1 220 42",
+      "socket_delta_m": [
+        0.0,
+        -0.001,
+        0.0
+      ],
+      "socket_pos_m": [
+        0.52,
+        -0.001,
+        0.19
+      ]
+    },
+    {
+      "case_id": "socket_z_pos_1mm",
+      "command": [
+        "scripts/run_remote_joint_response_socket_insertion_servo_trace.sh",
+        "isaac-l40s",
+        "/home/ubuntu/projects/robot-contact-assembly",
+        "/home/ubuntu/isaac-compose",
+        "RCA-PegInHole-Franka-JointPos-Contact-Play-v0",
+        "1",
+        "220",
+        "42"
+      ],
+      "env": {
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_ACTION_RESPONSE": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_FINAL_CONTACT_BOUNDARY": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_PEG_VIDEO_CANDIDATE": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_TRACE_FRAME_ALIGNMENT": "0",
+        "RCA_SOCKET_INSERTION_SERVO_EXTRA_ARGS": "--socket-pos 0.520000,0.000000,0.191000",
+        "RCA_TRACE_ONLY_DIR_NAME": "socket_z_pos_1mm",
+        "RCA_TRACE_ONLY_REMOTE_DIR": "/workspace/artifacts/videos/success_variations/2026-06-25/socket_z_pos_1mm",
+        "RCA_TRACE_VARIATION_CASE_ID": "socket_z_pos_1mm",
+        "RCA_TRACE_VARIATION_RESET_JOINT_NOISE_RAD": "0.000000",
+        "RCA_TRACE_VARIATION_SOCKET_DELTA_M": "0.000000,0.000000,0.001000"
+      },
+      "expected": "unknown",
+      "extra_agent_args": [
+        "--socket-pos",
+        "0.520000,0.000000,0.191000"
+      ],
+      "planned_trace_json": "artifacts/videos/success_variations/2026-06-25/socket_z_pos_1mm/video_trace.json",
+      "remote_trace_dir": "/workspace/artifacts/videos/success_variations/2026-06-25/socket_z_pos_1mm",
+      "reset_joint_noise_rad": 0.0,
+      "seed": 42,
+      "shell": "env RCA_TRACE_ONLY_REMOTE_DIR=/workspace/artifacts/videos/success_variations/2026-06-25/socket_z_pos_1mm RCA_TRACE_ONLY_DIR_NAME=socket_z_pos_1mm RCA_TRACE_VARIATION_CASE_ID=socket_z_pos_1mm RCA_TRACE_VARIATION_SOCKET_DELTA_M=0.000000,0.000000,0.001000 RCA_TRACE_VARIATION_RESET_JOINT_NOISE_RAD=0.000000 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_ACTION_RESPONSE=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_FINAL_CONTACT_BOUNDARY=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_PEG_VIDEO_CANDIDATE=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_TRACE_FRAME_ALIGNMENT=0 'RCA_SOCKET_INSERTION_SERVO_EXTRA_ARGS=--socket-pos 0.520000,0.000000,0.191000' scripts/run_remote_joint_response_socket_insertion_servo_trace.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-JointPos-Contact-Play-v0 1 220 42",
+      "socket_delta_m": [
+        0.0,
+        0.0,
+        0.001
+      ],
+      "socket_pos_m": [
+        0.52,
+        0.0,
+        0.191
+      ]
+    },
+    {
+      "case_id": "socket_x_pos_25mm_negative_control",
+      "command": [
+        "scripts/run_remote_joint_response_socket_insertion_servo_trace.sh",
+        "isaac-l40s",
+        "/home/ubuntu/projects/robot-contact-assembly",
+        "/home/ubuntu/isaac-compose",
+        "RCA-PegInHole-Franka-JointPos-Contact-Play-v0",
+        "1",
+        "220",
+        "42"
+      ],
+      "env": {
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_ACTION_RESPONSE": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_FINAL_CONTACT_BOUNDARY": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_PEG_VIDEO_CANDIDATE": "0",
+        "RCA_JOINT_RESPONSE_SOCKET_VALIDATE_TRACE_FRAME_ALIGNMENT": "0",
+        "RCA_SOCKET_INSERTION_SERVO_EXTRA_ARGS": "--socket-pos 0.545000,0.000000,0.190000",
+        "RCA_TRACE_ONLY_DIR_NAME": "socket_x_pos_25mm_negative_control",
+        "RCA_TRACE_ONLY_REMOTE_DIR": "/workspace/artifacts/videos/success_variations/2026-06-25/socket_x_pos_25mm_negative_control",
+        "RCA_TRACE_VARIATION_CASE_ID": "socket_x_pos_25mm_negative_control",
+        "RCA_TRACE_VARIATION_RESET_JOINT_NOISE_RAD": "0.000000",
+        "RCA_TRACE_VARIATION_SOCKET_DELTA_M": "0.025000,0.000000,0.000000"
+      },
+      "expected": "fail_closed",
+      "extra_agent_args": [
+        "--socket-pos",
+        "0.545000,0.000000,0.190000"
+      ],
+      "planned_trace_json": "artifacts/videos/success_variations/2026-06-25/socket_x_pos_25mm_negative_control/video_trace.json",
+      "remote_trace_dir": "/workspace/artifacts/videos/success_variations/2026-06-25/socket_x_pos_25mm_negative_control",
+      "reset_joint_noise_rad": 0.0,
+      "seed": 42,
+      "shell": "env RCA_TRACE_ONLY_REMOTE_DIR=/workspace/artifacts/videos/success_variations/2026-06-25/socket_x_pos_25mm_negative_control RCA_TRACE_ONLY_DIR_NAME=socket_x_pos_25mm_negative_control RCA_TRACE_VARIATION_CASE_ID=socket_x_pos_25mm_negative_control RCA_TRACE_VARIATION_SOCKET_DELTA_M=0.025000,0.000000,0.000000 RCA_TRACE_VARIATION_RESET_JOINT_NOISE_RAD=0.000000 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_ACTION_RESPONSE=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_FINAL_CONTACT_BOUNDARY=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_PEG_VIDEO_CANDIDATE=0 RCA_JOINT_RESPONSE_SOCKET_VALIDATE_TRACE_FRAME_ALIGNMENT=0 'RCA_SOCKET_INSERTION_SERVO_EXTRA_ARGS=--socket-pos 0.545000,0.000000,0.190000' scripts/run_remote_joint_response_socket_insertion_servo_trace.sh isaac-l40s /home/ubuntu/projects/robot-contact-assembly /home/ubuntu/isaac-compose RCA-PegInHole-Franka-JointPos-Contact-Play-v0 1 220 42",
+      "socket_delta_m": [
+        0.025,
+        0.0,
+        0.0
+      ],
+      "socket_pos_m": [
+        0.545,
+        0.0,
+        0.19
+      ]
+    }
+  ],
+  "include_available": false,
+  "manifest_created_utc": "2026-06-25T04-44-19Z",
+  "source_socket_frame_pos_m": [
+    0.52,
+    0.0,
+    0.19
+  ],
+  "source_trace_json": "artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json",
+  "steps": 220,
+  "task": "RCA-PegInHole-Franka-JointPos-Contact-Play-v0"
+}

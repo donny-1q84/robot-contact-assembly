@@ -1,0 +1,1 @@
+timeout --foreground --signal=TERM --kill-after=60s 1800 bash '/workspace/artifacts/videos/isaac_trace_replay/2026-06-23T05-33-52Z/run_replay.sh'

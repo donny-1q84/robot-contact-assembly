@@ -1,0 +1,12 @@
+{
+  "evidence_name": "brev_credit_balance_verification",
+  "verified_at_utc": "2026-06-25T00:00:00Z",
+  "source": "Brev UI organization credits page",
+  "organization_name": "NCA-57cf-29515",
+  "organization_id": "org-3BaYGdtoRGmgc77Z7NHHhPSD254",
+  "balance_eur": 0.0,
+  "budget_eur": 6.0,
+  "checked_instance_type": "g6e.xlarge",
+  "checked_by": "manual_ui_review",
+  "notes": "Copy to configs/brev_credit_verification.local.json after checking the current Brev UI balance. Do not commit the local evidence file."
+}

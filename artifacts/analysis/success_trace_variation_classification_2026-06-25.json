@@ -1,0 +1,130 @@
+{
+  "manifest": {
+    "created_utc": "2026-06-25T04-44-19Z",
+    "purpose": "successful_trace_variation_batch",
+    "source_trace_json": "artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json",
+    "source_trace_sha256": "26b3b3daa208b0c22fe8977d4c622d258aa1eecea30a03afaf66fbda599cb1cc"
+  },
+  "results": [
+    {
+      "boundary": {
+        "first_sustained_success_step": 178,
+        "pop_event_count": 0,
+        "unsafe_boundary_descent_count": 0
+      },
+      "case_id": "baseline_replay",
+      "classification": "strict_success",
+      "expected": "strict_success",
+      "failure_reasons": [],
+      "frame_audit": {
+        "failures": [],
+        "post_metric_world_to_physical_tip_gap_mean": 1.7934380855348591e-09,
+        "step_count": 183
+      },
+      "gates": {
+        "final_contact_boundary": true,
+        "peg_video_candidate": true,
+        "trace_frame_alignment": true
+      },
+      "metrics": {
+        "best_axial": 0.007546612061560154,
+        "best_axial_step": 182,
+        "best_lateral": 0.00014721538173034787,
+        "best_lateral_step": 0,
+        "best_rot": 0.0003452669770922512,
+        "best_rot_step": 0,
+        "final_axial": 0.007546612061560154,
+        "initial_axial": 0.0497622974216938,
+        "max_contact_force": 1.0929346084594727,
+        "max_contact_force_step": 163,
+        "visible_descent": 0.04221568536013365
+      },
+      "near_success": true,
+      "strict_success": true,
+      "trace_json": "artifacts/deliverables/2026-06-21-peg-in-hole-success-trace/video_trace.json"
+    },
+    {
+      "case_id": "seed_43_nominal",
+      "classification": "missing",
+      "expected": "unknown",
+      "failure_reasons": [
+        "trace artifact is missing"
+      ],
+      "trace_json": null
+    },
+    {
+      "case_id": "seed_44_reset_noise",
+      "classification": "missing",
+      "expected": "unknown",
+      "failure_reasons": [
+        "trace artifact is missing"
+      ],
+      "trace_json": null
+    },
+    {
+      "case_id": "socket_x_pos_1mm",
+      "classification": "missing",
+      "expected": "unknown",
+      "failure_reasons": [
+        "trace artifact is missing"
+      ],
+      "trace_json": null
+    },
+    {
+      "case_id": "socket_x_neg_1mm",
+      "classification": "missing",
+      "expected": "unknown",
+      "failure_reasons": [
+        "trace artifact is missing"
+      ],
+      "trace_json": null
+    },
+    {
+      "case_id": "socket_y_pos_1mm",
+      "classification": "missing",
+      "expected": "unknown",
+      "failure_reasons": [
+        "trace artifact is missing"
+      ],
+      "trace_json": null
+    },
+    {
+      "case_id": "socket_y_neg_1mm",
+      "classification": "missing",
+      "expected": "unknown",
+      "failure_reasons": [
+        "trace artifact is missing"
+      ],
+      "trace_json": null
+    },
+    {
+      "case_id": "socket_z_pos_1mm",
+      "classification": "missing",
+      "expected": "unknown",
+      "failure_reasons": [
+        "trace artifact is missing"
+      ],
+      "trace_json": null
+    },
+    {
+      "case_id": "socket_x_pos_25mm_negative_control",
+      "classification": "missing",
+      "expected": "fail_closed",
+      "failure_reasons": [
+        "trace artifact is missing"
+      ],
+      "trace_json": null
+    }
+  ],
+  "summary": {
+    "case_count": 9,
+    "classification_counts": {
+      "missing": 8,
+      "strict_success": 1
+    },
+    "fail_closed_count": 0,
+    "missing_count": 8,
+    "near_success_count": 0,
+    "strict_success_count": 1
+  }
+}

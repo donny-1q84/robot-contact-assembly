@@ -1,0 +1,524 @@
+#!/usr/bin/env python3
+"""Read-only readiness gate for the success-variation paid trace batch.
+
+This script does not create, start, stop, delete, copy to, or execute on Brev
+instances. It checks the local semantic contract plus the paid-run guard inputs
+that must be explicit before the create/run/cleanup wrapper is allowed to
+proceed.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+from typing import Any
+
+
+sys.dont_write_bytecode = True
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
+
+import classify_success_variation_results as classifier  # noqa: E402
+import check_brev_credit_evidence as credit_gate  # noqa: E402
+import check_success_variation_batch_plan as plan_gate  # noqa: E402
+
+
+DEFAULT_MANIFEST = REPO_ROOT / "artifacts" / "manifests" / "success_trace_variations_2026-06-25.json"
+LIFECYCLE_HOLD_FILE = REPO_ROOT / "docs" / "brev_launchable_lifecycle_hold.md"
+DEFAULT_CREDIT_EVIDENCE = REPO_ROOT / "configs" / "brev_credit_verification.local.json"
+DEFAULT_ARMING_MAX_AGE_MINUTES = 15
+
+
+def _rel(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _load_json(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"JSON root must be an object: {_rel(path)}")
+    return payload
+
+
+def _parse_float_env(name: str, blockers: list[str]) -> float | None:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        blockers.append(f"set {name} to a positive number")
+        return None
+    try:
+        parsed = float(value)
+    except ValueError:
+        blockers.append(f"{name} must be numeric, got {value!r}")
+        return None
+    if parsed <= 0:
+        blockers.append(f"{name} must be positive, got {value!r}")
+        return None
+    return parsed
+
+
+def _parse_positive_int_env(name: str, default: int, blockers: list[str]) -> int | None:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        blockers.append(f"{name} must be an integer, got {value!r}")
+        return None
+    if parsed <= 0:
+        blockers.append(f"{name} must be positive, got {value!r}")
+        return None
+    return parsed
+
+
+def _parse_bool_env(name: str, default: bool, blockers: list[str]) -> bool | None:
+    value = os.environ.get(name, "").strip().lower()
+    if not value:
+        return default
+    if value in {"1", "true", "yes", "y", "on"}:
+        return True
+    if value in {"0", "false", "no", "n", "off"}:
+        return False
+    blockers.append(f"{name} must be boolean 0/1, got {value!r}")
+    return None
+
+
+def _check_paid_arming_freshness(blockers: list[str], facts: dict[str, Any]) -> None:
+    max_age = _parse_positive_int_env(
+        "RCA_PAID_ARMING_MAX_AGE_MINUTES",
+        DEFAULT_ARMING_MAX_AGE_MINUTES,
+        blockers,
+    )
+    armed_at_raw = os.environ.get("RCA_PAID_ARMED_AT_UTC", "").strip()
+    facts["paid_arming_max_age_minutes"] = max_age
+    facts["paid_armed_at_utc"] = armed_at_raw or None
+    if not armed_at_raw:
+        blockers.append("RCA_PAID_ARMED_AT_UTC is required when paid acknowledgements are armed")
+        return
+    normalized = armed_at_raw[:-1] + "+00:00" if armed_at_raw.endswith("Z") else armed_at_raw
+    try:
+        armed_at = datetime.fromisoformat(normalized)
+    except ValueError:
+        blockers.append(f"RCA_PAID_ARMED_AT_UTC is not parseable: {armed_at_raw!r}")
+        return
+    if armed_at.tzinfo is None:
+        blockers.append("RCA_PAID_ARMED_AT_UTC must include UTC timezone")
+        return
+    age_minutes = (datetime.now(timezone.utc) - armed_at.astimezone(timezone.utc)).total_seconds() / 60.0
+    facts["paid_arming_age_minutes"] = round(age_minutes, 2)
+    if age_minutes < -1:
+        blockers.append("RCA_PAID_ARMED_AT_UTC is in the future")
+    elif max_age is not None and age_minutes > max_age:
+        blockers.append(
+            f"paid arming is too old: {age_minutes:.1f} minutes > {max_age} minutes; disarm and re-arm"
+        )
+
+
+def _parse_ttl_minutes(blockers: list[str]) -> int | None:
+    candidates = (
+        "RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES",
+        "RCA_FINAL_CONTACT_WATCHDOG_MAX_MINUTES",
+        "RCA_PAID_MAX_MINUTES",
+    )
+    for name in candidates:
+        value = os.environ.get(name, "").strip()
+        if not value:
+            continue
+        try:
+            parsed = int(value)
+        except ValueError:
+            blockers.append(f"{name} must be an integer minute TTL, got {value!r}")
+            return None
+        if parsed <= 0:
+            blockers.append(f"{name} must be positive, got {value!r}")
+            return None
+        return parsed
+    blockers.append(
+        "set an explicit TTL with RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES, "
+        "RCA_FINAL_CONTACT_WATCHDOG_MAX_MINUTES, or RCA_PAID_MAX_MINUTES"
+    )
+    return None
+
+
+def _run(args: list[str], *, timeout: int) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        args,
+        cwd=REPO_ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def _check_phase2_gate(blockers: list[str], facts: dict[str, Any]) -> None:
+    result = _run(["python3", "scripts/check_phase2_contact_gate.py"], timeout=60)
+    facts["phase2_contact_gate_exit"] = result.returncode
+    if result.returncode == 0:
+        facts["phase2_contact_gate"] = "PASS"
+    else:
+        facts["phase2_contact_gate"] = "BLOCKED"
+        facts["phase2_contact_gate_output"] = result.stdout[-2000:]
+        blockers.append("Phase 2 contact gate is not PASS; do not run success variations")
+
+
+def _check_brev_safety(blockers: list[str], facts: dict[str, Any]) -> None:
+    try:
+        result = _run(["./scripts/brev_paid_safety_status.sh"], timeout=90)
+    except subprocess.TimeoutExpired:
+        facts["brev_safety_status"] = "timeout"
+        blockers.append("brev_paid_safety_status.sh timed out; Brev state is not safe to use")
+        return
+
+    facts["brev_safety_exit"] = result.returncode
+    facts["brev_safety_output_tail"] = result.stdout[-3000:]
+    status = None
+    visible = None
+    for line in result.stdout.splitlines():
+        if line.startswith("[brev-safety] status="):
+            status = line.split("=", 1)[1].strip()
+        if line.startswith("[brev-safety] visible_instances="):
+            visible = line.split("=", 1)[1].strip()
+    facts["brev_safety_status"] = status
+    facts["brev_visible_instances"] = visible
+    if result.returncode != 0 or status != "SAFE_NO_VISIBLE_PAID_INSTANCE":
+        blockers.append("Brev safety status must be SAFE_NO_VISIBLE_PAID_INSTANCE before creating the batch VM")
+
+
+def _check_instance_price(blockers: list[str], facts: dict[str, Any]) -> None:
+    instance_type = (
+        os.environ.get("RCA_SUCCESS_VARIATION_INSTANCE_TYPE")
+        or os.environ.get("RCA_FINAL_CONTACT_INSTANCE_TYPE")
+        or "g6e.xlarge"
+    ).strip()
+    facts["instance_type"] = instance_type
+    try:
+        result = _run(["/Users/Shenghan/bin/brev", "search", "gpu", "--json"], timeout=60)
+    except subprocess.TimeoutExpired:
+        facts["instance_price_check"] = "timeout"
+        blockers.append("Brev instance price search timed out; current instance availability/price is unknown")
+        return
+
+    facts["instance_price_search_exit"] = result.returncode
+    if result.returncode != 0:
+        facts["instance_price_search_output"] = result.stdout[-2000:]
+        blockers.append("Brev instance price search failed; current instance availability/price is unknown")
+        return
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        facts["instance_price_search_output"] = result.stdout[-2000:]
+        blockers.append("Brev instance price search did not return parseable JSON")
+        return
+    if not isinstance(payload, list):
+        blockers.append("Brev instance price search JSON root is not a list")
+        return
+
+    matches = [item for item in payload if isinstance(item, dict) and item.get("type") == instance_type]
+    if not matches:
+        blockers.append(f"selected instance type is not currently visible in Brev search: {instance_type}")
+        return
+    selected = matches[0]
+    price = selected.get("price_per_hour")
+    try:
+        price_per_hour = float(price)
+    except (TypeError, ValueError):
+        blockers.append(f"selected instance type has no numeric price_per_hour: {instance_type}")
+        return
+
+    facts["instance_price"] = {
+        "type": selected.get("type"),
+        "cloud": selected.get("cloud"),
+        "provider": selected.get("provider"),
+        "gpu_name": selected.get("gpu_name"),
+        "gpu_count": selected.get("gpu_count"),
+        "total_vram_gb": selected.get("total_vram_gb"),
+        "ram_gb": selected.get("ram_gb"),
+        "stoppable": selected.get("stoppable"),
+        "price_per_hour": price_per_hour,
+    }
+    if selected.get("stoppable") is not True:
+        blockers.append(f"selected instance type is not stoppable: {instance_type}")
+    estimate = facts.get("estimated_eur_per_hour")
+    if isinstance(estimate, (int, float)) and price_per_hour > float(estimate):
+        blockers.append(
+            f"live Brev price_per_hour {price_per_hour:.4f} exceeds RCA_PAID_ESTIMATED_EUR_PER_HOUR {float(estimate):.4f}"
+        )
+
+
+def _check_manifest_contract(manifest_path: Path, blockers: list[str], facts: dict[str, Any]) -> None:
+    if not manifest_path.is_file():
+        blockers.append(f"manifest is missing: {_rel(manifest_path)}")
+        return
+
+    manifest = _load_json(manifest_path)
+    cases = manifest.get("cases")
+    if not isinstance(cases, list):
+        blockers.append("manifest.cases must be a list")
+        return
+
+    remote_policy = manifest.get("remote_run_policy")
+    if not isinstance(remote_policy, dict):
+        blockers.append("manifest.remote_run_policy must be present")
+    else:
+        if remote_policy.get("requires_budget_watchdog_pullback_delete") is not True:
+            blockers.append("manifest must require budget/watchdog/pullback/delete for remote runs")
+
+    report = classifier.build_report(manifest, results_root=None)
+    facts["manifest_path"] = _rel(manifest_path)
+    facts["classification_summary"] = report["summary"]
+
+    by_case = {
+        str(result.get("case_id")): result
+        for result in report.get("results", [])
+        if isinstance(result, dict)
+    }
+    baseline = by_case.get("baseline_replay")
+    if not baseline or baseline.get("classification") != "strict_success":
+        blockers.append("baseline_replay must remain a strict_success positive control")
+
+    planned_missing = [
+        result
+        for result in report.get("results", [])
+        if isinstance(result, dict)
+        and result.get("case_id") != "baseline_replay"
+        and result.get("classification") == "missing"
+    ]
+    facts["planned_missing_count"] = len(planned_missing)
+    if not planned_missing:
+        blockers.append("no missing planned variation cases remain to run")
+
+    negative = by_case.get("socket_x_pos_25mm_negative_control")
+    if not negative:
+        blockers.append("manifest must include socket_x_pos_25mm_negative_control")
+    else:
+        facts["negative_control_classification"] = negative.get("classification")
+        if negative.get("expected") != "fail_closed":
+            blockers.append("socket_x_pos_25mm_negative_control must be expected=fail_closed")
+        if negative.get("classification") == "strict_success":
+            blockers.append("negative control is already strict_success; metric definition is invalid")
+
+
+def _check_batch_plan_contract(manifest_path: Path, blockers: list[str], facts: dict[str, Any]) -> None:
+    steps_raw = os.environ.get("RCA_SUCCESS_VARIATION_STEPS", "220").strip() or "220"
+    try:
+        steps = int(steps_raw)
+    except ValueError:
+        blockers.append(f"RCA_SUCCESS_VARIATION_STEPS must be an integer, got {steps_raw!r}")
+        return
+    if steps <= 0:
+        blockers.append(f"RCA_SUCCESS_VARIATION_STEPS must be positive, got {steps_raw!r}")
+        return
+
+    task = os.environ.get("RCA_SUCCESS_VARIATION_TASK", "").strip() or None
+    try:
+        report = plan_gate.build_report(
+            manifest_path,
+            env_name=os.environ.get("RCA_SUCCESS_VARIATION_ENV_NAME", "rca-success-variation-batch-vm"),
+            remote_root=os.environ.get(
+                "RCA_SUCCESS_VARIATION_REMOTE_ROOT",
+                "/home/ubuntu/projects/robot-contact-assembly",
+            ),
+            compose_root=os.environ.get("RCA_SUCCESS_VARIATION_COMPOSE_ROOT", "/home/ubuntu/isaac-compose"),
+            task=task,
+            steps=steps,
+        )
+    except Exception as exc:  # noqa: BLE001 - expose malformed plan as a blocker.
+        blockers.append(f"success variation batch plan is invalid: {exc}")
+        return
+
+    facts["batch_plan"] = report.get("summary")
+    if not report.get("pass"):
+        failures = report.get("failures") if isinstance(report.get("failures"), list) else []
+        detail = "; ".join(str(item) for item in failures[:5]) or "unknown plan-gate failure"
+        blockers.append(f"success variation batch plan is invalid: {detail}")
+
+
+def _check_time_budget_contract(manifest_path: Path, blockers: list[str], facts: dict[str, Any]) -> None:
+    """Prove the configured case timeout envelope fits the paid VM TTL."""
+
+    try:
+        manifest = _load_json(manifest_path)
+    except Exception as exc:  # noqa: BLE001 - malformed manifest should block paid runs.
+        blockers.append(f"cannot check success variation timeout envelope: {exc}")
+        return
+    raw_cases = manifest.get("cases")
+    if not isinstance(raw_cases, list):
+        blockers.append("cannot check success variation timeout envelope: manifest.cases must be a list")
+        return
+
+    planned_cases = [
+        case
+        for case in raw_cases
+        if isinstance(case, dict) and case.get("status") != "available"
+    ]
+    planned_case_count = len(planned_cases)
+    planned_seeds: list[int] = []
+    for case in planned_cases:
+        try:
+            planned_seeds.append(int(case.get("seed") or 42))
+        except (TypeError, ValueError):
+            blockers.append(f"case {case.get('case_id')} seed must be an integer")
+            return
+
+    setup_reserve = _parse_positive_int_env("RCA_SUCCESS_VARIATION_SETUP_RESERVE_SECONDS", 900, blockers)
+    margin = _parse_positive_int_env("RCA_SUCCESS_VARIATION_TIMEOUT_MARGIN_SECONDS", 300, blockers)
+    case_calibration_timeout = _parse_positive_int_env(
+        "RCA_SUCCESS_VARIATION_CASE_CALIBRATION_TIMEOUT_SECONDS",
+        300,
+        blockers,
+    )
+    case_trace_timeout = _parse_positive_int_env(
+        "RCA_SUCCESS_VARIATION_CASE_TRACE_TIMEOUT_SECONDS",
+        300,
+        blockers,
+    )
+    reuse_calibration = _parse_bool_env("RCA_SUCCESS_VARIATION_REUSE_CALIBRATION", True, blockers)
+    ttl_minutes = facts.get("ttl_minutes")
+    if not isinstance(ttl_minutes, int) or ttl_minutes <= 0:
+        facts["time_budget"] = {
+            "status": "NOT_CHECKED",
+            "reason": "ttl_minutes is unavailable",
+            "planned_case_count": planned_case_count,
+            "planned_unique_seed_count": len(set(planned_seeds)),
+        }
+        return
+    if (
+        setup_reserve is None
+        or margin is None
+        or case_calibration_timeout is None
+        or case_trace_timeout is None
+        or reuse_calibration is None
+    ):
+        facts["time_budget"] = {
+            "status": "BLOCKED",
+            "reason": "invalid timeout envelope env",
+            "planned_case_count": planned_case_count,
+            "planned_unique_seed_count": len(set(planned_seeds)),
+        }
+        return
+
+    calibration_count = len(set(planned_seeds)) if reuse_calibration else planned_case_count
+    estimated_seconds = (
+        setup_reserve
+        + calibration_count * case_calibration_timeout
+        + planned_case_count * case_trace_timeout
+        + margin
+    )
+    ttl_seconds = ttl_minutes * 60
+    facts["time_budget"] = {
+        "status": "PASS" if estimated_seconds <= ttl_seconds else "BLOCKED",
+        "ttl_minutes": ttl_minutes,
+        "ttl_seconds": ttl_seconds,
+        "estimated_batch_timeout_seconds": estimated_seconds,
+        "setup_reserve_seconds": setup_reserve,
+        "timeout_margin_seconds": margin,
+        "case_calibration_timeout_seconds": case_calibration_timeout,
+        "case_trace_timeout_seconds": case_trace_timeout,
+        "reuse_calibration": reuse_calibration,
+        "planned_case_count": planned_case_count,
+        "planned_unique_seed_count": len(set(planned_seeds)),
+        "calibration_count": calibration_count,
+        "planned_seeds": sorted(set(planned_seeds)),
+    }
+    if estimated_seconds > ttl_seconds:
+        blockers.append(
+            "success variation timeout envelope exceeds TTL: "
+            f"{estimated_seconds}s > {ttl_seconds}s; lower case timeouts, reuse calibration, "
+            "or raise RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES after budget review"
+        )
+
+
+def _check_paid_env(blockers: list[str], facts: dict[str, Any]) -> None:
+    paid_create_allowed = os.environ.get("RCA_ALLOW_PAID_BREV_CREATE") == "1"
+    lifecycle_acknowledged = os.environ.get("RCA_ACK_BREV_LIFECYCLE_RISK") == "1"
+    if not paid_create_allowed:
+        blockers.append("set RCA_ALLOW_PAID_BREV_CREATE=1 only for the deliberate paid batch run")
+    credits_verified = os.environ.get("RCA_BREV_CREDITS_VERIFIED") == "1"
+    if not credits_verified:
+        blockers.append(
+            "set RCA_BREV_CREDITS_VERIFIED=1 only after the current Brev UI/org credit balance covers this budget"
+        )
+    if LIFECYCLE_HOLD_FILE.is_file() and not lifecycle_acknowledged:
+        blockers.append(
+            "Brev lifecycle hold is active; set RCA_ACK_BREV_LIFECYCLE_RISK=1 only for a consciously chosen single retry"
+        )
+    if paid_create_allowed and credits_verified and lifecycle_acknowledged:
+        _check_paid_arming_freshness(blockers, facts)
+
+    ttl_minutes = _parse_ttl_minutes(blockers)
+    budget = _parse_float_env("RCA_PAID_BUDGET_EUR", blockers)
+    hourly = _parse_float_env("RCA_PAID_ESTIMATED_EUR_PER_HOUR", blockers)
+    credit_evidence_path = Path(os.environ.get("RCA_BREV_CREDIT_EVIDENCE_JSON", str(DEFAULT_CREDIT_EVIDENCE)))
+    if not credit_evidence_path.is_absolute():
+        credit_evidence_path = REPO_ROOT / credit_evidence_path
+    credit_max_age = _parse_positive_int_env("RCA_BREV_CREDIT_EVIDENCE_MAX_AGE_MINUTES", 60, blockers)
+    facts["ttl_minutes"] = ttl_minutes
+    facts["budget_eur"] = budget
+    facts["estimated_eur_per_hour"] = hourly
+    facts["credit_evidence_path"] = _rel(credit_evidence_path)
+    facts["credit_evidence_max_age_minutes"] = credit_max_age
+    if budget is not None and credit_max_age is not None and credits_verified:
+        credit_report = credit_gate.build_report(
+            evidence_path=credit_evidence_path,
+            required_budget_eur=budget,
+            max_age_minutes=credit_max_age,
+        )
+        facts["credit_evidence"] = credit_report
+        if credit_report.get("status") != "PASS":
+            blockers.append(
+                "RCA_BREV_CREDITS_VERIFIED=1 requires passing current Brev UI credit evidence"
+            )
+    elif not credits_verified:
+        facts["credit_evidence"] = {
+            "status": "NOT_CHECKED",
+            "reason": "RCA_BREV_CREDITS_VERIFIED is not 1",
+        }
+    if ttl_minutes is not None and budget is not None and hourly is not None:
+        estimated_max = hourly * ttl_minutes / 60.0
+        facts["estimated_max_cost_eur"] = round(estimated_max, 4)
+        if estimated_max - budget > 1e-9:
+            blockers.append(
+                f"estimated max cost {estimated_max:.4f} EUR exceeds budget {budget:.4f} EUR"
+            )
+
+
+def main() -> int:
+    manifest_path = Path(sys.argv[1]).expanduser() if len(sys.argv) > 1 else DEFAULT_MANIFEST
+    if not manifest_path.is_absolute():
+        manifest_path = REPO_ROOT / manifest_path
+
+    blockers: list[str] = []
+    facts: dict[str, Any] = {}
+
+    _check_manifest_contract(manifest_path, blockers, facts)
+    _check_batch_plan_contract(manifest_path, blockers, facts)
+    _check_paid_env(blockers, facts)
+    _check_time_budget_contract(manifest_path, blockers, facts)
+    _check_phase2_gate(blockers, facts)
+    _check_brev_safety(blockers, facts)
+    _check_instance_price(blockers, facts)
+
+    print("[success-variation-readiness] facts=" + json.dumps(facts, indent=2, sort_keys=True))
+    if blockers:
+        print("[success-variation-readiness] BLOCKED")
+        for blocker in blockers:
+            print(f"- {blocker}")
+        return 2
+
+    print("[success-variation-readiness] READY")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

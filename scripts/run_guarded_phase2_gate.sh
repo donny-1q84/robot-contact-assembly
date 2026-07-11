@@ -21,9 +21,18 @@ DELETE_TIMEOUT_SECONDS="${RCA_GATE_DELETE_TIMEOUT_SECONDS:-600}"
 DELETE_RETRY_INTERVAL_SECONDS="${RCA_GATE_DELETE_RETRY_INTERVAL_SECONDS:-30}"
 BREV_QUERY_TIMEOUT="${RCA_GATE_BREV_QUERY_TIMEOUT:-45}"
 BREV_MUTATION_TIMEOUT="${RCA_GATE_BREV_MUTATION_TIMEOUT:-180}"
-DELETE_ON_EXIT="${RCA_GATE_DELETE_ON_EXIT:-1}"
-KEEP_ON_FAILURE="${RCA_GATE_KEEP_ON_FAILURE:-0}"
+DIRECT_SSH_AFTER_CREATE_READY="${RCA_GATE_DIRECT_SSH_AFTER_CREATE_READY:-0}"
+DIRECT_SSH_PROBE_ATTEMPTS="${RCA_GATE_DIRECT_SSH_PROBE_ATTEMPTS:-6}"
+DIRECT_SSH_PROBE_INTERVAL_SECONDS="${RCA_GATE_DIRECT_SSH_PROBE_INTERVAL_SECONDS:-10}"
+SSH_CONNECT_TIMEOUT="${RCA_GATE_SSH_CONNECT_TIMEOUT:-20}"
+SSH_COMMAND_TIMEOUT="${RCA_GATE_SSH_COMMAND_TIMEOUT:-60}"
 ALLOW_DIRTY="${RCA_ALLOW_DIRTY:-0}"
+ALLOW_PAID_BREV_CREATE="${RCA_ALLOW_PAID_BREV_CREATE:-0}"
+WATCHDOG_MAX_MINUTES="${RCA_GATE_WATCHDOG_MAX_MINUTES:-120}"
+WATCHDOG_POLL_SECONDS="${RCA_GATE_WATCHDOG_POLL_SECONDS:-120}"
+WATCHDOG_WAIT_MAX_MINUTES="${RCA_GATE_WATCHDOG_WAIT_MAX_MINUTES:-$(( (CREATE_TIMEOUT + 599) / 60 + 10 ))}"
+WATCHDOG_START_GRACE_SECONDS="${RCA_GATE_WATCHDOG_START_GRACE_SECONDS:-2}"
+WATCHDOG_DASHBOARD_URL="${RCA_GATE_WATCHDOG_DASHBOARD_URL:-https://brev.nvidia.com/org/org-3BaYGdtoRGmgc77Z7NHHhPSD254/environments}"
 
 TASK_NAME="${RCA_GATE_TASK:-RCA-PegInHole-Franka-IK-Rel-Contact-Play-v0}"
 NUM_ENVS="${RCA_GATE_NUM_ENVS:-1}"
@@ -56,6 +65,7 @@ REMOTE_ROOT=""
 REMOTE_COMPOSE_ROOT=""
 CREATED_INSTANCE=0
 FINAL_STATUS=0
+WATCHDOG_PID=""
 
 log() {
   echo "[guarded-gate] $*"
@@ -200,6 +210,18 @@ refuse_if_instance_would_conflict() {
   return 1
 }
 
+require_paid_brev_create_ack() {
+  if [[ "${ALLOW_PAID_BREV_CREATE}" == "1" ]]; then
+    return 0
+  fi
+
+  cat >&2 <<'EOF'
+[guarded-gate] refusing to create a paid Brev instance.
+[guarded-gate] Set RCA_ALLOW_PAID_BREV_CREATE=1 and RCA_BREV_CREDITS_VERIFIED=1 only after confirming credits/budget and a manual deletion path in the Brev UI.
+EOF
+  return 2
+}
+
 target_instance_ids() {
   local json
   set +e
@@ -240,6 +262,40 @@ delete_target_instance() {
     log "deleting instance id=${id}"
     run_with_timeout "${BREV_MUTATION_TIMEOUT}" "${BREV_BIN}" delete "${id}" || true
   done <<< "${ids}"
+}
+
+start_billing_watchdog() {
+  local watchdog_dir launcher_log
+  watchdog_dir="${LOCAL_RUN_DIR}/billing_watchdog"
+  launcher_log="${watchdog_dir}/watchdog_launcher.log"
+  mkdir -p "${watchdog_dir}"
+  log "starting Brev billing watchdog max_minutes=${WATCHDOG_MAX_MINUTES} poll_seconds=${WATCHDOG_POLL_SECONDS}"
+  nohup env \
+    RCA_BREV_CLI="${BREV_BIN}" \
+    RCA_BREV_WATCHDOG_INSTANCE_NAME="${INSTANCE_NAME}" \
+    RCA_BREV_WATCHDOG_MAX_MINUTES="${WATCHDOG_MAX_MINUTES}" \
+    RCA_BREV_WATCHDOG_POLL_SECONDS="${WATCHDOG_POLL_SECONDS}" \
+    RCA_BREV_WATCHDOG_WAIT_FOR_APPEAR=1 \
+    RCA_BREV_WATCHDOG_WAIT_MAX_MINUTES="${WATCHDOG_WAIT_MAX_MINUTES}" \
+    RCA_BREV_WATCHDOG_DASHBOARD_URL="${WATCHDOG_DASHBOARD_URL}" \
+    RCA_BREV_WATCHDOG_LEDGER_DIR="${watchdog_dir}" \
+    "${SCRIPT_DIR}/brev_paid_run_watchdog.sh" >"${launcher_log}" 2>&1 &
+  WATCHDOG_PID="$!"
+  printf '%s\n' "${WATCHDOG_PID}" > "${watchdog_dir}/watchdog.pid"
+  verify_watchdog_alive "${WATCHDOG_PID}" "${launcher_log}"
+  disown "${WATCHDOG_PID}" 2>/dev/null || true
+}
+
+verify_watchdog_alive() {
+  local pid="$1"
+  local launcher_log="$2"
+
+  sleep "${WATCHDOG_START_GRACE_SECONDS}"
+  if ! kill -0 "${pid}" 2>/dev/null; then
+    log "billing watchdog exited before instance creation; refusing paid create"
+    cat "${launcher_log}" >&2 2>/dev/null || true
+    exit 2
+  fi
 }
 
 wait_for_ready() {
@@ -295,6 +351,65 @@ wait_for_empty_org() {
   return 1
 }
 
+run_brev_refresh() {
+  log "refreshing Brev SSH config"
+  run_with_timeout "${BREV_MUTATION_TIMEOUT}" "${BREV_BIN}" refresh || true
+}
+
+run_ssh() {
+  local command="$1"
+  run_with_timeout \
+    "${SSH_COMMAND_TIMEOUT}" \
+    ssh \
+    -o BatchMode=yes \
+    -o ConnectTimeout="${SSH_CONNECT_TIMEOUT}" \
+    -o StrictHostKeyChecking=accept-new \
+    "${INSTANCE_NAME}" \
+    "${command}"
+}
+
+probe_remote_host() {
+  local remote_user_output
+
+  log "probing remote host"
+  run_ssh 'whoami && hostname && nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader && df -h /' || return 1
+  remote_user_output="$(run_ssh 'whoami')" || return 1
+  REMOTE_USER="$(strip_cr "${remote_user_output}" | awk 'NF { value = $0 } END { print value }')"
+  if [[ -z "${REMOTE_USER}" ]]; then
+    log "remote whoami probe returned an empty user"
+    return 1
+  fi
+  REMOTE_ROOT="$(strip_cr "${RCA_REMOTE_ROOT:-/home/${REMOTE_USER}/projects/robot-contact-assembly}")"
+  REMOTE_COMPOSE_ROOT="$(strip_cr "${RCA_REMOTE_COMPOSE_ROOT:-/home/${REMOTE_USER}/isaac-compose}")"
+  log "remote_user=${REMOTE_USER}"
+  log "remote_root=${REMOTE_ROOT}"
+  log "remote_compose_root=${REMOTE_COMPOSE_ROOT}"
+}
+
+direct_ssh_probe_after_create_ready() {
+  local attempt
+
+  if [[ "${DIRECT_SSH_AFTER_CREATE_READY}" != "1" ]]; then
+    return 1
+  fi
+
+  log "Brev list readiness did not become READY; trying direct SSH probe because RCA_GATE_DIRECT_SSH_AFTER_CREATE_READY=1"
+  for (( attempt = 1; attempt <= DIRECT_SSH_PROBE_ATTEMPTS; attempt++ )); do
+    log "direct SSH probe attempt ${attempt}/${DIRECT_SSH_PROBE_ATTEMPTS}"
+    run_brev_refresh
+    if probe_remote_host; then
+      log "direct SSH probe succeeded"
+      return 0
+    fi
+    if (( attempt < DIRECT_SSH_PROBE_ATTEMPTS )); then
+      sleep "${DIRECT_SSH_PROBE_INTERVAL_SECONDS}"
+    fi
+  done
+
+  log "direct SSH probe failed after ${DIRECT_SSH_PROBE_ATTEMPTS} attempts"
+  return 1
+}
+
 cleanup() {
   local status=$?
   FINAL_STATUS="${status}"
@@ -306,7 +421,7 @@ cleanup() {
     bash "${SCRIPT_DIR}/pull_artifacts.sh" "${INSTANCE_NAME}" "${REMOTE_ROOT}" "${REPO_ROOT}/artifacts" || true
   fi
 
-  if [[ "${CREATED_INSTANCE}" == "1" && "${DELETE_ON_EXIT}" == "1" && ( "${KEEP_ON_FAILURE}" != "1" || "${status}" == "0" ) ]]; then
+  if [[ "${CREATED_INSTANCE}" == "1" ]]; then
     delete_target_instance || true
     if wait_for_empty_org; then
       log "confirmed no visible instances after delete"
@@ -316,8 +431,7 @@ cleanup() {
       run_brev_json_all || true
     fi
   else
-    log "skipping delete: CREATED_INSTANCE=${CREATED_INSTANCE} DELETE_ON_EXIT=${DELETE_ON_EXIT} KEEP_ON_FAILURE=${KEEP_ON_FAILURE} status=${status}"
-    run_brev_ls_all || true
+    log "no Brev instance was created"
   fi
 
   cat > "${LOCAL_RUN_DIR}/gate_metadata.env" <<EOF
@@ -331,6 +445,15 @@ task_name=${TASK_NAME}
 num_envs=${NUM_ENVS}
 steps=${STEPS}
 build_stuck_seconds=${BUILD_STUCK_SECONDS}
+watchdog_enabled=1
+watchdog_max_minutes=${WATCHDOG_MAX_MINUTES}
+watchdog_poll_seconds=${WATCHDOG_POLL_SECONDS}
+watchdog_pid=${WATCHDOG_PID}
+direct_ssh_after_create_ready=${DIRECT_SSH_AFTER_CREATE_READY}
+direct_ssh_probe_attempts=${DIRECT_SSH_PROBE_ATTEMPTS}
+direct_ssh_probe_interval_seconds=${DIRECT_SSH_PROBE_INTERVAL_SECONDS}
+ssh_connect_timeout=${SSH_CONNECT_TIMEOUT}
+ssh_command_timeout=${SSH_COMMAND_TIMEOUT}
 calibration_steps=${CALIBRATION_STEPS}
 scripted_steps=${SCRIPTED_STEPS}
 seeds=${SEEDS}
@@ -392,6 +515,14 @@ main() {
     return 2
   fi
 
+  log "preflight: paid compute guard"
+  RCA_PAID_RUN_PURPOSE="${RCA_PAID_RUN_PURPOSE:-post_contact_gate}" \
+  RCA_PAID_INSTANCE_NAME="${INSTANCE_NAME}" \
+  RCA_PAID_MAX_MINUTES="${WATCHDOG_MAX_MINUTES}" \
+  RCA_BREV_CREDITS_VERIFIED="${RCA_BREV_CREDITS_VERIFIED:-0}" \
+  RCA_BREV_CLI="${BREV_BIN}" \
+    "${SCRIPT_DIR}/paid_compute_preflight.sh"
+
   log "preflight: current Brev instances"
   run_brev_ls_all || true
   if ! refuse_if_instance_would_conflict; then
@@ -399,6 +530,7 @@ main() {
     run_brev_json_all || true
     return 2
   fi
+  require_paid_brev_create_ack
 
   log "preflight: recording live price tables"
   run_brev_search --min-total-vram 24 --min-disk "${MIN_DISK}" --stoppable --sort price | head -40 | tee "${LOCAL_RUN_DIR}/brev_search_24gb.txt"
@@ -409,22 +541,16 @@ main() {
 
   log "creating ${INSTANCE_NAME} type=${INSTANCE_TYPE}"
   CREATED_INSTANCE=1
+  start_billing_watchdog
   "${BREV_BIN}" create "${INSTANCE_NAME}" --type "${INSTANCE_TYPE}" --min-disk "${MIN_DISK}" --stoppable --timeout "${CREATE_TIMEOUT}"
 
   log "waiting for instance readiness"
-  wait_for_ready
-
-  log "refreshing Brev SSH config"
-  run_with_timeout "${BREV_MUTATION_TIMEOUT}" "${BREV_BIN}" refresh || true
-
-  log "probing remote host"
-  ssh "${INSTANCE_NAME}" 'whoami && hostname && nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader && df -h /'
-  REMOTE_USER="$(ssh "${INSTANCE_NAME}" 'whoami' | tr -d '\r')"
-  REMOTE_ROOT="$(strip_cr "${RCA_REMOTE_ROOT:-/home/${REMOTE_USER}/projects/robot-contact-assembly}")"
-  REMOTE_COMPOSE_ROOT="$(strip_cr "${RCA_REMOTE_COMPOSE_ROOT:-/home/${REMOTE_USER}/isaac-compose}")"
-  log "remote_user=${REMOTE_USER}"
-  log "remote_root=${REMOTE_ROOT}"
-  log "remote_compose_root=${REMOTE_COMPOSE_ROOT}"
+  if wait_for_ready; then
+    run_brev_refresh
+    probe_remote_host
+  elif ! direct_ssh_probe_after_create_ready; then
+    return 1
+  fi
 
   if [[ "${GATE_COMMAND}" == "probe_only" ]]; then
     log "probe-only gate completed"

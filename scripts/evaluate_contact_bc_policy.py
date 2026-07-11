@@ -4,15 +4,44 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import json
 import os
 import sys
+import tarfile
 
 import gymnasium as gym
 import torch
 import warp as wp
 
-from isaaclab_tasks.utils import add_launcher_args, launch_simulation, resolve_task_config
+_FORCE_APP_LAUNCHER = os.environ.get("RCA_FORCE_APP_LAUNCHER", "0") == "1"
+_USE_TASK_UTILS_LAUNCHER = False
+_ARTIFACT_ROOT = os.environ.get("RCA_ARTIFACT_ROOT", "/workspace/artifacts")
+_HYDRA_ROOT = os.path.join(_ARTIFACT_ROOT, "hydra")
+
+if not _FORCE_APP_LAUNCHER:
+    try:
+        from isaaclab_tasks.utils import add_launcher_args, launch_simulation, resolve_task_config
+
+        _USE_TASK_UTILS_LAUNCHER = True
+    except (ImportError, ModuleNotFoundError):
+        pass
+
+if not _USE_TASK_UTILS_LAUNCHER:
+    from isaaclab.app import AppLauncher
+
+    add_launcher_args = AppLauncher.add_app_launcher_args
+    launch_simulation = None
+    resolve_task_config = None
+    _USE_TASK_UTILS_LAUNCHER = False
+
+
+def _close_ignoring_system_exit(close_fn, label: str) -> None:
+    try:
+        close_fn()
+    except SystemExit as exc:
+        print(f"[WARN]: Ignoring SystemExit while closing {label}: {exc!r}", file=sys.stderr, flush=True)
+
 
 from extract_contact_demo_dataset import HISTORY_FIELDS, OBS_FIELDS
 
@@ -27,6 +56,35 @@ PEG_TIP_BODY_OFFSET_ROT = None
 PEG_TIP_FROM_CENTER_POS = None
 mdp = None
 BODY_OFFSET = None
+
+
+@contextmanager
+def _launched_env_cfg(task_name: str, args):
+    if _USE_TASK_UTILS_LAUNCHER:
+        import robot_contact_assembly_tasks.tasks  # noqa: F401
+
+        env_cfg, _ = resolve_task_config(task_name, "")
+        env_cfg.seed = args.seed
+        with launch_simulation(env_cfg, args):
+            yield env_cfg
+        return
+
+    app_launcher = AppLauncher(args)
+    simulation_app = app_launcher.app
+    try:
+        import robot_contact_assembly_tasks.tasks  # noqa: F401
+        from isaaclab_tasks.utils import parse_env_cfg
+
+        env_cfg = parse_env_cfg(
+            task_name,
+            device=args.device if args.device is not None else "cuda:0",
+            num_envs=args.num_envs,
+            use_fabric=False if args.disable_fabric else None,
+        )
+        env_cfg.seed = args.seed
+        yield env_cfg
+    finally:
+        _close_ignoring_system_exit(simulation_app.close, "simulation app")
 
 
 def _as_torch(value) -> torch.Tensor:
@@ -63,9 +121,19 @@ def _socket_pose_w(env_unwrapped) -> tuple[torch.Tensor, torch.Tensor]:
 
 
 def _physical_peg_tip_pose_w(env_unwrapped) -> tuple[torch.Tensor, torch.Tensor]:
-    peg = env_unwrapped.scene["peg"]
-    peg_pos_w = _as_torch(peg.data.root_pos_w)
-    peg_quat_w = _as_torch(peg.data.root_quat_w)
+    try:
+        peg = env_unwrapped.scene["peg"]
+        peg_data = getattr(peg, "data", None)
+        if peg_data is None or not hasattr(peg_data, "root_pos_w"):
+            raise AttributeError("scene peg has no RigidObject root pose data")
+        peg_pos_w = _as_torch(peg_data.root_pos_w)
+        peg_quat_w = _as_torch(peg_data.root_quat_w)
+    except (AttributeError, KeyError, RuntimeError, ValueError):
+        # Current contact-shell runtime welds the peg into the Franka
+        # articulation and does not expose it as a separate RigidObject view.
+        # In that model the physical tip is the calibrated hand action frame.
+        robot = env_unwrapped.scene["robot"]
+        return _action_frame_pose_w(env_unwrapped, robot.body_names.index("panda_hand"))
     tip_offset_pos = peg_pos_w.new_tensor(PEG_TIP_FROM_CENTER_POS).unsqueeze(0).repeat(peg_pos_w.shape[0], 1)
     tip_offset_quat = peg_pos_w.new_tensor(IDENTITY_QUAT).unsqueeze(0).repeat(peg_pos_w.shape[0], 1)
     return combine_frame_transforms(peg_pos_w, peg_quat_w, tip_offset_pos, tip_offset_quat)
@@ -175,9 +243,36 @@ def _append_history(
     return torch.cat(parts, dim=-1)
 
 
+def _load_trace_json(path: str) -> dict:
+    if "::" not in path:
+        with open(path, "r", encoding="utf-8") as f:
+            loaded = json.load(f)
+        if not isinstance(loaded, dict):
+            raise RuntimeError(f"trace JSON is not an object: {path}")
+        return loaded
+    archive_path, member_name = path.split("::", 1)
+    with tarfile.open(archive_path, "r:*") as tar:
+        extracted = tar.extractfile(member_name)
+        if extracted is None:
+            raise RuntimeError(f"trace archive member is not extractable: {path}")
+        with extracted:
+            loaded = json.load(extracted)
+    if not isinstance(loaded, dict):
+        raise RuntimeError(f"trace JSON is not an object: {path}")
+    return loaded
+
+
+def _abspath_trace_ref(path: str | None) -> str | None:
+    if path is None:
+        return None
+    if "::" not in path:
+        return os.path.abspath(path)
+    archive_path, member_name = path.split("::", 1)
+    return f"{os.path.abspath(archive_path)}::{member_name}"
+
+
 def _load_trace_actions(path: str, *, start_step: int, end_step: int | None, action_dim: int) -> list[dict]:
-    with open(path, "r", encoding="utf-8") as f:
-        trace = json.load(f)
+    trace = _load_trace_json(path)
     actions: list[dict] = []
     for index, step in enumerate(trace.get("steps") or []):
         raw_source_step = step.get("step")
@@ -196,11 +291,40 @@ def _load_trace_actions(path: str, *, start_step: int, end_step: int | None, act
                 "source_step": source_step,
                 "phase": str(step.get("phase") or ""),
                 "raw_action": [float(x) for x in raw_action],
+                "source_lateral": step.get("lateral"),
+                "source_axial": step.get("axial"),
+                "source_rot": step.get("rot"),
+                "source_contact_force_magnitude": step.get("contact_force_magnitude"),
+                "source_strict_miss_score": step.get("strict_miss_score"),
+                "source_near_contact": step.get("near_contact"),
+                "source_success": step.get("success"),
             }
         )
     if not actions:
         raise RuntimeError(f"no replayable actions found in {path} for steps [{start_step}, {end_step}]")
     return actions
+
+
+def _load_preload_candidate(path: str, *, index: int, category: str) -> dict:
+    with open(path, "r", encoding="utf-8") as f:
+        manifest = json.load(f)
+    candidates = manifest.get("candidates") if isinstance(manifest, dict) else None
+    if not isinstance(candidates, list):
+        raise RuntimeError(f"candidate manifest has no candidates array: {path}")
+    filtered = [
+        candidate
+        for candidate in candidates
+        if isinstance(candidate, dict) and (not category or candidate.get("category") == category)
+    ]
+    if not filtered:
+        detail = f" category={category!r}" if category else ""
+        raise RuntimeError(f"candidate manifest has no usable candidates{detail}: {path}")
+    if index < 0 or index >= len(filtered):
+        raise RuntimeError(f"candidate index {index} out of range for {len(filtered)} candidates")
+    candidate = filtered[index]
+    if not isinstance(candidate.get("trace"), str) or candidate.get("step") is None:
+        raise RuntimeError(f"candidate is missing trace/step: {candidate}")
+    return candidate
 
 
 def _strict_miss_score(
@@ -334,19 +458,50 @@ parser.add_argument("--joint-limit-margin", type=float, default=0.005)
 parser.add_argument("--preload-trace-json", type=str, default=None, help="Optional scripted trace JSON to replay before BC control.")
 parser.add_argument("--preload-trace-start-step", type=int, default=0, help="First source trace step to replay.")
 parser.add_argument("--preload-trace-end-step", type=int, default=None, help="Last source trace step to replay.")
+parser.add_argument(
+    "--preload-candidate-json",
+    type=str,
+    default=None,
+    help=(
+        "Optional final-contact reset candidate manifest. When set, the selected candidate supplies "
+        "--preload-trace-json and --preload-trace-end-step unless they are explicitly provided."
+    ),
+)
+parser.add_argument("--preload-candidate-index", type=int, default=0, help="Index within the filtered candidate list.")
+parser.add_argument(
+    "--preload-candidate-category",
+    type=str,
+    default="strict_near_miss",
+    help="Candidate category to select from the manifest. Empty string disables category filtering.",
+)
 parser.add_argument("--summary-json", type=str, default=None)
 parser.add_argument("--trace-json", type=str, default=None)
 add_launcher_args(parser)
 args_cli, hydra_args = parser.parse_known_args()
+preload_candidate = None
+if args_cli.preload_candidate_json:
+    preload_candidate = _load_preload_candidate(
+        args_cli.preload_candidate_json,
+        index=max(0, args_cli.preload_candidate_index),
+        category=args_cli.preload_candidate_category,
+    )
+    if args_cli.preload_trace_json is None:
+        args_cli.preload_trace_json = preload_candidate["trace"]
+    if args_cli.preload_trace_end_step is None:
+        args_cli.preload_trace_end_step = int(preload_candidate["step"])
+    print(
+        "[BC-EVAL] preload candidate "
+        f"category={preload_candidate.get('category')} run={preload_candidate.get('run_id')} "
+        f"step={preload_candidate.get('step')} trace={preload_candidate.get('trace')}",
+        flush=True,
+    )
 hydra_args.extend(
     [
-        r"hydra.run.dir=/workspace/artifacts/hydra/${now:%Y-%m-%d}/${now:%H-%M-%S}",
+        f"hydra.run.dir={_HYDRA_ROOT}/${{now:%Y-%m-%d}}/${{now:%H-%M-%S}}",
         "hydra.output_subdir=null",
     ]
 )
 sys.argv = [sys.argv[0]] + hydra_args
-
-import robot_contact_assembly_tasks.tasks  # noqa: E402,F401
 
 
 def main() -> None:
@@ -354,11 +509,9 @@ def main() -> None:
     global IDENTITY_QUAT, PEG_TIP_BODY_OFFSET_POS, PEG_TIP_BODY_OFFSET_ROT, PEG_TIP_FROM_CENTER_POS, mdp, BODY_OFFSET
 
     torch.manual_seed(args_cli.seed)
-    os.makedirs("/workspace/artifacts/hydra", exist_ok=True)
-    env_cfg, _ = resolve_task_config(args_cli.task, "")
-    env_cfg.seed = args_cli.seed
+    os.makedirs(_HYDRA_ROOT, exist_ok=True)
 
-    with launch_simulation(env_cfg, args_cli):
+    with _launched_env_cfg(args_cli.task, args_cli) as env_cfg:
         from isaaclab.managers import SceneEntityCfg
         from isaaclab.utils.math import combine_frame_transforms, compute_pose_error, subtract_frame_transforms
         from robot_contact_assembly_tasks.tasks.manager_based.manipulation.peg_in_hole import mdp
@@ -467,6 +620,7 @@ def main() -> None:
         preload_best_strict_miss_score_step = None
         handoff_lateral = handoff_axial = handoff_rot = handoff_contact_force = handoff_strict_miss_score = None
         handoff_near_contact_rate = None
+        handoff_source_metrics = None
         last_preload_action = None
         penultimate_preload_action = None
         history_actions: list[torch.Tensor] = []
@@ -557,9 +711,25 @@ def main() -> None:
                             "strict_miss_score": strict_miss[0].item(),
                             "near_contact": bool(near_contact[0].item()),
                             "success": bool(success[0].item()),
+                            "source_lateral": replay["source_lateral"],
+                            "source_axial": replay["source_axial"],
+                            "source_rot": replay["source_rot"],
+                            "source_contact_force_magnitude": replay["source_contact_force_magnitude"],
+                            "source_strict_miss_score": replay["source_strict_miss_score"],
+                            "source_near_contact": replay["source_near_contact"],
+                            "source_success": replay["source_success"],
                             "raw_action": replay["raw_action"],
                         }
                     )
+                handoff_source_metrics = {
+                    "lateral": replay["source_lateral"],
+                    "axial": replay["source_axial"],
+                    "rot": replay["source_rot"],
+                    "contact_force_magnitude": replay["source_contact_force_magnitude"],
+                    "strict_miss_score": replay["source_strict_miss_score"],
+                    "near_contact": replay["source_near_contact"],
+                    "success": replay["source_success"],
+                }
             lateral, axial, rot, contact_force = read_metrics()
             handoff_strict_miss = _strict_miss_score(
                 lateral,
@@ -593,6 +763,15 @@ def main() -> None:
                 f"miss={handoff_strict_miss_score:.4f} near={handoff_near_contact_rate:.3f}",
                 flush=True,
             )
+            if handoff_source_metrics and handoff_source_metrics["lateral"] is not None:
+                print(
+                    "[BC-EVAL] source handoff "
+                    f"lateral={float(handoff_source_metrics['lateral']):.4f} "
+                    f"axial={float(handoff_source_metrics['axial']):.4f} "
+                    f"rot={float(handoff_source_metrics['rot']):.4f} "
+                    f"contact={float(handoff_source_metrics['contact_force_magnitude']):.3f}",
+                    flush=True,
+                )
 
         success_step = None
         initial_lateral = initial_axial = initial_rot = None
@@ -818,7 +997,7 @@ def main() -> None:
             if success_step == step:
                 break
 
-        env.close()
+        _close_ignoring_system_exit(env.close, "environment")
         mean_near_contact_rate_on_near_steps = (
             near_contact_rate_sum / max(1, near_contact_step_count) if near_contact_step_count else 0.0
         )
@@ -838,9 +1017,19 @@ def main() -> None:
             "success_step": success_step,
             "bc_success_step": success_step,
             "preload_success_step": preload_success_step,
-            "preload_trace_json": os.path.abspath(args_cli.preload_trace_json) if args_cli.preload_trace_json else None,
+            "preload_trace_json": _abspath_trace_ref(args_cli.preload_trace_json),
             "preload_trace_start_step": args_cli.preload_trace_start_step if args_cli.preload_trace_json else None,
             "preload_trace_end_step": args_cli.preload_trace_end_step if args_cli.preload_trace_json else None,
+            "preload_candidate_json": (
+                os.path.abspath(args_cli.preload_candidate_json) if args_cli.preload_candidate_json else None
+            ),
+            "preload_candidate_index": args_cli.preload_candidate_index if args_cli.preload_candidate_json else None,
+            "preload_candidate_category": args_cli.preload_candidate_category if args_cli.preload_candidate_json else None,
+            "preload_candidate_run_id": preload_candidate.get("run_id") if preload_candidate else None,
+            "preload_candidate_step": preload_candidate.get("step") if preload_candidate else None,
+            "preload_candidate_tags": preload_candidate.get("tags") if preload_candidate else None,
+            "preload_candidate_reset_use": preload_candidate.get("reset_use") if preload_candidate else None,
+            "preload_candidate_label_use": preload_candidate.get("label_use") if preload_candidate else None,
             "preload_steps_executed": preload_steps_executed,
             "preload_best_strict_miss_score": preload_best_strict_miss_score,
             "preload_best_strict_miss_score_step": preload_best_strict_miss_score_step,
@@ -850,6 +1039,17 @@ def main() -> None:
             "handoff_contact_force_magnitude": handoff_contact_force,
             "handoff_strict_miss_score": handoff_strict_miss_score,
             "handoff_near_contact_rate": handoff_near_contact_rate,
+            "handoff_source_lateral": handoff_source_metrics["lateral"] if handoff_source_metrics else None,
+            "handoff_source_axial": handoff_source_metrics["axial"] if handoff_source_metrics else None,
+            "handoff_source_rot": handoff_source_metrics["rot"] if handoff_source_metrics else None,
+            "handoff_source_contact_force_magnitude": (
+                handoff_source_metrics["contact_force_magnitude"] if handoff_source_metrics else None
+            ),
+            "handoff_source_strict_miss_score": (
+                handoff_source_metrics["strict_miss_score"] if handoff_source_metrics else None
+            ),
+            "handoff_source_near_contact": handoff_source_metrics["near_contact"] if handoff_source_metrics else None,
+            "handoff_source_success": handoff_source_metrics["success"] if handoff_source_metrics else None,
             "initial_lateral": initial_lateral,
             "initial_axial": initial_axial,
             "initial_rot": initial_rot,

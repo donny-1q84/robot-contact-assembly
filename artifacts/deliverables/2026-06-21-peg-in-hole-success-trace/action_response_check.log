@@ -1,0 +1,33 @@
+{
+  "bad_fraction": 0.0,
+  "bad_steps": 0,
+  "first_success_step": 167,
+  "max_cosine": 0.851779064872139,
+  "min_cosine": 0.0027558550253306544,
+  "pass": true,
+  "steps_assessed": 162,
+  "steps_skipped": 6,
+  "steps_total": 183,
+  "stop_after_first_success": true,
+  "trace": "artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json",
+  "worst": {
+    "actual_delta": [
+      -8.314847946166992e-05,
+      5.5208802223205566e-05,
+      1.0401010513305664e-05
+    ],
+    "actual_norm": 0.0001003487045228122,
+    "bad": false,
+    "command_delta": [
+      -0.00037491321563720703,
+      -0.0005890093743801117,
+      0.00014829635620117188
+    ],
+    "command_norm": 0.0007137813191935092,
+    "cosine": 0.0027558550253306544,
+    "phase": "socket-insertion-servo",
+    "projection": 1.9739371248661541e-10,
+    "step": 163
+  }
+}
+[action-response] PASS

@@ -1,0 +1,15 @@
+{
+  "duration_seconds": 9.15,
+  "final_axial": 0.007546612061560154,
+  "final_contact_force_magnitude": 0.5527539253234863,
+  "final_lateral": 0.0015925065381452441,
+  "final_rot": 0.054073676466941833,
+  "first_success_step": 167,
+  "fps": 20,
+  "frame_count": 183,
+  "output_mp4": "artifacts/videos/trace_rendered/2026-06-21T20-05-25Z/peg_in_hole_trace_render.mp4",
+  "renderer": "trace-rendered diagnostic, not Isaac viewport footage",
+  "source_trace": "artifacts/videos/trace_only/2026-06-21T20-05-25Z/video_trace.json",
+  "summary_final_success_rate": 1.0,
+  "summary_success_step": 167
+}

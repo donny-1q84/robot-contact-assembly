@@ -1,0 +1,14 @@
+/home/ubuntu/rca-real-video-pull-4akhlpjad/evidence/contact_physics_smoke.log
+/home/ubuntu/rca-real-video-pull-4akhlpjad/evidence/docker_ps.txt
+/home/ubuntu/rca-real-video-pull-4akhlpjad/evidence/file_index.txt
+/home/ubuntu/rca-real-video-pull-4akhlpjad/evidence/nvidia_smi.txt
+/home/ubuntu/rca-real-video-pull-4akhlpjad/evidence/remote_packaging.txt
+/home/ubuntu/rca-real-video-pull-4akhlpjad/evidence/run_id.txt
+/home/ubuntu/rca-real-video-pull-4akhlpjad/evidence/source_manifest.txt
+/home/ubuntu/rca-real-video-pull-4akhlpjad/logs/kit_20260620_140832.log
+/home/ubuntu/rca-real-video-pull-4akhlpjad/videos/2026-06-20T14-08-28Z-real-video/eval/rl-video-step-0.mp4
+/home/ubuntu/rca-real-video-pull-4akhlpjad/videos/2026-06-20T14-08-28Z-real-video/record.exit
+/home/ubuntu/rca-real-video-pull-4akhlpjad/videos/2026-06-20T14-08-28Z-real-video/record.log
+/home/ubuntu/rca-real-video-pull-4akhlpjad/videos/2026-06-20T14-08-28Z-real-video/record.meta
+/home/ubuntu/rca-real-video-pull-4akhlpjad/videos/2026-06-20T14-08-28Z-real-video/run_eval.sh
+/home/ubuntu/rca-real-video-pull-4akhlpjad/videos/2026-06-20T14-08-28Z-real-video/video_summary.json

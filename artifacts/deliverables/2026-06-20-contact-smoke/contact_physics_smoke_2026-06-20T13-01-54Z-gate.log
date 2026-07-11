@@ -1,0 +1,303 @@
+[contact-smoke] repo=/workspace/robot-contact-assembly
+[contact-smoke] task=RCA-PegInHole-Franka-IK-Abs-Contact-Play-v0 num_envs=2 seed=42 watchdog=420s
+[contact-smoke] run_id=2026-06-20T13-01-54Z-gate
+[contact-smoke] log_path=/workspace/robot-contact-assembly/artifacts/launchable_logs/contact_physics_smoke_2026-06-20T13-01-54Z-gate.log
+[contact-smoke] canonical_log_path=/workspace/robot-contact-assembly/artifacts/launchable_logs/contact_physics_smoke.log
+[contact-smoke] git_head=unknown
+[contact-smoke] source_manifest_begin
+[contact-smoke] source_manifest: created_utc=2026-06-20T12-44-48Z
+[contact-smoke] source_manifest: source_repo=/Volumes/Extreme Pro/Projects/robot-contact-assembly
+[contact-smoke] source_manifest: git_head=92465f44180c7c51a75d50b0d454ef8009db9513
+[contact-smoke] source_manifest: git_branch=master
+[contact-smoke] source_manifest: git_dirty=1
+[contact-smoke] source_manifest: source_payload_scope=runtime-v1
+[contact-smoke] source_manifest: source_payload_sha256=5ecbb035170e1cbc323d70263d5a7398c0e2a47cc2b2a2f86a7aef010a760e7f
+[contact-smoke] source_manifest: git_status_short_begin
+[contact-smoke] source_manifest:  M .gitignore
+[contact-smoke] source_manifest:  M AGENTS.md
+[contact-smoke] source_manifest:  M README.md
+[contact-smoke] source_manifest:  M docs/aws_isaac_launchable_runbook.md
+[contact-smoke] source_manifest:  M docs/current_project_handoff.md
+[contact-smoke] source_manifest:  M docs/gpu_selection_policy.md
+[contact-smoke] source_manifest:  M docs/phase2_cv_summary.md
+[contact-smoke] source_manifest:  M docs/phase2_il_contact_policy_plan.md
+[contact-smoke] source_manifest:  M scripts/bootstrap_brev_workspace.sh
+[contact-smoke] source_manifest:  M scripts/brev_paid_run_watchdog.sh
+[contact-smoke] source_manifest:  M scripts/check_contact_geometry_constants.py
+[contact-smoke] source_manifest:  M scripts/contact_physics_smoke.py
+[contact-smoke] source_manifest:  M scripts/create_launchable_bundle.sh
+[contact-smoke] source_manifest:  M scripts/evaluate_contact_bc_policy.py
+[contact-smoke] source_manifest:  M scripts/install_remote_isaaclab_runtime.sh
+[contact-smoke] source_manifest:  M scripts/pull_artifacts.sh
+[contact-smoke] source_manifest:  M scripts/push_single_file_to_brev.py
+[contact-smoke] source_manifest:  M scripts/recreate_brev_and_run_polish.sh
+[contact-smoke] source_manifest:  M scripts/remote_common.sh
+[contact-smoke] source_manifest:  M scripts/run_brev_reachable_guard_probe.sh
+[contact-smoke] source_manifest:  M scripts/run_guarded_phase2_gate.sh
+[contact-smoke] source_manifest:  M scripts/run_launchable_absik_full_arm_posture_matrix.sh
+[contact-smoke] source_manifest:  M scripts/run_launchable_absik_ik_method_matrix.sh
+[contact-smoke] source_manifest:  M scripts/run_launchable_absik_target_offset_matrix.sh
+[contact-smoke] source_manifest:  M scripts/run_launchable_contact_physics_smoke.sh
+[contact-smoke] source_manifest:  M scripts/run_launchable_headless_smoke.sh
+[contact-smoke] source_manifest:  M scripts/run_launchable_jointpos_nullspace_matrix.sh
+[contact-smoke] source_manifest:  M scripts/run_launchable_phase2_absik_handoff_probe.sh
+[contact-smoke] source_manifest:  M scripts/run_launchable_phase2_fresh_preload_direction.sh
+[contact-smoke] source_manifest:  M scripts/run_launchable_phase2_jointpos_nullspace_probe.sh
+[contact-smoke] source_manifest:  M scripts/run_launchable_phase2_preload_direction.sh
+[contact-smoke] source_manifest:  M scripts/run_launchable_rca_diagnostic_matrix.sh
+[contact-smoke] source_manifest:  M scripts/run_remote_eval_final_contact_candidate_bc.sh
+[contact-smoke] source_manifest:  M scripts/scripted_agent.py
+[contact-smoke] source_manifest:  M scripts/setup_remote_isaaclab.sh
+[contact-smoke] source_manifest:  M scripts/start_brev_ui_launchable_watchdog.sh
+[contact-smoke] source_manifest:  M scripts/start_live_code_port_forward.sh
+[contact-smoke] source_manifest:  M scripts/sync_to_brev.sh
+[contact-smoke] source_manifest:  D source/robot_contact_assembly_tasks/robot_contact_assembly_tasks.egg-info/PKG-INFO
+[contact-smoke] source_manifest:  D source/robot_contact_assembly_tasks/robot_contact_assembly_tasks.egg-info/SOURCES.txt
+[contact-smoke] source_manifest:  D source/robot_contact_assembly_tasks/robot_contact_assembly_tasks.egg-info/dependency_links.txt
+[contact-smoke] source_manifest:  D source/robot_contact_assembly_tasks/robot_contact_assembly_tasks.egg-info/not-zip-safe
+[contact-smoke] source_manifest:  D source/robot_contact_assembly_tasks/robot_contact_assembly_tasks.egg-info/requires.txt
+[contact-smoke] source_manifest:  D source/robot_contact_assembly_tasks/robot_contact_assembly_tasks.egg-info/top_level.txt
+[contact-smoke] source_manifest:  M source/robot_contact_assembly_tasks/robot_contact_assembly_tasks/tasks/manager_based/manipulation/peg_in_hole/assets.py
+[contact-smoke] source_manifest:  M source/robot_contact_assembly_tasks/robot_contact_assembly_tasks/tasks/manager_based/manipulation/peg_in_hole/config/franka/ik_rel_env_cfg.py
+[contact-smoke] source_manifest:  M source/robot_contact_assembly_tasks/robot_contact_assembly_tasks/tasks/manager_based/manipulation/peg_in_hole/constants.py
+[contact-smoke] source_manifest:  M source/robot_contact_assembly_tasks/robot_contact_assembly_tasks/tasks/manager_based/manipulation/peg_in_hole/mdp/events.py
+[contact-smoke] source_manifest:  M source/robot_contact_assembly_tasks/robot_contact_assembly_tasks/tasks/manager_based/manipulation/peg_in_hole/mdp/observations.py
+[contact-smoke] source_manifest:  M source/robot_contact_assembly_tasks/robot_contact_assembly_tasks/tasks/manager_based/manipulation/peg_in_hole/peg_in_hole_env_cfg.py
+[contact-smoke] source_manifest: ?? .sha256
+[contact-smoke] source_manifest: ?? "bash -s"
+[contact-smoke] source_manifest: ?? docs/brev_launchable_lifecycle_hold.md
+[contact-smoke] source_manifest: ?? docs/brev_support_followup_2026-06-20.md
+[contact-smoke] source_manifest: ?? docs/contact_smoke_failure_review_2026-06-20.md
+[contact-smoke] source_manifest: ?? docs/project_quality_audit_2026-06-18.md
+[contact-smoke] source_manifest: ?? scripts/archive_contact_smoke_log.sh
+[contact-smoke] source_manifest: ?? scripts/brev_paid_safety_status.sh
+[contact-smoke] source_manifest: ?? scripts/check_brev_lifecycle_hold_clearance.sh
+[contact-smoke] source_manifest: ?? scripts/check_brev_support_evidence.py
+[contact-smoke] source_manifest: ?? scripts/check_contact_physics_wiring.py
+[contact-smoke] source_manifest: ?? scripts/check_launchable_retry_readiness.sh
+[contact-smoke] source_manifest: ?? scripts/check_phase2_contact_gate.py
+[contact-smoke] source_manifest: ?? scripts/check_project_policy_compliance.py
+[contact-smoke] source_manifest: ?? scripts/check_project_structure.py
+[contact-smoke] source_manifest: ?? scripts/create_brev_lifecycle_incident_bundle.sh
+[contact-smoke] source_manifest: ?? scripts/launchable_post_contact_gate.sh
+[contact-smoke] source_manifest: ?? scripts/paid_compute_preflight.sh
+[contact-smoke] source_manifest: ?? scripts/prepare_contact_smoke_run.sh
+[contact-smoke] source_manifest: ?? scripts/project_status_report.py
+[contact-smoke] source_manifest: ?? scripts/pull_contact_smoke_log.sh
+[contact-smoke] source_manifest: ?? scripts/refresh_brev_login.sh
+[contact-smoke] source_manifest: ?? scripts/remote_operation_preflight.sh
+[contact-smoke] source_manifest: ?? scripts/run_local_quality_checks.sh
+[contact-smoke] source_manifest: ?? scripts/source_payload_fingerprint.py
+[contact-smoke] source_manifest: ?? scripts/test_local_gates.py
+[contact-smoke] source_manifest: git_status_short_end
+[contact-smoke] source_manifest_end
+[contact-smoke] installing task extension
+Obtaining file:///workspace/robot-contact-assembly/source/robot_contact_assembly_tasks
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Checking if build backend supports build_editable: started
+  Checking if build backend supports build_editable: finished with status 'done'
+  Getting requirements to build editable: started
+  Getting requirements to build editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Requirement already satisfied: psutil in /isaac-sim/extscache/omni.kit.pip_archive-0.0.0+69cbf6ad.lx64.cp311/pip_prebundle (from robot_contact_assembly_tasks==0.1.0) (5.9.8)
+Building wheels for collected packages: robot_contact_assembly_tasks
+  Building editable for robot_contact_assembly_tasks (pyproject.toml): started
+  Building editable for robot_contact_assembly_tasks (pyproject.toml): finished with status 'done'
+  Created wheel for robot_contact_assembly_tasks: filename=robot_contact_assembly_tasks-0.1.0-0.editable-py3-none-any.whl size=3186 sha256=8257e1bbdbd16e725675680de5b3fe1c5efe86e67cda68379dbafffce2177c13
+  Stored in directory: /tmp/pip-ephem-wheel-cache-58gmhiwq/wheels/20/02/ae/018e01618f8a018cbe9edf2576b6fd25ff1da17a6275c740f3
+Successfully built robot_contact_assembly_tasks
+Installing collected packages: robot_contact_assembly_tasks
+Successfully installed robot_contact_assembly_tasks-0.1.0
+
+[notice] A new release of pip is available: 24.3.1 -> 26.1.2
+[notice] To update, run: /isaac-sim/kit/python/bin/python3 -m pip install --upgrade pip
+[contact-smoke] task extension install completed
+cat: '/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor': No such file or directory
+[INFO][AppLauncher]: Using device: cuda:0
+[INFO][AppLauncher]: Loading experience file: /workspace/isaaclab/apps/isaaclab.python.headless.kit
+[INFO]: Parsing configuration from: robot_contact_assembly_tasks.tasks.manager_based.manipulation.peg_in_hole.config.franka.ik_rel_env_cfg:FrankaPegInHoleContactAbsEnvCfg_PLAY
+[INFO]: CONTACT-SMOKE reset-joints: deterministic (old_position_range=(0.97, 1.03), new_position_range=(1.0, 1.0), old_velocity_range=(0.0, 0.0), new_velocity_range=(0.0, 0.0))
+[INFO]: CONTACT-SMOKE peg-articulation-model exclude_from_articulation=False
+Setting seed: 42
+[INFO]: Base environment:
+	Environment device    : cuda:0
+	Environment seed      : 42
+	Physics step-size     : 0.016666666666666666
+	Rendering step-size   : 0.03333333333333333
+	Environment step-size : 0.03333333333333333
+[INFO]: Time taken for scene creation : 1.455269 seconds
+[INFO]: Scene manager:  <class InteractiveScene>
+	Number of environments: 2
+	Environment spacing   : 2.5
+	Source prim name      : /World/envs/env_0
+	Global prim paths     : []
+	Replicate physics     : True
+[INFO]: Starting the simulation. This may take a few seconds. Please wait...
+[INFO]: Time taken for simulation start : 0.881818 seconds
+[INFO] Command Manager:  <CommandManager> contains 1 active terms.
++------------------------------------------+
+|           Active Command Terms           |
++-------+-------------+--------------------+
+| Index | Name        |        Type        |
++-------+-------------+--------------------+
+|   0   | socket_pose | UniformPoseCommand |
++-------+-------------+--------------------+
+
+[INFO] Event Manager:  <EventManager> contains 1 active terms.
++-------------------------------------+
+| Active Event Terms in Mode: 'reset' |
++---------+---------------------------+
+|  Index  | Name                      |
++---------+---------------------------+
+|    0    | reset_robot_joints        |
++---------+---------------------------+
+
+[INFO] Recorder Manager:  <RecorderManager> contains 0 active terms.
++---------------------+
+| Active Recorder Terms |
++-----------+---------+
+|   Index   | Name    |
++-----------+---------+
++-----------+---------+
+
+[INFO] Action Manager:  <ActionManager> contains 1 active terms.
++-----------------------------------+
+|   Active Action Terms (shape: 7)  |
++--------+-------------+------------+
+| Index  | Name        |  Dimension |
++--------+-------------+------------+
+|   0    | arm_action  |          7 |
++--------+-------------+------------+
+
+[INFO] Observation Manager: <ObservationManager> contains 1 groups.
++------------------------------------------------------------+
+| Active Observation Terms in Group: 'policy' (shape: (43,)) |
++---------+----------------------------------------+---------+
+|  Index  | Name                                   |  Shape  |
++---------+----------------------------------------+---------+
+|    0    | joint_pos                              |   (9,)  |
+|    1    | joint_vel                              |   (9,)  |
+|    2    | socket_pose                            |   (7,)  |
+|    3    | tip_to_socket_position                 |   (3,)  |
+|    4    | tip_to_socket_orientation              |   (4,)  |
+|    5    | peg_contact_force_socket               |   (3,)  |
+|    6    | peg_contact_force_magnitude            |   (1,)  |
+|    7    | actions                                |   (7,)  |
++---------+----------------------------------------+---------+
+
+[INFO] Termination Manager:  <TerminationManager> contains 2 active terms.
++--------------------------------------+
+|       Active Termination Terms       |
++-------+-------------------+----------+
+| Index | Name              | Time Out |
++-------+-------------------+----------+
+|   0   | time_out          |   True   |
+|   1   | insertion_success |  False   |
++-------+-------------------+----------+
+
+[INFO] Reward Manager:  <RewardManager> contains 8 active terms.
++----------------------------------------------+
+|             Active Reward Terms              |
++-------+----------------------------+---------+
+| Index | Name                       |  Weight |
++-------+----------------------------+---------+
+|   0   | approach_pose              |     8.0 |
+|   1   | tip_position_tracking      |     2.0 |
+|   2   | tip_position_tracking_fine |     5.0 |
+|   3   | tip_orientation_tracking   |     2.0 |
+|   4   | insertion_progress         |     8.0 |
+|   5   | insertion_success          |    40.0 |
+|   6   | action_rate                | -0.0001 |
+|   7   | joint_vel                  | -0.0001 |
++-------+----------------------------+---------+
+
+[INFO] Curriculum Manager:  <CurriculumManager> contains 1 active terms.
++--------------------------+
+| Active Curriculum Terms  |
++---------+----------------+
+|  Index  | Name           |
++---------+----------------+
+|    0    | action_rate    |
++---------+----------------+
+
+[INFO]: Completed setting up the environment...
+[INFO]: Environment reset completed.
+[INFO]: CONTACT-SMOKE joint-diagnostic env=0: path=/World/envs/env_0/Peg/PegHandFixedJoint body0=['/World/envs/env_0/Robot/panda_hand'] body1=['/World/envs/env_0/Peg'] localPos0=(0, 0, 0.1434) localRot0=(0.91011643, 0, 0, 0.41435254) localPos1=(0, 0, 0) localRot1=(1, 0, 0, 0) excludeFromArticulation=False
+[INFO]: CONTACT-SMOKE joint-diagnostic env=1: path=/World/envs/env_1/Peg/PegHandFixedJoint body0=['/World/envs/env_1/Robot/panda_hand'] body1=['/World/envs/env_1/Peg'] localPos0=(0, 0, 0.1434) localRot0=(0.91011643, 0, 0, 0.41435254) localPos1=(0, 0, 0) localRot1=(1, 0, 0, 0) excludeFromArticulation=False
+[INFO]: CONTACT-SMOKE attach-diagnostic after-reset: peg_pose_source=robot-body:Peg err_m=[1.4913929646809265e-07, 1.076307967196044e-07] delta_xyz=[[-1.1920928955078125e-07, 6.170012056827545e-09, 8.940696716308594e-08], [-5.960464477539063e-08, 6.170012056827545e-09, 8.940696716308594e-08]] actual_root_from_hand_local=[[-2.918932295870036e-08, -7.450580596923828e-09, 0.1433998942375183], [1.5490513760596514e-08, -5.587935447692871e-09, 0.1433999240398407]] expected_root_from_hand_local=[0.0, 0.0, 0.14339999854564667] expected_peg_root=[[1.7419159412384033, 4.1443854570388794e-08, 0.35750484466552734], [-0.7580840587615967, 4.1443854570388794e-08, 0.35750484466552734]] hand_pos=[[1.639447569847107, 7.683411240577698e-08, 0.45782333612442017], [-0.8605524301528931, 7.683411240577698e-08, 0.45782333612442017]] peg_pos=[[1.7419158220291138, 4.761386662721634e-08, 0.3575049340724945], [-0.7580841183662415, 4.761386662721634e-08, 0.3575049340724945]]
+[INFO]: CONTACT-SMOKE contact-setup: local-guide (peg_pose_source=robot-body:Peg, socket_pos=[[1.7559983730316162, 3.80771254526735e-08, 0.2795220911502838], [-0.7440016269683838, 3.80771254526735e-08, 0.2795220911502838]], initial_lower_end=[[1.7704983949661255, 3.80771254526735e-08, 0.32952210307121277], [-0.7295016050338745, 3.80771254526735e-08, 0.32952210307121277]])
+[INFO]: CONTACT-SMOKE phase free-space-settle: begin (steps=50, collect_last=10)
+[INFO]: CONTACT-SMOKE phase free-space-settle: progress 1/50
+[INFO]: CONTACT-SMOKE phase free-space-settle: progress 50/50
+[INFO]: CONTACT-SMOKE phase free-space-settle: end
+[INFO]: CONTACT-SMOKE attach-diagnostic after-free-space-settle: peg_pose_source=robot-body:Peg err_m=[1.3075715799004684e-07, 1.2731557319511921e-07] delta_xyz=[[-1.1920928955078125e-07, -4.470348358154297e-08, 2.9802322387695312e-08], [-1.1920928955078125e-07, -4.470348358154297e-08, 0.0]] actual_root_from_hand_local=[[-2.421438694000244e-08, 9.313225746154785e-10, 0.1433999091386795], [-2.468004822731018e-08, 1.955777406692505e-08, 0.1433999240398407]] expected_root_from_hand_local=[0.0, 0.0, 0.14339999854564667] expected_peg_root=[[1.7052443027496338, 0.2037542313337326, 0.42294734716415405], [-0.7935965061187744, 0.20242205262184143, 0.4244474768638611]] hand_pos=[[1.5808287858963013, 0.1552099883556366, 0.4751757085323334], [-0.9183294773101807, 0.15434160828590393, 0.4763466715812683]] peg_pos=[[1.7052441835403442, 0.20375418663024902, 0.42294737696647644], [-0.793596625328064, 0.20242200791835785, 0.4244474768638611]]
+[INFO]: CONTACT-SMOKE attach: PASS (per-env hand-peg error [1.3075715799004684e-07, 1.2731557319511921e-07] m, tolerance 0.008)
+[INFO]: CONTACT-SMOKE free-space: PASS (mean wall force [0.0, 0.0] N over last 10 settle steps, max 0.05)
+[INFO]: CONTACT-SMOKE phase local-guide-reanchor: begin (steps=10, collect_last=10)
+[INFO]: CONTACT-SMOKE phase local-guide-reanchor: progress 1/10
+[INFO]: CONTACT-SMOKE phase local-guide-reanchor: progress 10/10
+[INFO]: CONTACT-SMOKE phase local-guide-reanchor: end
+[INFO]: CONTACT-SMOKE contact-setup: local-guide reanchored (peg_pose_source=robot-body:Peg, socket_pos=[[1.725142240524292, 0.21787258982658386, 0.35758543014526367], [-0.7735364437103271, 0.21632203459739685, 0.35909730195999146]], pre_hold_lower_end=[[1.7399486303329468, 0.21729512512683868, 0.40837880969047546], [-0.7588036060333252, 0.21583357453346252, 0.4099707007408142]], post_hold_lower_end=[[1.7396422624588013, 0.21787258982658386, 0.4075854420661926], [-0.7590364217758179, 0.21632203459739685, 0.4090973138809204]], hold_tip_target=[[1.6705398559570312, 0.19021329283714294, 0.43751591444015503], [-0.8283895254135132, 0.18901050090789795, 0.43892422318458557]])
+[INFO]: CONTACT-SMOKE free-space-reanchored: PASS (mean wall force [0.0, 0.0] N after local-guide reanchor, max 0.05)
+[INFO]: CONTACT-SMOKE phase press-hold: begin (steps=220, collect_last=30)
+[INFO]: CONTACT-SMOKE press-control: local-wall-sweep (start_socket_pos=[[1.725142240524292, 0.21787258982658386, 0.35758543014526367], [-0.7735364437103271, 0.21632203459739685, 0.35909730195999146]], target_socket_pos=[[1.725142240524292, 0.21787258982658386, 0.3975854516029358], [-0.7735364437103271, 0.21632203459739685, 0.3990973234176636]], wall_delta_z=[0.04000002145767212, 0.04000002145767212], held_tip_target=[[1.6702945232391357, 0.19076037406921387, 0.43683961033821106], [-0.8285574316978455, 0.18947935104370117, 0.4381881654262543]])
+[INFO]: CONTACT-SMOKE phase press-hold: progress 1/220 (wall_top_z=[0.3877672553062439, 0.3892791271209717], lower_end=[[1.739619493484497, 0.21788263320922852, 0.4075237214565277], [-0.7590578198432922, 0.21632705628871918, 0.4090328812599182]])
+[INFO]: CONTACT-SMOKE phase press-hold: progress 50/220 (wall_top_z=[0.39667633175849915, 0.39818820357322693], lower_end=[[1.7395092248916626, 0.2178938388824463, 0.4071659743785858], [-0.7591776251792908, 0.21636472642421722, 0.4086778163909912]])
+[INFO]: CONTACT-SMOKE phase press-hold: progress 100/220 (wall_top_z=[0.4057672619819641, 0.4072791337966919], lower_end=[[1.7413523197174072, 0.21739880740642548, 0.4151301681995392], [-0.7578842043876648, 0.2166210114955902, 0.41665399074554443]])
+[INFO]: CONTACT-SMOKE phase press-hold: progress 150/220 (wall_top_z=[0.4148581624031067, 0.4163700342178345], lower_end=[[1.7422983646392822, 0.21816928684711456, 0.424299418926239], [-0.7581791877746582, 0.21893487870693207, 0.4258199632167816]])
+[INFO]: CONTACT-SMOKE phase press-hold: progress 200/220 (wall_top_z=[0.42394909262657166, 0.42546096444129944], lower_end=[[1.7406013011932373, 0.2220931351184845, 0.43347397446632385], [-0.7601652145385742, 0.2231999635696411, 0.43480047583580017]])
+[INFO]: CONTACT-SMOKE phase press-hold: progress 220/220 (wall_top_z=[0.4275854527950287, 0.42909732460975647], lower_end=[[1.7398526668548584, 0.22359177470207214, 0.4370571970939636], [-0.7611307501792908, 0.22499793767929077, 0.4379357695579529]])
+[INFO]: CONTACT-SMOKE phase press-hold: end
+[INFO]: CONTACT-SMOKE press-control: final (final_socket_pos=[[1.725142240524292, 0.21787258982658386, 0.3975854516029358], [-0.7735364437103271, 0.21632203459739685, 0.3990973234176636]], final_wall_top_z=[0.4275854527950287, 0.42909732460975647], final_lower_end=[[1.7398526668548584, 0.22359177470207214, 0.4370571970939636], [-0.7611307501792908, 0.22499793767929077, 0.4379357695579529]])
+[INFO]: CONTACT-SMOKE press-force: PASS (mean wall force [29.153621673583984, 37.27742004394531] N over last 30 press steps, min 0.5)
+[INFO]: CONTACT-SMOKE press peg pose source robot-body:Peg
+[INFO]: CONTACT-SMOKE press-tracking: PASS (lower-end lateral error [0.005723054055124521, 0.008925105445086956] m to wall target, tolerance 0.015)
+[INFO]: CONTACT-SMOKE press-blocked: PASS (lower_end_z - wall_top_z [0.009471744298934937, 0.008838444948196411] m vs expected peg radius 0.01 m, error [-0.0005282554775476456, -0.001161554828286171] m, tolerance 0.008)
+[INFO]: CONTACT-SMOKE press-no-clip: PASS (lower-end wall penetration [0.0, 0.0] m, tolerance 0.008)
+[INFO]: CONTACT-SMOKE press lateral slip [0.005723054055124521, 0.008925105445086956] m (informational)
+[INFO]: CONTACT-SMOKE phase retreat-hold: begin (steps=80, collect_last=10)
+[INFO]: CONTACT-SMOKE retreat-control: local-wall-sweep (start_socket_pos=[[1.725142240524292, 0.21787258982658386, 0.3975854516029358], [-0.7735364437103271, 0.21632203459739685, 0.3990973234176636]], target_socket_pos=[[1.725142240524292, 0.21787258982658386, 0.35758545994758606], [-0.7735364437103271, 0.21632203459739685, 0.35909733176231384]], wall_delta_z=[-0.03999999165534973, -0.03999999165534973], held_tip_target=[[1.6692471504211426, 0.19366499781608582, 0.4598439037799835], [-0.831676721572876, 0.19469814002513885, 0.46041178703308105]])
+[INFO]: CONTACT-SMOKE phase retreat-hold: progress 1/80 (wall_top_z=[0.4270854592323303, 0.4285973310470581], lower_end=[[1.7398391962051392, 0.22362253069877625, 0.43679001927375793], [-0.7610827088356018, 0.22489342093467712, 0.43759089708328247]])
+[INFO]: CONTACT-SMOKE phase retreat-hold: progress 50/80 (wall_top_z=[0.4025854468345642, 0.404097318649292], lower_end=[[1.7397757768630981, 0.2236422896385193, 0.4365593194961548], [-0.7611760497093201, 0.22503826022148132, 0.4373914897441864]])
+[INFO]: CONTACT-SMOKE phase retreat-hold: progress 80/80 (wall_top_z=[0.38758546113967896, 0.38909733295440674], lower_end=[[1.7398130893707275, 0.22356566786766052, 0.43656545877456665], [-0.7611465454101562, 0.22497887909412384, 0.43739795684814453]])
+[INFO]: CONTACT-SMOKE phase retreat-hold: end
+[INFO]: CONTACT-SMOKE retreat-control: final (final_socket_pos=[[1.725142240524292, 0.21787258982658386, 0.35758545994758606], [-0.7735364437103271, 0.21632203459739685, 0.35909733176231384]], final_wall_top_z=[0.38758546113967896, 0.38909733295440674], final_lower_end=[[1.7398130893707275, 0.22356566786766052, 0.43656545877456665], [-0.7611465454101562, 0.22497887909412384, 0.43739795684814453]])
+[INFO]: CONTACT-SMOKE release: PASS (mean wall force [0.0, 0.0] N after retreat, max 0.05)
+[INFO]: CONTACT-SMOKE attach-diagnostic after-retreat: peg_pose_source=robot-body:Peg err_m=[2.9802322387695312e-08, 8.429369557916289e-08] delta_xyz=[[0.0, -2.9802322387695312e-08, 0.0], [-5.960464477539063e-08, 0.0, 5.960464477539063e-08]] actual_root_from_hand_local=[[3.259629011154175e-09, 1.1175870895385742e-08, 0.14339995384216309], [8.498318493366241e-09, -3.725290298461914e-08, 0.14339987933635712]] expected_root_from_hand_local=[0.0, 0.0, 0.14339999854564667] expected_peg_root=[[1.7045116424560547, 0.20861926674842834, 0.44798535108566284], [-0.7964171767234802, 0.2098461389541626, 0.4486663341522217]] hand_pos=[[1.5779560804367065, 0.1550363451242447, 0.48892566561698914], [-0.9228625893592834, 0.15559525787830353, 0.48906370997428894]] peg_pos=[[1.7045116424560547, 0.20861923694610596, 0.44798535108566284], [-0.796417236328125, 0.2098461389541626, 0.44866639375686646]]
+[INFO]: CONTACT-SMOKE joint-integrity: PASS (per-env hand-peg error [2.9802322387695312e-08, 8.429369557916289e-08] m after contact, tolerance 0.008)
+[INFO]: CONTACT-SMOKE phase-sequence: PASS (completed=['free-space-settle', 'local-guide-reanchor', 'press-hold', 'retreat-hold'])
+[INFO]: Contact physics smoke completed: all checks passed.
+[Info] [carb] Logging to file: /isaac-sim/kit/logs/Kit/Isaac-Sim/5.1/kit_20260620_130202.log
+2026-06-20T13:02:03Z [869ms] [Warning] [omni.usd_config.extension] Enable omni.materialx.libs extension to use MaterialX
+2026-06-20T13:02:03Z [1,374ms] [Warning] [omni.platforminfo.plugin] failed to open the default display.  Can't verify X Server version.
+2026-06-20T13:02:04Z [2,734ms] [Warning] [carb] Acquiring non optional plugin interface which is not listed as dependency: [omni::physx::IPhysxBenchmarks v1.0] (plugin: <default plugin>), by client: omni.physics.physx.plugin. Add it to CARB_PLUGIN_IMPL_DEPS() macro of a client.
+2026-06-20T13:02:05Z [2,827ms] [Warning] [omni.isaac.dynamic_control] omni.isaac.dynamic_control is deprecated as of Isaac Sim 4.5. No action is needed from end-users.
+2026-06-20T13:02:15Z [13,013ms] [Warning] [carb.cudainterop.plugin] CUDA_VISIBLE_DEVICES environment variable is set.
+2026-06-20T13:02:15Z [13,013ms] [Warning] [carb.cudainterop.plugin] Note CUDA device enumeration and Omniverse device enumeration are different.
+2026-06-20T13:02:15Z [13,013ms] [Warning] [carb.cudainterop.plugin] Setting CUDA_VISIBLE_DEVICES can lead to undesired behavior or crashes.
+
+|---------------------------------------------------------------------------------------------|
+| Driver Version: 580.167.08    | Graphics API: Vulkan
+|=============================================================================================|
+| GPU | Name                             | Active | LDA | GPU Memory | Vendor-ID | LUID       |
+|     |                                  |        |     |            | Device-ID | UUID       |
+|     |                                  |        |     |            | Bus-ID    |            |
+|---------------------------------------------------------------------------------------------|
+| 0   | NVIDIA L40S                      | Yes: 0 |     | 46068   MB | 10de      | 0          |
+|     |                                  |        |     |            | 26b9      | 528e3637.. |
+|     |                                  |        |     |            | 34        |            |
+|=============================================================================================|
+| OS: 24.04.2 LTS (Noble Numbat) ubuntu, Version: 24.04.2, Kernel: 6.8.0-1057-aws
+| Processor: AMD EPYC 7R13 Processor
+| Cores: 8 | Logical Cores: 16
+|---------------------------------------------------------------------------------------------|
+| Total Memory (MB): 127095 | Free Memory: 123007
+| Total Page/Swap (MB): 0 | Free Page/Swap: 0
+|---------------------------------------------------------------------------------------------|
+2026-06-20T13:02:27Z [25,357ms] [Warning] [gpu.foundation.plugin] ECC is enabled on physical device 0
+2026-06-20T13:02:27Z [25,358ms] [Warning] [gpu.foundation.plugin] PCIe link width current (8) and maximum (16) for device 0 don't match.
+2026-06-20T13:02:31Z [28,942ms] [Warning] [omni.physx.fabric.plugin] FabricManager::initializePointInstancer mismatched prototypes on point instancer: /Visuals/Command/body_pose.
+2026-06-20T13:02:31Z [28,942ms] [Warning] [omni.physx.fabric.plugin] FabricManager::initializePointInstancer mismatched prototypes on point instancer: /Visuals/Command/goal_pose.
+[contact-smoke] completed: contact physics is real
