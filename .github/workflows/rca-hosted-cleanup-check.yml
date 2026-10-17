@@ -6,7 +6,7 @@ on:
     inputs:
       mode:
         type: choice
-        options: [producer, cleanup]
+        options: [producer, cleanup, clock-check]
         default: producer
         required: true
       fault:
@@ -25,6 +25,41 @@ permissions:
   actions: write
 
 jobs:
+  clock-check:
+    if: inputs.mode == 'clock-check'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    steps:
+      - name: Validate existing clock module on the actual Linux kernel
+        run: |
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          for module in paid_run_os_clock paid_run_deadline seated_time_budget; do
+            curl --fail --silent --show-error --location --max-time 20 \
+              "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/$module.py" -o "$module.py"
+          done
+          PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY'
+          from dataclasses import asdict, replace
+          import json, pathlib, subprocess, sys
+          from paid_run_os_clock import sample_os_clock
+          from paid_run_deadline import Clock, Contract, elapsed
+          anchor = sample_os_clock()
+          assert anchor.boot_id == 'linux:' + pathlib.Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+          contract = Contract('inert-linux-clock', 'no-provider', 'no-resource', anchor)
+          for _ in range(2):
+              code = 'import json; from dataclasses import asdict; from paid_run_os_clock import sample_os_clock; print(json.dumps(asdict(sample_os_clock())))'
+              result = subprocess.run([sys.executable, '-B', '-c', code], capture_output=True, text=True, check=True, timeout=5)
+              now = Clock(**json.loads(result.stdout))
+              assert now.boot_id == anchor.boot_id and now.monotonic > anchor.monotonic
+              assert elapsed(contract, now) >= 0
+          for invalid in (replace(now, boot_id='other-boot'), replace(now, monotonic=anchor.monotonic-1)):
+              try: elapsed(contract, invalid)
+              except ValueError: pass
+              else: raise AssertionError('Changed boot or rollback was accepted')
+          print('ACTUAL_LINUX_KERNEL_CLOCK_PASS; two fresh PIDs; no reboot or paid authority')
+          PY
+
   producer:
     if: inputs.mode == 'producer'
     runs-on: ubuntu-24.04
