@@ -6,7 +6,7 @@ on:
     inputs:
       mode:
         type: choice
-        options: [producer, cleanup, clock-check]
+        options: [producer, cleanup, clock-check, integration-check, instance-cleanup]
         default: producer
         required: true
       fault:
@@ -25,6 +25,67 @@ permissions:
   actions: write
 
 jobs:
+  integration-check:
+    if: inputs.mode == 'integration-check'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Test changed production wiring without Brev or credentials
+        run: |
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p test_paid_run_hosted.py -v
+
+  instance-cleanup:
+    if: inputs.mode == 'instance-cleanup'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 48
+    permissions:
+      contents: read
+      statuses: write
+      actions: read
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GH_TOKEN: ${{ github.token }}
+      BREV_API_KEY: ${{ secrets.RCA_BREV_RUN_KEY }}
+      RCA_BREV_CLI: /home/runner/.local/bin/brev
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Install the pinned CLI, without creating any instance
+        run: |
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test -n "$BREV_API_KEY"
+          curl --fail --silent --show-error --location --max-time 30 \
+            https://github.com/brevdev/brev-cli/releases/download/v0.6.335/brev-cli_0.6.335_linux_amd64.tar.gz -o "$RUNNER_TEMP/brev.tgz"
+          printf '%s  %s\n' 89d778e6f1e5e52495f3e0f10393f1666a1b16d180001b13faec6f906955e6f8 "$RUNNER_TEMP/brev.tgz" | sha256sum --check --status
+          mkdir -p "$HOME/.local/bin"
+          tar -xzf "$RUNNER_TEMP/brev.tgz" -C "$HOME/.local/bin" brev
+      - name: Independent exact-instance recovery owner
+        run: python3 scripts/paid_run_hosted.py watch
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        id: recovered
+        if: always()
+        timeout-minutes: 1
+        with:
+          name: rca-private-${{ github.run_id }}
+          path: sealed-evidence/recovered.cms
+          if-no-files-found: error
+          retention-days: 1
+      - name: Delete exact bound instance once, after durable encrypted recovery
+        if: always()
+        env:
+          RCA_RECOVERED_ARTIFACT_ID: ${{ steps.recovered.outputs.artifact-id }}
+        run: python3 scripts/paid_run_hosted.py delete-uploaded
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: rca-cleanup-${{ github.run_id }}
+          path: sealed-evidence/cleanup.cms
+          if-no-files-found: error
+          retention-days: 1
+
   clock-check:
     if: inputs.mode == 'clock-check'
     runs-on: ubuntu-24.04
