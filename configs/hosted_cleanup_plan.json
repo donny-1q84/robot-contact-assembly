@@ -3,7 +3,7 @@
   "organization_id": "org-3BaYGdtoRGmgc77Z7NHHhPSD254",
   "budget_eur": 2,
   "ttl_seconds": 2700,
-  "target_name": "rca-seated-20261017-r60-7e3b49",
+  "target_name": "rca-seated-20261017-r61-f40a72",
   "instance_type": "g2-standard-32:nvidia-l4:1",
   "remote_root": "/home/ubuntu/projects/robot-contact-assembly",
   "validation_run_id": "39060382087",
