@@ -251,6 +251,21 @@ class HostedIntegrationTests(unittest.TestCase):
                      "scripts/recreate_brev_and_run_final_contact_servo_trace.sh"):
             self.assertIn(path, hosted.INTEGRATION_FILES)
 
+    def test_hosted_manifest_cannot_admit_dirty_bundle_rejected_by_runtime(self):
+        repo = self.root / "dirty-repo"
+        scripts = repo / "scripts"
+        scripts.mkdir(parents=True)
+        script = scripts / "prepare_contact_smoke_run.sh"
+        script.write_bytes((hosted.ROOT / "scripts/prepare_contact_smoke_run.sh").read_bytes())
+        subprocess.run(["git", "init", "-q", str(repo)], check=True, capture_output=True)
+        result = subprocess.run(["bash", str(script)], cwd=repo, capture_output=True, text=True,
+                                env={**os.environ, "RCA_CONTACT_SMOKE_REQUIRE_CLEAN": "1",
+                                     "RCA_HOSTED_PLAN_PREPARATION": "even-a-frozen-manifest"}, timeout=5)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("requires a clean frozen bundle", result.stderr)
+        self.assertNotIn("paid preflight", result.stderr)
+        self.assertNotIn("ModuleNotFoundError", result.stderr)
+
     def test_formal_lifecycle_waits_for_owner_before_real_wrapper(self):
         import run_success_variation_paid_lifecycle as lifecycle
         calls = []

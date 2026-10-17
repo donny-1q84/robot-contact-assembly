@@ -33,10 +33,11 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - name: Test changed production wiring without Brev or credentials
+      - name: Test changed clean-source admission without repeating unchanged cleanup tests
         run: |
           test "$GITHUB_RUN_ATTEMPT" = 1
-          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p test_paid_run_hosted.py -v
+          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=scripts python3 -m unittest -v test_paid_run_hosted.HostedIntegrationTests.test_hosted_manifest_cannot_admit_dirty_bundle_rejected_by_runtime
+          bash -n scripts/prepare_contact_smoke_run.sh
 
   instance-cleanup:
     if: inputs.mode == 'instance-cleanup'

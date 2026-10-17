@@ -20,18 +20,10 @@ BUNDLE_PATH="${RCA_CONTACT_SMOKE_BUNDLE_PATH:-${REPO_ROOT}/artifacts/launchable/
 cd "${REPO_ROOT}"
 
 if [[ "${RCA_CONTACT_SMOKE_REQUIRE_CLEAN:-0}" == "1" ]] && [[ -n "$(git status --porcelain)" ]]; then
-  # A hosted frozen source manifest checks actual bytes, including local changes.
-  # This only permits non-creating preparation; the create wrapper checks the
-  # independently running owner again before installing any cleanup trap.
-  python3 - <<'PY'
-import os, sys
-sys.dont_write_bytecode = True
-sys.path.insert(0, 'scripts')
-import paid_run_hosted as hosted
-plan, raw = hosted.plan_read()
-if os.environ.get('RCA_HOSTED_PLAN_PREPARATION') != hosted.sha(raw):
-    raise SystemExit('BLOCKED: dirty source without the exact hosted frozen manifest')
-PY
+  # Match seated_probe.source_readback: a hash-frozen dirty tree is not the
+  # clean bundle that the runtime accepts. Refuse before any cloud query.
+  echo "[contact-smoke-prepare] BLOCKED: seated runtime requires a clean frozen bundle; hosted hashes do not replace git_dirty=0" >&2
+  exit 2
 fi
 
 log() {
