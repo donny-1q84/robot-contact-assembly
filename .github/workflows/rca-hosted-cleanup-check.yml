@@ -1,0 +1,171 @@
+name: RCA hosted cleanup check
+run-name: RCA inert ${{ inputs.mode }} ${{ inputs.fault }} ${{ inputs.source_run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [producer, cleanup]
+        default: producer
+        required: true
+      fault:
+        type: choice
+        options: [group-kill, workflow-cancel]
+        default: group-kill
+        required: true
+      source_run_id:
+        description: Exact producer run for cleanup; ignored by producer
+        type: string
+        default: '0'
+        required: true
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  producer:
+    if: inputs.mode == 'producer'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Freeze disposable evidence, not a GPU target
+        env:
+          FAULT: ${{ inputs.fault }}
+        run: |
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          mkdir fixture
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, time
+          raw = b'RCA synthetic evidence only; no robot or cloud resource.\n'
+          pathlib.Path('fixture/raw.txt').write_bytes(raw)
+          contract = {'schema': 'rca-hosted-inert-v1', 'source_run_id': os.environ['GITHUB_RUN_ID'],
+                      'commit': os.environ['GITHUB_SHA'], 'fault': os.environ['FAULT'],
+                      'origin_utc': time.time(), 'deadline_utc': time.time() + 300,
+                      'raw_sha256': hashlib.sha256(raw).hexdigest(), 'paid': False}
+          pathlib.Path('fixture/contract.json').write_text(json.dumps(contract, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rca-inert-${{ github.run_id }}
+          path: fixture/
+          retention-days: 1
+          if-no-files-found: error
+      - name: Inert process group ready for interruption
+        env:
+          FAULT: ${{ inputs.fault }}
+        run: |
+          if [[ "$FAULT" == group-kill ]]; then
+            setsid bash -c 'sleep 90; kill -KILL -- -$$' &
+            wait "$!"
+          else
+            sleep 330
+            echo 'Expected workflow cancellation did not occur' >&2
+            exit 1
+          fi
+
+  cleanup:
+    if: inputs.mode == 'cleanup'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Check delegated Brev credential using read-only commands
+        env:
+          BREV_API_KEY: ${{ secrets.RCA_BREV_RUN_KEY }}
+        run: |
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test -n "$BREV_API_KEY"
+          curl --fail --silent --show-error --location --max-time 30 \
+            https://github.com/brevdev/brev-cli/releases/download/v0.6.335/brev-cli_0.6.335_linux_amd64.tar.gz -o brev.tgz
+          printf '%s  %s\n' 89d778e6f1e5e52495f3e0f10393f1666a1b16d180001b13faec6f906955e6f8 brev.tgz | sha256sum --check --status
+          tar -xzf brev.tgz brev
+          timeout 45 ./brev ls instances --json --all > "$RUNNER_TEMP/inventory.json"
+          python3 - <<'PY'
+          import json, os, pathlib
+          data = json.loads((pathlib.Path(os.environ['RUNNER_TEMP'])/'inventory.json').read_text())
+          assert isinstance(data, dict) and 'workspaces' in data
+          assert data['workspaces'] in (None, []), 'Expected empty account; no mutation attempted'
+          print('BREV_READ_ONLY_AUTH_PASS; zero visible instances; no Brev mutation')
+          PY
+      - name: Independent cleanup ready; preserve then delete exact disposable artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          EXPECTED_FAULT: ${{ inputs.fault }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, io, json, os, pathlib, time, urllib.request, zipfile
+          repo, source = os.environ['GITHUB_REPOSITORY'], os.environ['SOURCE_RUN_ID']
+          assert source.isdigit() and source != os.environ['GITHUB_RUN_ID']
+          base = 'https://api.github.com/repos/' + repo
+          def api(path, method='GET'):
+              req = urllib.request.Request(base + path, method=method, headers={
+                  'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                  'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'})
+              with urllib.request.urlopen(req, timeout=15) as response:
+                  body = response.read()
+                  return json.loads(body) if body else None
+          run = api('/actions/runs/' + source)
+          assert run['run_attempt'] == 1 and run['head_sha'] == os.environ['GITHUB_SHA']
+          assert run['event'] == 'workflow_dispatch' and run['path'] == '.github/workflows/rca-hosted-cleanup-check.yml'
+          artifacts = api('/actions/runs/' + source + '/artifacts')
+          assert artifacts['total_count'] == 1
+          artifact = artifacts['artifacts'][0]
+          assert artifact['name'] == 'rca-inert-' + source and not artifact['expired']
+          ident = str(artifact['id'])
+          # Do not send a GitHub token to the signed artifact download host.
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, *args, **kwargs): return None
+          request = urllib.request.Request(base + '/actions/artifacts/' + ident + '/zip', headers={
+              'Authorization': 'Bearer ' + os.environ['GH_TOKEN']})
+          try:
+              urllib.request.build_opener(NoRedirect).open(request, timeout=15)
+              raise RuntimeError('Expected artifact redirect')
+          except urllib.error.HTTPError as exc:
+              assert exc.code == 302
+              download = exc.headers['Location']
+          assert download.startswith('https://')
+          with urllib.request.urlopen(download, timeout=20) as response:
+              archive = response.read(65537)
+          assert len(archive) <= 65536
+          with zipfile.ZipFile(io.BytesIO(archive)) as z:
+              assert set(z.namelist()) == {'raw.txt', 'contract.json'}
+              raw, contract_bytes = z.read('raw.txt'), z.read('contract.json')
+          contract = json.loads(contract_bytes)
+          assert contract['schema'] == 'rca-hosted-inert-v1' and contract['paid'] is False
+          assert contract['source_run_id'] == source and contract['commit'] == run['head_sha']
+          assert contract['fault'] == os.environ['EXPECTED_FAULT']
+          assert hashlib.sha256(raw).hexdigest() == contract['raw_sha256']
+          assert 0 <= time.time() - contract['origin_utc'] < 240
+          assert 299 <= contract['deadline_utc'] - contract['origin_utc'] <= 301
+          out = pathlib.Path('recovered'); out.mkdir()
+          (out/'raw.txt').write_bytes(raw); (out/'contract.json').write_bytes(contract_bytes)
+          print('INDEPENDENT_CLEANUP_READY source=' + source, flush=True)
+          while run['status'] != 'completed' and time.time() < contract['deadline_utc']:
+              time.sleep(3)
+              run = api('/actions/runs/' + source)
+          expected = 'failure' if contract['fault'] == 'group-kill' else 'cancelled'
+          assert run['status'] == 'completed' and run['conclusion'] == expected
+          assert time.time() < contract['deadline_utc'], 'Original cleanup deadline exhausted'
+          receipt = {'source_run_id': source, 'cleanup_run_id': os.environ['GITHUB_RUN_ID'],
+                     'artifact_id': ident, 'original_deadline_utc': contract['deadline_utc'],
+                     'source_conclusion': run['conclusion'], 'raw_verified': True,
+                     'delete_intent_utc': time.time(), 'delete_calls': 1, 'paid': False}
+          (out/'receipt.json').write_text(json.dumps(receipt, sort_keys=True))
+          # Exactly one mutation; an uncertain result is never automatically replayed.
+          api('/actions/artifacts/' + ident, 'DELETE')
+          remaining = api('/actions/runs/' + source + '/artifacts')
+          assert remaining['total_count'] == 0
+          receipt.update(exact_target_absent=True, completed_utc=time.time())
+          assert receipt['completed_utc'] < receipt['original_deadline_utc']
+          (out/'receipt.json').write_text(json.dumps(receipt, sort_keys=True))
+          print('INERT_REMOTE_CLEANUP_PASS; not a Brev deletion or paid-start permit')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: rca-recovered-${{ github.run_id }}
+          path: recovered/
+          retention-days: 1
+          if-no-files-found: error
