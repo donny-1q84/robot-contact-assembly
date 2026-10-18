@@ -305,5 +305,93 @@ class HostedIntegrationTests(unittest.TestCase):
         self.assertNotIn("path: artifacts/", source)
 
 
+class CredentialWindowTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR"))
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        names = ("scripts/paid_run_hosted.py", "scripts/check_paid_supervision.py",
+                 "scripts/run_success_variation_paid_lifecycle.py",
+                 "scripts/recreate_brev_and_run_final_contact_servo_trace.sh")
+        for name in (*names, "configs/hosted_evidence_recipient.pem"):
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"synthetic source or public recipient fixture")
+        digest = hosted.sha((self.root / names[0]).read_bytes())
+        self.plan = {"schema": "rca-hosted-cleanup-v1", "organization_id": hosted.ORG,
+                     "budget_eur": 2, "ttl_seconds": 2700, "target_name": PLAN["target_name"],
+                     "remote_root": "/home/ubuntu/projects/robot-contact-assembly",
+                     "validation_run_id": "123", "credential_not_after_utc": 12500,
+                     "source_sha256": dict.fromkeys(names, digest), "runtime_sha256": "fixture-runtime",
+                     "recipient_certificate": "configs/hosted_evidence_recipient.pem", "recipient_sha256": digest}
+        self.raw = json.dumps(self.plan).encode()
+        (self.root / hosted.PLAN).write_bytes(self.raw)
+        self.origin = 9000
+        self.now = 11000
+        original = hosted.plan_read
+        self.stack = contextlib.ExitStack()
+        self.addCleanup(self.stack.close)
+        self.stack.enter_context(patch.object(hosted, "plan_read", side_effect=lambda **kw: original(self.root, **kw)))
+        self.stack.enter_context(patch.object(hosted.time, "time", side_effect=lambda: self.now))
+        self.stack.enter_context(patch("source_payload_fingerprint.source_payload_fingerprint", return_value="fixture-runtime"))
+        self.api = self.stack.enter_context(patch.object(hosted, "github", return_value={
+            "run_attempt": 1, "event": "workflow_dispatch", "path": hosted.WORKFLOW,
+            "display_title": "instance-cleanup", "status": "in_progress", "head_sha": "frozen"}))
+        self.stack.enter_context(patch.object(hosted, "published", return_value=self.raw))
+        self.stack.enter_context(patch.object(hosted, "status_read", side_effect=lambda *_: {
+            "state": "pending", "creator": {"login": "github-actions[bot]"},
+            "description": json.dumps({"origin": self.origin, "plan": hosted.sha(self.raw)})}))
+
+    def test_existing_owner_uses_original_window_not_another_3000_seconds(self):
+        plan, _, state = hosted.active_owner("123", allow_completed=True)
+        self.assertEqual(plan["credential_not_after_utc"], 12500)
+        self.assertEqual(state["origin"], 9000)
+
+    def test_new_session_still_requires_full_window(self):
+        with self.assertRaises(ValueError):
+            hosted.plan_read()
+        self.api.assert_not_called()
+
+    def test_finish_notifies_existing_owner_without_resetting_deadline(self):
+        run = dict(self.api.return_value)
+        self.api.side_effect = [run, run, {"status": "completed", "conclusion": "success"}]
+        def status(_commit, _run_id, phase):
+            if phase == "finish":
+                return None
+            if phase == "result":
+                return {"state": "success"}
+            return {"state": "pending", "creator": {"login": "github-actions[bot]"},
+                    "description": json.dumps({"origin": self.origin, "plan": hosted.sha(self.raw)})}
+        with patch.dict(os.environ, {"RCA_HOSTED_CLEANUP_RUN": "123"}), \
+                patch.object(hosted, "status_read", side_effect=status), \
+                patch.object(hosted, "status_write") as notify:
+            hosted.finish_owner()
+        notify.assert_called_once_with("frozen", "123", "finish", "requested by the formal lifecycle")
+        self.assertEqual((self.root / hosted.PLAN).read_bytes(), self.raw)
+
+    def test_existing_owner_rejects_expired_credential(self):
+        self.now = 12500
+        with self.assertRaises(ValueError):
+            hosted.active_owner("123")
+        self.api.assert_not_called()
+
+    def test_existing_owner_rejects_original_window_shortfall(self):
+        self.origin = 9500
+        with self.assertRaises(ValueError):
+            hosted.active_owner("123")
+
+    def test_existing_owner_still_checks_all_frozen_source(self):
+        (self.root / "scripts/check_paid_supervision.py").write_bytes(b"changed")
+        with self.assertRaisesRegex(ValueError, "frozen source changed"):
+            hosted.active_owner("123")
+        self.api.assert_not_called()
+
+    def test_existing_owner_still_checks_runtime(self):
+        with patch("source_payload_fingerprint.source_payload_fingerprint", return_value="changed"), \
+                self.assertRaisesRegex(ValueError, "physical runtime source changed"):
+            hosted.active_owner("123")
+        self.api.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

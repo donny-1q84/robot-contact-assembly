@@ -82,7 +82,7 @@ def published(path, commit):
     return base64.b64decode(data["content"], validate=False)
 
 
-def plan_read(root=ROOT, *, owner_only=False):
+def plan_read(root=ROOT, *, owner_only=False, fresh_session=True):
     raw = (root / PLAN).read_bytes()
     plan = json.loads(raw)
     if (plan["schema"] != "rca-hosted-cleanup-v1" or plan["organization_id"] != ORG
@@ -91,7 +91,7 @@ def plan_read(root=ROOT, *, owner_only=False):
             or plan["remote_root"] != "/home/ubuntu/projects/robot-contact-assembly"
             or not ID.fullmatch(plan["validation_run_id"])):
         raise ValueError("unreviewed hosted cleanup plan")
-    if not owner_only and time.time() + 3000 >= plan["credential_not_after_utc"]:
+    if not owner_only and time.time() + (3000 if fresh_session else 0) >= plan["credential_not_after_utc"]:
         raise ValueError("credential does not cover original run and cleanup")
     required = {"scripts/paid_run_hosted.py", "scripts/check_paid_supervision.py",
                 "scripts/run_success_variation_paid_lifecycle.py",
@@ -149,7 +149,7 @@ def status_read(commit, run_id, phase):
 def active_owner(run_id, *, allow_completed=False):
     if not str(run_id).isdigit():
         raise ValueError("exact cleanup workflow run ID required")
-    plan, raw = plan_read()
+    plan, raw = plan_read(fresh_session=False)
     run = github("/actions/runs/" + str(run_id))
     if (run["run_attempt"] != 1 or run["event"] != "workflow_dispatch" or run["path"] != WORKFLOW
             or "instance-cleanup" not in run["display_title"]
@@ -163,6 +163,9 @@ def active_owner(run_id, *, allow_completed=False):
     state = json.loads(ready["description"])
     if set(state) != {"origin", "plan"} or state["plan"] != sha(raw):
         raise ValueError("readiness is not bound to this plan")
+    # Continuation retains the original window; it must not require a fresh TTL.
+    if state["origin"] + 3000 >= plan["credential_not_after_utc"]:
+        raise ValueError("credential did not cover the original owner window")
     if not 0 <= time.time() - state["origin"] < 2700:
         raise ValueError("original deadline closed or clock uncertain")
     return plan, run, state
