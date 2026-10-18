@@ -59,6 +59,72 @@ class ProviderFixture(http.server.BaseHTTPRequestHandler):
         self.answer(202, ROW)
 
 
+class SeatedAdmissionTests(unittest.TestCase):
+    """Changed admission wiring only. No credential, provider or GPU access."""
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.config = self.root / "run.env"
+        self.config.write_text("\n".join((
+            "RCA_SUCCESS_VARIATION_ENV_NAME=rca-seated-repeat-12345678",
+            "RCA_SUCCESS_VARIATION_INSTANCE_TYPE=g2-standard-32:nvidia-l4:1",
+            "RCA_SUCCESS_VARIATION_WATCHDOG_MAX_MINUTES=45", "RCA_SUCCESS_VARIATION_MIN_DISK=500",
+            "RCA_PAID_ESTIMATED_EUR_PER_HOUR=2.5", "RCA_SUCCESS_VARIATION_REMOTE_ROOT=/home/ubuntu/projects/robot-contact-assembly",
+            "RCA_SUCCESS_VARIATION_COMPOSE_ROOT=/home/ubuntu/compose")))
+
+    def test_repeat_commands_keep_full_workload_cleanup_and_no_promotion(self):
+        import run_success_variation_paid_lifecycle as lifecycle
+        args = SimpleNamespace(stage="seated-repeatability", contact_suite="seated", config=self.config,
+                               manifest=self.root / "manifest.json", balance_eur=10, budget_eur=2)
+        commands = lifecycle._build_commands(args)
+        self.assertIn("RCA_FINAL_CONTACT_TRACE_TIMEOUT_SECONDS=1220", commands["run"])
+        self.assertIn("RCA_FINAL_CONTACT_WATCHDOG_MAX_MINUTES=45", commands["run"])
+        self.assertIn("RCA_SEATED_REPEATABILITY_TARGET=rca-seated-repeat-12345678", commands["preflight"])
+        self.assertNotIn("policy_readiness", commands)
+        self.assertNotIn("--promote-baseline", json.dumps(commands))
+        args.contact_suite = "wall"
+        with self.assertRaises(ValueError): lifecycle._build_commands(args)
+
+    def preparation(self, phase, checker=0, repeat=True):
+        import shutil
+        scripts = self.root / "scripts"; scripts.mkdir()
+        source = Path(__file__).with_name("prepare_contact_smoke_run.sh")
+        shutil.copy2(source, scripts / source.name)
+        (scripts / "check_phase2_contact_gate.py").write_text(f"raise SystemExit({phase})")
+        (scripts / "check_corrected_geometry_baseline.py").write_text(f"raise SystemExit({checker})")
+        (scripts / "paid_compute_preflight.sh").write_text("#!/bin/bash\nexit 0\n")
+        (scripts / "create_launchable_bundle.sh").write_text("#!/bin/bash\ntouch reached-bundle\n")
+        for name in ("paid_compute_preflight.sh", "create_launchable_bundle.sh"):
+            (scripts / name).chmod(0o755)
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(self.root), "add", "."], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(self.root), "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid",
+                        "commit", "-qm", "inert fixture"], check=True, capture_output=True)
+        env = {k: v for k, v in os.environ.items() if not k.startswith("RCA_")}
+        env.update(RCA_PAID_BUDGET_EUR="2", RCA_PAID_ESTIMATED_EUR_PER_HOUR="2.5",
+                   RCA_CONTACT_SMOKE_REQUIRE_CLEAN="1", RCA_CONTACT_SMOKE_TEST_SKIP_LOCAL_QUALITY="1")
+        if repeat:
+            env.update(RCA_SEATED_REPEATABILITY_MANIFEST="inert", RCA_SEATED_REPEATABILITY_TARGET="inert")
+        return subprocess.run(["bash", str(scripts / source.name)], env=env, capture_output=True, timeout=10)
+
+    def test_passed_wall_requires_verified_reference(self):
+        self.assertEqual(self.preparation(0, checker=2).returncode, 2)
+        self.assertFalse((self.root / "reached-bundle").exists())
+
+    def test_missing_wall_cannot_authorize_repetition(self):
+        self.assertEqual(self.preparation(2).returncode, 2)
+        self.assertFalse((self.root / "reached-bundle").exists())
+
+    def test_original_smoke_still_refuses_already_passed_wall(self):
+        self.assertEqual(self.preparation(0, repeat=False).returncode, 2)
+        self.assertFalse((self.root / "reached-bundle").exists())
+
+    def test_verified_pair_and_wall_reach_only_inert_bundle(self):
+        self.assertEqual(self.preparation(0).returncode, 0)
+        self.assertTrue((self.root / "reached-bundle").exists())
+
+
 class HostedIntegrationTests(unittest.TestCase):
     def setUp(self):
         parent = Path(os.environ.get("TMPDIR", tempfile.gettempdir()))

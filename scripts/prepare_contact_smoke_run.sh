@@ -71,13 +71,22 @@ printf '%s\n' "${phase_output}"
 
 case "${phase_status}" in
   0)
+    if [[ -n "${RCA_SEATED_REPEATABILITY_MANIFEST:-}" ]]; then
+      log "verifying the source-bound full reference pair and independent cleanup for ONE nominal repetition"
+      python3 "${SCRIPT_DIR}/check_corrected_geometry_baseline.py" "${RCA_SEATED_REPEATABILITY_MANIFEST}" \
+        --seated-nominal --admit-target "${RCA_SEATED_REPEATABILITY_TARGET:?exact repeat target required}"
+    else
     log "contact gate already passes; do not spend paid compute on another smoke"
     if [[ "${RCA_CONTACT_SMOKE_REQUIRE_CLEAN:-0}" == "1" ]]; then
       exit 2
     fi
     exit 0
+    fi
     ;;
   2)
+    if [[ -n "${RCA_SEATED_REPEATABILITY_MANIFEST:-}" ]]; then
+      fail "repeatability requires the current-source contact gate to pass; missing evidence is not permission"
+    fi
     log "contact gate is blocked as expected; one short contact-smoke run is the only allowed paid action"
     ;;
   *)

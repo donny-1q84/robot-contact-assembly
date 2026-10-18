@@ -33,10 +33,10 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - name: Test changed credential window and finish notification without GPU or provider secrets
+      - name: Test changed nominal repeat admission without GPU or provider secrets
         run: |
           test "$GITHUB_RUN_ATTEMPT" = 1
-          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=scripts python3 -m unittest -v test_paid_run_hosted.CredentialWindowTests
+          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=scripts python3 -m unittest -v test_paid_run_hosted.SeatedAdmissionTests
 
   instance-cleanup:
     if: inputs.mode == 'instance-cleanup'

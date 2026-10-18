@@ -82,7 +82,7 @@ def _run(label: str, args: list[str]) -> int:
 
 
 def _build_commands(args: argparse.Namespace) -> dict[str, list[str]]:
-    if getattr(args, "stage", None) == "contact-smoke":
+    if getattr(args, "stage", None) in ("contact-smoke", "seated-repeatability"):
         return _build_contact_smoke_commands(args)
     config = _resolve(args.config)
     manifest = _resolve(args.manifest)
@@ -232,6 +232,11 @@ def _build_contact_smoke_commands(args: argparse.Namespace) -> dict[str, list[st
         checker = ["python3", "scripts/finalize_seated_contact_smoke.py", str(log.parent.parent)]
         commands["finalize"] = [*checker, "--archive-wall"]
         commands["recovery"] = checker
+    if args.stage == "seated-repeatability":
+        if suite != "seated":
+            raise ValueError("repeatability requires the full seated pair")
+        commands["preflight"].insert(1, f"RCA_SEATED_REPEATABILITY_MANIFEST={_resolve(args.manifest)}")
+        commands["preflight"].insert(1, f"RCA_SEATED_REPEATABILITY_TARGET={name}")
     return commands
 
 
@@ -404,7 +409,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     credit_writer.add_currency_arguments(parser, required=False)
     parser.add_argument("--budget-eur", type=_positive_float, default=6.0)
-    parser.add_argument("--stage", choices=(*STAGES, "contact-smoke"), default="variation-batch")
+    parser.add_argument("--stage", choices=(*STAGES, "contact-smoke", "seated-repeatability"), default="variation-batch")
     parser.add_argument("--contact-suite", choices=("wall", "seated"), default="wall")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
@@ -420,7 +425,7 @@ def main() -> int:
         help="Required with --run because the lifecycle can create one paid Brev instance.",
     )
     args = parser.parse_args()
-    if args.contact_suite != "wall" and args.stage != "contact-smoke":
+    if args.contact_suite != "wall" and args.stage not in ("contact-smoke", "seated-repeatability"):
         parser.error("--contact-suite seated is only valid for --stage contact-smoke")
 
     try:
@@ -438,7 +443,7 @@ def main() -> int:
         blockers.append("pass --run only after checking the current Brev UI balance and budget")
     if args.balance_eur is None:
         blockers.append("pass --balance-usd with verified FX evidence, or --balance-eur only for an explicitly EUR-denominated UI balance")
-    if args.stage in ("baseline-validation", "contact-smoke") and "--budget-eur" not in sys.argv[1:] and not any(
+    if args.stage in ("baseline-validation", "contact-smoke", "seated-repeatability") and "--budget-eur" not in sys.argv[1:] and not any(
         value.startswith("--budget-eur=") for value in sys.argv[1:]
     ):
         blockers.append(f"{args.stage} requires an explicit --budget-eur; no inferred budget")
@@ -455,9 +460,14 @@ def main() -> int:
     if args.hosted_cleanup:
         try:
             import paid_run_hosted as hosted
-            if args.stage != "contact-smoke" or args.contact_suite != "seated" or args.budget_eur != 2:
+            if args.stage not in ("contact-smoke", "seated-repeatability") or args.contact_suite != "seated" or args.budget_eur != 2:
                 raise ValueError("hosted route is restricted to this EUR2 seated diagnostic")
             plan, _ = hosted.plan_read()
+            if args.stage == "seated-repeatability":
+                binding = {"manifest_sha256": hosted.sha(_resolve(args.manifest).read_bytes()),
+                           "target": plan["target_name"]}
+                if plan.get("seated_repeatability") != binding:
+                    raise ValueError("repeatability manifest is not bound to hosted plan")
             hosted.validate_integration(plan)
             if (_read_config_value(_resolve(args.config), "RCA_SUCCESS_VARIATION_ENV_NAME") != plan["target_name"]
                     or _read_config_value(_resolve(args.config), "RCA_SUCCESS_VARIATION_INSTANCE_TYPE") != plan["instance_type"]):
