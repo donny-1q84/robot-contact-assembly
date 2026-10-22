@@ -25,6 +25,7 @@ class ProviderFixture(http.server.BaseHTTPRequestHandler):
     rows = []
     calls = []
     deletion = "ok"
+    read_errors = {}
 
     def log_message(self, *_):
         pass
@@ -37,6 +38,13 @@ class ProviderFixture(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         type(self).calls.append(("GET", self.path))
+        attempt = sum(method == "GET" for method, _ in type(self).calls)
+        fault = type(self).read_errors.get(attempt)
+        if fault == "disconnect":
+            self.close_connection = True
+            return
+        if fault == "forbidden":
+            return self.answer(403, {"error": "synthetic denial"})
         if self.path != "/api/organizations/" + hosted.ORG + "/workspaces":
             return self.answer(404, {})
         self.answer(200, type(self).rows)
@@ -133,6 +141,7 @@ class HostedIntegrationTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         ProviderFixture.rows, ProviderFixture.calls, ProviderFixture.deletion = [dict(ROW)], [], "ok"
+        ProviderFixture.read_errors = {}
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ProviderFixture)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -176,6 +185,102 @@ class HostedIntegrationTests(unittest.TestCase):
         self.assertEqual(ProviderFixture.calls[-1][0], "GET")
         intent = json.loads((self.root / "delete-intent.json").read_text())
         self.assertEqual(intent["target"], self.target)
+
+    def test_transient_initial_inventory_disconnect_retries_only_get(self):
+        ProviderFixture.read_errors = {1: "disconnect"}
+        report = self.recover()
+        self.assertEqual(report["errors"], [])
+        self.assertEqual(report["inventory_read_failures"][0]["phase"], "before_pull")
+        self.assertEqual(len(report["inventory_read_failures"]), 1)
+        self.assertTrue(report["target_absent"])
+        self.assertEqual(self.deletes(), [("DELETE", "/api/workspaces/fixture-id")])
+
+    def test_transient_final_predelete_disconnect_rechecks_identity(self):
+        ProviderFixture.read_errors = {2: "disconnect"}
+        report = self.recover()
+        self.assertEqual(report["inventory_read_failures"][0]["phase"], "before_delete")
+        self.assertEqual(report["errors"], [])
+        self.assertEqual(len(self.deletes()), 1)
+        self.assertTrue(report["artifacts_recovered"])
+
+    def test_two_inventory_disconnects_fail_before_intent(self):
+        ProviderFixture.read_errors = {1: "disconnect", 2: "disconnect"}
+        with self.assertRaises(ConnectionError):
+            self.recover()
+        self.assertEqual(len(ProviderFixture.calls), 2)
+        self.assertEqual(self.deletes(), [])
+        self.assertFalse((self.root / "delete-intent.json").exists())
+
+    def test_inventory_auth_denial_does_not_retry(self):
+        ProviderFixture.read_errors = {1: "forbidden"}
+        with self.assertRaises(RuntimeError):
+            self.recover()
+        self.assertEqual(len(ProviderFixture.calls), 1)
+        self.assertFalse((self.root / "delete-intent.json").exists())
+
+    def test_inventory_retry_cannot_reset_deletion_reserve(self):
+        self.remaining = 40
+        def unavailable(timeout):
+            self.assertEqual(timeout, 5)
+            self.remaining = 34
+            raise hosted.urllib.error.URLError("synthetic transport failure")
+        with patch.object(self.provider, "inventory", side_effect=unavailable) as read:
+            with self.assertRaises(TimeoutError):
+                self.recover()
+        self.assertEqual(read.call_count, 1)
+        self.assertEqual(self.deletes(), [])
+
+    def test_inventory_retry_rejects_same_name_replacement(self):
+        with patch.object(self.provider, "inventory", side_effect=[
+                hosted.urllib.error.URLError("synthetic"), [dict(ROW, id="replacement")]]) as read:
+            with self.assertRaises(ValueError):
+                self.recover()
+        self.assertEqual(read.call_count, 2)
+        self.assertEqual(self.deletes(), [])
+        self.assertFalse((self.root / "delete-intent.json").exists())
+
+    def test_cleanup_exception_keeps_nonnull_zero_delete_receipt(self):
+        private = self.root / "rca-private"; private.mkdir()
+        contract = hosted.Contract("123", hosted.ORG, PLAN["target_name"], hosted.sample_os_clock())
+        hosted.write_private(private / "contract.json", contract.payload())
+        hosted.write_private(private / "target.json", self.target)
+        plan = dict(PLAN, recipient_certificate="fixture-cert.pem")
+        env = {"GITHUB_RUN_ATTEMPT": "1", "GITHUB_REPOSITORY": hosted.REPOSITORY,
+               "GITHUB_RUN_ID": "123", "GITHUB_SHA": "fixture", "RUNNER_TEMP": str(self.root),
+               "BREV_API_KEY": "bak-synthetic"}
+        with patch.dict(os.environ, env), patch.object(hosted, "plan_read", return_value=(plan, b"")), \
+                patch.object(hosted, "Provider", return_value=self.provider), \
+                patch.object(self.provider, "inventory", side_effect=hosted.urllib.error.URLError("synthetic")), \
+                patch.object(hosted.time, "sleep"), patch.object(hosted, "seal_evidence", return_value="digest"), \
+                patch.object(hosted, "status_write") as status:
+            self.assertEqual(hosted.delete_uploaded(), 2)
+        report = json.loads((private / "cleanup-report.json").read_text())
+        self.assertEqual(report["delete_calls"], 0)
+        self.assertFalse(report["delete_intent_exists"])
+        self.assertFalse(report["target_absent"])
+        self.assertEqual(report["errors"], ["cleanup exception:URLError"])
+        self.assertEqual(status.call_args.args[-1], "failure")
+
+    def test_cleanup_exception_after_intent_never_claims_zero_delete(self):
+        private = self.root / "rca-private"; private.mkdir()
+        contract = hosted.Contract("123", hosted.ORG, PLAN["target_name"], hosted.sample_os_clock())
+        hosted.write_private(private / "contract.json", contract.payload())
+        hosted.write_private(private / "target.json", self.target)
+        hosted.write_private(private / "delete-intent.json", {"target": self.target})
+        plan = dict(PLAN, recipient_certificate="fixture-cert.pem")
+        env = {"GITHUB_RUN_ATTEMPT": "1", "GITHUB_REPOSITORY": hosted.REPOSITORY,
+               "GITHUB_RUN_ID": "123", "GITHUB_SHA": "fixture", "RUNNER_TEMP": str(self.root),
+               "BREV_API_KEY": "bak-synthetic"}
+        with patch.dict(os.environ, env), patch.object(hosted, "plan_read", return_value=(plan, b"")), \
+                patch.object(hosted, "recover_exact", side_effect=TimeoutError("synthetic")), \
+                patch.object(hosted, "seal_evidence", return_value="digest"), patch.object(hosted, "status_write"):
+            self.assertEqual(hosted.delete_uploaded(), 2)
+        report = json.loads((private / "cleanup-report.json").read_text())
+        self.assertNotIn("delete_calls", report)
+        self.assertTrue(report["delete_intent_exists"])
+        self.assertTrue(report["delete_outcome_unknown"])
+        self.assertFalse(report["target_absent"])
+        self.assertEqual(self.deletes(), [])
 
     def test_eof_after_applied_delete_is_not_replayed_or_labelled_clean_success(self):
         ProviderFixture.deletion = "eof"

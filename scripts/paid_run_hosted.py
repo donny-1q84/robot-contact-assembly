@@ -202,8 +202,8 @@ class Provider:
             exc.close()
             raise RuntimeError(f"provider HTTP {status}; not retried") from None
 
-    def inventory(self):
-        rows = self.request("GET", "api/organizations/" + ORG + "/workspaces")
+    def inventory(self, timeout=15):
+        rows = self.request("GET", "api/organizations/" + ORG + "/workspaces", timeout)
         if rows is None:
             rows = []  # Official Go API serializes nil workspace slice as null.
         if not isinstance(rows, list):
@@ -235,8 +235,8 @@ def bind_target(plan, rows, bound=None):
             "instanceType": row["instanceType"]}
 
 
-def exact_present(provider, plan, target):
-    rows = provider.inventory()
+def exact_present(provider, plan, target, timeout=15):
+    rows = provider.inventory(timeout)
     bind_target(plan, rows, target)
     return any(r["id"] == target["id"] for r in rows), not rows
 
@@ -251,9 +251,24 @@ def write_private(path, value):
 def recover_exact(provider, plan, target, root, remaining, pull, *, pull_seconds=150, post_pull_reserve=90):
     """One owner, one mutation; an existing intent forbids every replay."""
     report = {"instance_id": target["id"], "artifacts_recovered": False,
-              "delete_calls": 0, "target_absent": False, "organization_empty": False, "errors": []}
+              "delete_calls": 0, "target_absent": False, "organization_empty": False,
+              "errors": [], "inventory_read_failures": []}
     intent = root / "delete-intent.json"
-    present, empty = exact_present(provider, plan, target)
+    def observe_before_delete(phase):
+        # Only transport-failed GETs may retry; never reset the contract clock.
+        for attempt in (1, 2):
+            seconds = min(15, remaining() - 35)
+            if seconds <= 0:
+                raise TimeoutError("insufficient inventory/deletion reserve")
+            try:
+                return exact_present(provider, plan, target, seconds)
+            except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+                report["inventory_read_failures"].append({"phase": phase, "attempt": attempt,
+                    "error": type(exc).__name__, "reason_type": type(getattr(exc, "reason", None)).__name__})
+                if attempt == 2:
+                    raise
+                time.sleep(min(1, max(0, remaining() - 35)))
+    present, empty = observe_before_delete("before_pull")
     if not present:
         return dict(report, target_absent=True, organization_empty=empty,
                     errors=["already absent; artifact recovery unverified"])
@@ -264,7 +279,7 @@ def recover_exact(provider, plan, target, root, remaining, pull, *, pull_seconds
         report["artifacts_recovered"] = True
     except Exception as exc:
         report["errors"].append("pullback:" + type(exc).__name__)
-    present, empty = exact_present(provider, plan, target)
+    present, empty = observe_before_delete("before_delete")
     if present:
         if intent.exists():
             report["errors"].append("prior delete intent; outcome unknown; no replay")
@@ -279,7 +294,7 @@ def recover_exact(provider, plan, target, root, remaining, pull, *, pull_seconds
                 report["errors"].append("delete outcome unknown:" + type(exc).__name__)
         while remaining() > 17:
             try:
-                present, empty = exact_present(provider, plan, target)
+                present, empty = exact_present(provider, plan, target, min(15, remaining() - 16))
             except Exception:
                 report["errors"].append("reconciliation query unavailable")
                 time.sleep(min(5, max(0, remaining() - 16)))
@@ -414,14 +429,23 @@ def delete_uploaded():
                 or artifact["name"] != "rca-private-" + contract.run_id
                 or artifact["expired"] or artifact["size_in_bytes"] <= 0):
             raise ValueError("wrong uploaded private artifact")
+    target_path = root / "target.json"
     try:
-        target_path = root / "target.json"
         if target_path.is_file():
             report = recover_exact(provider, plan, json.loads(target_path.read_text()), root, remaining, uploaded,
                                    pull_seconds=20, post_pull_reserve=35)
         else:
             report = {"artifacts_recovered": False, "target_absent": not provider.inventory(),
                       "errors": ["creation unknown; no exact target deletion"]}
+    except Exception as exc:
+        intent_exists = (root / "delete-intent.json").exists()
+        report = {"artifacts_recovered": False, "target_absent": False, "organization_empty": False,
+                  "delete_intent_exists": intent_exists, "delete_outcome_unknown": intent_exists,
+                  "errors": ["cleanup exception:" + type(exc).__name__],
+                  "reason_type": type(getattr(exc, "reason", None)).__name__}
+        # No intent is definitive for this process; intent is not proof of dispatch.
+        if not intent_exists:
+            report["delete_calls"] = 0
     finally:
         write_private(root / "cleanup-report.json", report)
         output = ROOT / "sealed-evidence" / "cleanup.cms"
