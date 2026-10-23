@@ -377,9 +377,11 @@ PY
 )"
 PREPARATION_DEADLINE=$((SECONDS + HOSTED_PREPARATION_REMAINING))
 # Keep CLI spec input inside the bounded child, not the supervisor's Python stdin.
+# VM mode otherwise installs Jupyter by default; this headless path never uses it.
 run_preparation create env CREATE_SPEC="${CREATE_SPEC}" bash -c 'exec "$@" <<<"${CREATE_SPEC}"' _ \
   "${BREV_BIN}" create "${ENV_NAME}" \
   --count 1 --parallel 1 \
+  --jupyter=false \
   --stoppable \
   --timeout "${CREATE_TIMEOUT}"
 

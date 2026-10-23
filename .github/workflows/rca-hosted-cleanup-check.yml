@@ -33,24 +33,29 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - name: Test changed cleanup reads without GPU or provider secrets
+      - name: Bind retained cleanup verification and test changed startup only
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           test "$GITHUB_RUN_ATTEMPT" = 1
+          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=scripts python3 - <<'PY'
+          import hashlib, pathlib
+          import paid_run_hosted as hosted
+          run = hosted.github('/actions/runs/39848596409')
+          assert run['status'] == 'completed' and run['conclusion'] == 'success'
+          assert run['run_attempt'] == 1 and run['event'] == 'workflow_dispatch'
+          assert run['head_sha'] == '01b0228c084b2e287964b06b9831d14f78813b08'
+          assert run['path'] == hosted.WORKFLOW and 'integration-check' in run['display_title']
+          changed = {hosted.WORKFLOW, 'scripts/recreate_brev_and_run_final_contact_servo_trace.sh'}
+          for name in hosted.INTEGRATION_FILES:
+              if name not in changed:
+                  assert hashlib.sha256(hosted.published(name, run['head_sha'])).digest() == hashlib.sha256(pathlib.Path(name).read_bytes()).digest(), name
+          print('Retained 14 cleanup checks: exact unchanged source verified; not rerun')
+          PY
           PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=scripts python3 -m unittest -v \
-            test_paid_run_hosted.HostedIntegrationTests.test_transient_initial_inventory_disconnect_retries_only_get \
-            test_paid_run_hosted.HostedIntegrationTests.test_transient_final_predelete_disconnect_rechecks_identity \
-            test_paid_run_hosted.HostedIntegrationTests.test_two_inventory_disconnects_fail_before_intent \
-            test_paid_run_hosted.HostedIntegrationTests.test_inventory_auth_denial_does_not_retry \
-            test_paid_run_hosted.HostedIntegrationTests.test_inventory_retry_cannot_reset_deletion_reserve \
-            test_paid_run_hosted.HostedIntegrationTests.test_inventory_retry_rejects_same_name_replacement \
-            test_paid_run_hosted.HostedIntegrationTests.test_cleanup_exception_keeps_nonnull_zero_delete_receipt \
-            test_paid_run_hosted.HostedIntegrationTests.test_cleanup_exception_after_intent_never_claims_zero_delete \
-            test_paid_run_hosted.HostedIntegrationTests.test_real_http_pull_then_exact_delete_and_independent_inventory \
-            test_paid_run_hosted.HostedIntegrationTests.test_eof_after_applied_delete_is_not_replayed_or_labelled_clean_success \
-            test_paid_run_hosted.HostedIntegrationTests.test_403_and_redirect_never_replay_delete \
-            test_paid_run_hosted.HostedIntegrationTests.test_persisted_intent_refuses_retry_in_new_recovery \
-            test_paid_run_hosted.HostedIntegrationTests.test_uploaded_stage_can_use_remaining_deletion_reserve_without_repull \
-            test_paid_run_hosted.HostedIntegrationTests.test_deadline_has_no_fresh_retry_window
+            test_brev_account_state.CleanupInventoryTests.test_headless_creation_disables_notebook_without_changing_scope_or_failure \
+            test_brev_account_state.CleanupInventoryTests.test_creation_spec_preserves_exact_type_and_disk \
+            test_brev_account_state.CleanupInventoryTests.test_creation_spec_rejects_fallback_and_invalid_disk
 
   instance-cleanup:
     if: inputs.mode == 'instance-cleanup'
