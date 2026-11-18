@@ -1,7 +1,7 @@
 {
   "budget_eur": 2,
   "credential_not_after_utc": 1795032000,
-  "instance_type": "g2-standard-32:nvidia-l4:1",
+  "instance_type": "g2-standard-16:nvidia-l4:1",
   "organization_id": "org-3BaYGdtoRGmgc77Z7NHHhPSD254",
   "recipient_certificate": "configs/hosted_evidence_recipient.pem",
   "recipient_sha256": "6217aadc14f7b0914327970f2f13ee0709c593e33aa40440c3b98ab026b0d760",
@@ -299,7 +299,7 @@
     "scripts/write_success_variation_run_packet.py": "2bded6c59204fb585db706f6c4f91e3f7d2f41e32f340d381a79738ba53eaeee",
     "scripts/zero_agent.py": "dea7268dff2bba0e10b2302e39e6d9890fef61703d60c8b511ea1b4fae80f50f"
   },
-  "target_name": "rca-seated-20261118-r78-rkluxb",
+  "target_name": "rca-seated-20261118-r78-g16-ubriqd",
   "ttl_seconds": 2700,
   "validation_run_id": "39924958196"
 }
