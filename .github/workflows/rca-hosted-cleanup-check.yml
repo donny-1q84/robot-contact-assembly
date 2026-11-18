@@ -53,7 +53,8 @@ jobs:
                   assert hashlib.sha256(hosted.published(name, run['head_sha'])).digest() == hashlib.sha256(pathlib.Path(name).read_bytes()).digest(), name
           print('Retained startup/cleanup sources matched')
           PY
-          PYTHONPATH=scripts python3 -B -m unittest -v test_paid_run_hosted.RecoveredUploadTests
+          PYTHONPATH=scripts python3 -B -m unittest -v \
+            test_paid_run_hosted.RecoveredUploadTests test_paid_run_hosted.WatchInventoryTests
           printf 'Synthetic artifact metadata test only; no production data.\n' > "$RUNNER_TEMP/upload-fixture.txt"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         id: fixture
