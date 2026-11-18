@@ -1,6 +1,6 @@
 {
   "budget_eur": 2,
-  "credential_not_after_utc": 1795032000,
+  "credential_not_after_utc": 1795042740,
   "instance_type": "g2-standard-16:nvidia-l4:1",
   "organization_id": "org-3BaYGdtoRGmgc77Z7NHHhPSD254",
   "recipient_certificate": "configs/hosted_evidence_recipient.pem",
@@ -9,7 +9,7 @@
   "runtime_sha256": "0993adf6daae27d1c4812489b02dbf43da17b4ade9cde3b5e31e3ec54790e25b",
   "schema": "rca-hosted-cleanup-v1",
   "source_sha256": {
-    ".github/workflows/rca-hosted-cleanup-check.yml": "547997c9a74b43530144b6b315f745a21f8eb2779ddcf36dde1711f05e657f5e",
+    ".github/workflows/rca-hosted-cleanup-check.yml": "9489c3f828aa5edc29edec68bcfe06f6ddd8a2efa10dc6de240db6617ab96ec3",
     "configs/isaac_runtime.lock.json": "f2177e440e10ae48f83d4583a66713bf07445afc47ad8c40c56ebf910776357a",
     "configs/isaac_runtime_constraints.txt": "2d0730a9e4e6c69354a81926e6aeb57ff114cb24ed40a39ac9bd84e4b9e8f774",
     "configs/seated_probe_execution.json": "48713972f37eca4f443c993f71eef6fa11c54d33b4c43fd5f32e19cb643092d1",
@@ -92,7 +92,7 @@
     "scripts/paid_compute_preflight.sh": "f8ce12a8741911864af21ce9aae5d76bfe0758b8f0b39c115134fefaac61af64",
     "scripts/paid_run_deadline.py": "50e774c42304c1146add2c45ea51e75a95faa368563b8996cc647b87ffc0949d",
     "scripts/paid_run_emergency.py": "2301c50f89b242a477ae1069f875102ef20d5e92899a686a1cdc6a846cbe958d",
-    "scripts/paid_run_hosted.py": "e7db86b55a8c55144de5be264ff910785d419c0040fe8110ae317c8857b74802",
+    "scripts/paid_run_hosted.py": "6ac63215b0f36f4e40977fea6d65b917aff5a0a2db67f8e36bef1f38bee441a3",
     "scripts/paid_run_journal.py": "8d448f2bce27e10f7600c040ac07d09685e4548e2ceadc35e30edf5e61d39835",
     "scripts/paid_run_os_clock.py": "0de439a7a9e0962f4eb04ead1c8f7f3da106f1b79f1aa7d6b29428869876fb0a",
     "scripts/paid_run_recovery.py": "e80a96b53a39ad22b6d7ee710c52105d037ad6c637f4d81224aadebdfdf48c90",
@@ -267,7 +267,7 @@
     "scripts/test_paid_currency_bridge.py": "d2b27ce844ea919ae1be6af344d790a855007674c96b39ca9c434f6341aeef6f",
     "scripts/test_paid_run_deadline.py": "2a5110075a357fec78505d9f5bc604467de3d875273da100ec41615487505c27",
     "scripts/test_paid_run_emergency.py": "50f371d92673bab68c05b219339dcf40c3ae74a2b87efaebd07b850a29f18236",
-    "scripts/test_paid_run_hosted.py": "12c97c7872afc5c4a67158e4f11aeaadcbeed042ba44fba6f4d38d8dac07b682",
+    "scripts/test_paid_run_hosted.py": "765951dab505e7a3fe3491897f853d0f143b5446b1c1fddda9fad3f9ed9647a4",
     "scripts/test_paid_run_journal.py": "c0e889fa815c3662ed705990a3d151a9b20a8213b142b0360e32c41ea73e2429",
     "scripts/test_paid_run_recovery.py": "9341dc5ffb9f732265f0bfe7c71f92f195250c36b677d7407af9320d31e2e5a6",
     "scripts/test_paid_run_retained_state.py": "81396b44339fcbc3377f68f8d9da553ac7dd0249e39ed00e6ec987896fafc8f7",
@@ -299,7 +299,7 @@
     "scripts/write_success_variation_run_packet.py": "2bded6c59204fb585db706f6c4f91e3f7d2f41e32f340d381a79738ba53eaeee",
     "scripts/zero_agent.py": "dea7268dff2bba0e10b2302e39e6d9890fef61703d60c8b511ea1b4fae80f50f"
   },
-  "target_name": "rca-seated-20261118-r78-ssh-eq5mqf",
+  "target_name": "rca-seated-20261118-r78-w-7ieerw",
   "ttl_seconds": 2700,
-  "validation_run_id": "44350468379"
+  "validation_run_id": "44394020320"
 }

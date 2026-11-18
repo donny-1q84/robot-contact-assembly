@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import ssl
 import subprocess
 import sys
 import tarfile
@@ -376,10 +377,29 @@ def watch():
     status_write(commit, run_id, "ready", json.dumps({"origin": contract.anchor.utc, "plan": sha(raw)}, separators=(",", ":")))
     target, access_checked, report = None, False, None
     cli = os.environ["RCA_BREV_CLI"]
+    watch_deadline = offsets()["cleanup_start"]
+    watch_read_failures = []
     def age():
         return elapsed(contract, sample_os_clock())
     def remaining():
         return max(0, offsets()["cleanup_end"] - age())
+    def watch_inventory():
+        for attempt in (1, 2):
+            seconds = min(15, watch_deadline - age())
+            if seconds <= 0:
+                raise TimeoutError("inventory watch deadline expired")
+            try:
+                return provider.inventory(seconds)
+            except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+                reason = getattr(exc, "reason", None)
+                if isinstance(exc, urllib.error.HTTPError) or isinstance(reason, ssl.SSLError):
+                    raise
+                watch_read_failures.append({"attempt": attempt, "error": type(exc).__name__,
+                                            "reason_type": type(reason).__name__})
+                if attempt == 2:
+                    raise
+                time.sleep(min(1, max(0, watch_deadline - age())))
+
     def pull(seconds):
         bounded([cli, "refresh"], min(30, seconds / 3))
         name = target["name"]
@@ -397,8 +417,8 @@ def watch():
             raise ValueError("no recovered raw files")
         write_private(root / "recovered-hashes.json", {str(p.relative_to(destination)): sha(p.read_bytes()) for p in files})
     try:
-        while age() < offsets()["cleanup_start"]:
-            rows = provider.inventory()
+        while age() < watch_deadline:
+            rows = watch_inventory()
             observed = bind_target(plan, rows, target)
             if observed and target is None:
                 target = observed
@@ -408,7 +428,8 @@ def watch():
                 break
             # Admission closes after 120s, but a submitted create may appear
             # later. Continue observation without resetting the original TTL.
-            if target and not access_checked and status_read(commit, run_id, "probe"):
+            if (target and not access_checked and status_read(commit, run_id, "probe")
+                    and age() < watch_deadline):
                 access_checked = True
                 bounded([cli, "refresh"], 30)
                 present, _ = exact_present(provider, plan, target)
@@ -421,7 +442,7 @@ def watch():
                     raise ValueError("independent target canary mismatch")
                 (root / "canary.txt").write_bytes(canary)
                 status_write(commit, run_id, "access", target["id"], "success")
-            time.sleep(5)
+            time.sleep(min(5, max(0, watch_deadline - age())))
     except Exception as exc:
         write_private(root / "watch-error.json", {"error": type(exc).__name__})
     finally:
@@ -437,6 +458,8 @@ def watch():
         except Exception as exc:
             report = {"artifacts_recovered": False, "error": type(exc).__name__}
         finally:
+            if watch_read_failures:
+                report["watch_inventory_read_failures"] = watch_read_failures
             write_private(root / "pullback-report.json", report)
             output = ROOT / "sealed-evidence"
             output.mkdir(exist_ok=False)

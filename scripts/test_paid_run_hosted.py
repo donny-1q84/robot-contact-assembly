@@ -133,6 +133,119 @@ class SeatedAdmissionTests(unittest.TestCase):
         self.assertTrue((self.root / "reached-bundle").exists())
 
 
+class WatchInventoryTests(unittest.TestCase):
+    """Run the real owner watch loop without cloud credentials or a GPU."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        self.age = 0
+        self.events = []
+
+    def watch(self, inventory_steps, *, probe_at=6, finish_at=11):
+        steps = iter(inventory_steps)
+        self.private = self.root / "rca-private"
+        plan = dict(PLAN, remote_root="/fixture", recipient_certificate="fixture-cert.pem")
+        env = {"GITHUB_REPOSITORY": hosted.REPOSITORY, "GITHUB_RUN_ATTEMPT": "1",
+               "GITHUB_RUN_ID": "123", "GITHUB_SHA": "fixture", "RUNNER_TEMP": str(self.root),
+               "BREV_API_KEY": "bak-fixture", "RCA_BREV_CLI": "fixture-cli"}
+
+        def inventory(timeout=15):
+            self.events.append(("GET", self.age, timeout))
+            step = next(steps, [ROW])
+            if isinstance(step, Exception):
+                raise step
+            return step
+
+        def signal_at(_commit, _run_id, phase):
+            return self.age >= {"probe": probe_at, "finish": finish_at}[phase]
+
+        def status(_commit, _run_id, phase, description, state="pending"):
+            self.events.append((phase, self.age, description, state))
+
+        def helper(command, _seconds):
+            self.events.append((command[0], self.age))
+            if command[0] == "ssh":
+                return (PLAN["target_name"] + "\n").encode()
+            if command[0] == "rsync":
+                Path(command[-1], "synthetic.json").write_text("{}")
+            return b""
+
+        def sleep(seconds):
+            self.age += seconds
+
+        clock = hosted.sample_os_clock()
+        with patch.dict(os.environ, env, clear=True), patch.object(hosted.sys, "platform", "linux"), \
+                patch.object(hosted, "ROOT", self.root), patch.object(hosted, "plan_read", return_value=(plan, b"")), \
+                patch.object(hosted, "Provider", return_value=SimpleNamespace(inventory=inventory)), \
+                patch.object(hosted, "sample_os_clock", return_value=clock), \
+                patch.object(hosted, "elapsed", side_effect=lambda *_: self.age), \
+                patch.object(hosted, "status_read", side_effect=signal_at), \
+                patch.object(hosted, "status_write", side_effect=status), \
+                patch.object(hosted, "bounded", side_effect=helper), \
+                patch.object(hosted, "seal_evidence", return_value="synthetic-ciphertext"), \
+                patch.object(hosted.time, "sleep", side_effect=sleep):
+            return hosted.watch()
+
+    def named(self, name):
+        return [e for e in self.events if e[0] == name]
+
+    def read_failures(self):
+        report = (self.private / "pullback-report.json").read_text()
+        self.assertNotIn("fixture-private-url", report)
+        return json.loads(report)["watch_inventory_read_failures"]
+
+    def test_single_inventory_disconnect_does_not_start_early_cleanup(self):
+        self.assertEqual(self.watch([[], [ROW], hosted.urllib.error.URLError("fixture-private-url")]), 0)
+        self.assertFalse((self.private / "watch-error.json").exists())
+        self.assertEqual(self.named("bound"), [("bound", 0, ROW["id"], "pending")])
+        self.assertEqual(self.named("access"), [("access", 6, ROW["id"], "success")])
+        self.assertEqual(self.named("rsync"), [("rsync", 11)])
+        self.assertEqual([e[1] for e in self.named("GET")][:4], [0, 0, 5, 6])
+        self.assertEqual(self.read_failures(), [{"attempt": 1, "error": "URLError", "reason_type": "str"}])
+
+    def test_second_disconnect_ends_watch_without_access(self):
+        self.assertEqual(self.watch([[], [ROW], ConnectionError("fixture-private-url"),
+                                     TimeoutError("fixture-private-url")]), 0)
+        self.assertFalse(self.named("access"))
+        self.assertEqual(self.named("rsync"), [("rsync", 6)])
+        self.assertEqual(json.loads((self.private / "watch-error.json").read_text()), {"error": "TimeoutError"})
+        self.assertEqual([f["attempt"] for f in self.read_failures()], [1, 2])
+
+    def test_auth_failure_is_not_retried(self):
+        self.assertEqual(self.watch([[], [ROW], RuntimeError("provider HTTP 403")]), 0)
+        self.assertFalse(self.named("access"))
+        self.assertEqual(self.named("rsync"), [("rsync", 5)])
+        self.assertEqual(json.loads((self.private / "watch-error.json").read_text()), {"error": "RuntimeError"})
+
+    def test_tls_verification_failure_is_not_retried(self):
+        error = hosted.urllib.error.URLError(hosted.ssl.SSLCertVerificationError("fixture-private-url"))
+        self.assertEqual(self.watch([[], [ROW], error]), 0)
+        self.assertFalse(self.named("access"))
+        self.assertEqual(self.named("rsync"), [("rsync", 5)])
+        self.assertEqual(json.loads((self.private / "watch-error.json").read_text()), {"error": "URLError"})
+
+    def test_retry_rejects_a_same_name_replacement(self):
+        replacement = [dict(ROW, id="replacement")]
+        self.assertEqual(self.watch([[], [ROW], hosted.urllib.error.URLError("fixture"), replacement, replacement]), 2)
+        self.assertFalse(self.named("access"))
+        self.assertFalse(self.named("rsync"))
+        self.assertEqual(json.loads((self.private / "target.json").read_text()), ROW)
+        self.assertEqual(json.loads((self.private / "watch-error.json").read_text()), {"error": "ValueError"})
+
+    def test_retry_does_not_cross_original_watch_deadline(self):
+        deadline = hosted.offsets()["cleanup_start"]
+        self.age = deadline - 5.5
+        self.assertEqual(self.watch([[], [ROW], hosted.urllib.error.URLError("fixture")],
+                                    probe_at=deadline, finish_at=deadline + 1), 0)
+        self.assertFalse(self.named("access"))
+        self.assertEqual(self.named("GET")[2], ("GET", deadline - .5, .5))
+        self.assertEqual(self.named("GET")[3][1], deadline)  # first cleanup read, not another watch read
+        self.assertEqual(self.named("rsync"), [("rsync", deadline)])
+        self.assertEqual(len(self.read_failures()), 1)
+
+
 class HostedIntegrationTests(unittest.TestCase):
     def setUp(self):
         parent = Path(os.environ.get("TMPDIR", tempfile.gettempdir()))
