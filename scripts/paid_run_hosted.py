@@ -45,7 +45,13 @@ def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def bounded(command, seconds, *, output=None, data=None):
+class ArtifactHTTPError(RuntimeError):
+    def __init__(self, status):
+        self.status = status
+        super().__init__(f"artifact metadata HTTP {status}")
+
+
+def bounded(command, seconds, *, output=None, data=None, artifact_http=False):
     """Own/reap the complete helper group; never print command output/secrets."""
     if not math.isfinite(seconds) or seconds <= 0:
         raise TimeoutError("no helper time remains")
@@ -55,6 +61,8 @@ def bounded(command, seconds, *, output=None, data=None):
     try:
         stdout, _ = process.communicate(input=data, timeout=seconds)
         if process.returncode:
+            if artifact_http and (match := re.match(rb"HTTP/\S+ ([1-5][0-9]{2})(?:\s|$)", stdout or b"")):
+                raise ArtifactHTTPError(int(match[1]))
             raise RuntimeError(f"helper exit {process.returncode}")
         return stdout
     finally:
@@ -73,6 +81,40 @@ def github(path, body=None, *, method=None):
         command += ["--method", method or "POST", "--input", "-"]
     result = bounded(command, 20, data=json.dumps(body).encode() if body is not None else None)
     return json.loads(result) if result.strip() else None
+
+
+def verify_recovered_upload(ident, run_id, seconds, attempts):
+    """Reconcile only this immutable upload ID, with no mutation or TTL extension."""
+    if not isinstance(ident, str) or not ident.isascii() or not ident.isdecimal():
+        raise ValueError("missing recovered artifact ID")
+    deadline = time.monotonic() + seconds
+    command = ["gh", "api", "--include", "repos/" + REPOSITORY + "/actions/artifacts/" + ident]
+    for attempt in range(3):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("artifact verification window expired")
+        try:
+            raw = bounded(command, min(5., remaining), artifact_http=True)
+        except (ArtifactHTTPError, subprocess.TimeoutExpired) as exc:
+            code = exc.status if isinstance(exc, ArtifactHTTPError) else None
+            attempts.append({"attempt": attempt+1, "http_status": code, "error": type(exc).__name__})
+            if attempt == 2 or (code is not None and code not in {404, 429, 500, 502, 503, 504}):
+                raise
+            time.sleep(min(.5, max(0., deadline-time.monotonic())))
+            continue
+        except RuntimeError:
+            attempts.append({"attempt": attempt+1, "error": "GitHubCLI"})
+            raise
+        headers, separator, body = raw.replace(b"\r\n", b"\n").partition(b"\n\n")
+        if not separator or not re.match(rb"HTTP/\S+ 200(?:\s|$)", headers):
+            raise ValueError("unexpected artifact metadata response")
+        attempts.append({"attempt": attempt+1, "http_status": 200})
+        artifact = json.loads(body)
+        if (artifact["id"] != int(ident) or artifact["workflow_run"]["id"] != int(run_id)
+                or artifact["name"] != "rca-private-" + run_id
+                or artifact["expired"] is not False or artifact["size_in_bytes"] <= 0):
+            raise ValueError("wrong uploaded private artifact")
+        return
 
 
 def published(path, commit):
@@ -417,18 +459,15 @@ def delete_uploaded():
         raise ValueError("original cleanup contract changed")
     provider = Provider(os.environ["BREV_API_KEY"])
     report = None
+    upload_checks = []
     def remaining():
         return max(0, offsets()["cleanup_end"] - elapsed(contract, sample_os_clock()))
-    def uploaded(_):
+    def uploaded(seconds):
         staged = json.loads((root / "pullback-report.json").read_text())
         ident = os.environ.get("RCA_RECOVERED_ARTIFACT_ID", "")
         if not staged["artifacts_recovered"] or not ident.isdigit():
             raise ValueError("private raw upload unconfirmed")
-        artifact = github("/actions/artifacts/" + ident)
-        if (artifact["workflow_run"]["id"] != int(contract.run_id)
-                or artifact["name"] != "rca-private-" + contract.run_id
-                or artifact["expired"] or artifact["size_in_bytes"] <= 0):
-            raise ValueError("wrong uploaded private artifact")
+        verify_recovered_upload(ident, contract.run_id, seconds, upload_checks)
     target_path = root / "target.json"
     try:
         if target_path.is_file():
@@ -447,6 +486,8 @@ def delete_uploaded():
         if not intent_exists:
             report["delete_calls"] = 0
     finally:
+        if report is not None and upload_checks:
+            report["upload_checks"] = upload_checks
         write_private(root / "cleanup-report.json", report)
         output = ROOT / "sealed-evidence" / "cleanup.cms"
         checksum = seal_evidence(root, ROOT / plan["recipient_certificate"], output)

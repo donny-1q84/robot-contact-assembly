@@ -564,5 +564,48 @@ class CredentialWindowTests(unittest.TestCase):
         self.api.assert_not_called()
 
 
+class RecoveredUploadTests(unittest.TestCase):
+    def reply(self, **change):
+        artifact = {"id": 44, "workflow_run": {"id": 123}, "name": "rca-private-123",
+                    "expired": False, "size_in_bytes": 500}
+        return b"HTTP/2.0 200 OK\r\nContent-Type: application/json\r\n\r\n" + json.dumps(artifact | change).encode()
+
+    def test_old_helper_hid_actual_http_status(self):
+        cmd = [sys.executable, "-c", "print('HTTP/2.0 404 Not Found'); raise SystemExit(1)"]
+        with self.assertRaisesRegex(RuntimeError, "^helper exit 1$"):
+            hosted.bounded(cmd, 3)
+        with self.assertRaises(hosted.ArtifactHTTPError) as report:
+            hosted.bounded(cmd, 3, artifact_http=True)
+        self.assertEqual(report.exception.status, 404)
+
+    def test_reconciles_transient_lookup_by_same_exact_id(self):
+        attempts = []
+        with patch.object(hosted, "bounded", side_effect=[hosted.ArtifactHTTPError(404), self.reply()]) as get, \
+                patch.object(hosted.time, "sleep"):
+            hosted.verify_recovered_upload("44", "123", 15, attempts)
+        self.assertEqual(attempts, [
+            {"attempt": 1, "http_status": 404, "error": "ArtifactHTTPError"},
+            {"attempt": 2, "http_status": 200}])
+        self.assertEqual(get.call_args_list[0].args[0], get.call_args_list[1].args[0])
+        self.assertTrue(get.call_args.args[0][-1].endswith("/actions/artifacts/44"))
+
+    def test_permission_failure_and_wrong_receipt_are_not_retried(self):
+        with patch.object(hosted, "bounded", side_effect=hosted.ArtifactHTTPError(403)) as get:
+            with self.assertRaises(hosted.ArtifactHTTPError):
+                hosted.verify_recovered_upload("44", "123", 15, [])
+            get.assert_called_once()
+        for change in ({"workflow_run": {"id": 99}}, {"id": 45}, {"size_in_bytes": 0}, {"expired": True}):
+            with patch.object(hosted, "bounded", return_value=self.reply(**change)) as get:
+                with self.assertRaisesRegex(ValueError, "wrong uploaded"):
+                    hosted.verify_recovered_upload("44", "123", 15, [])
+                get.assert_called_once()
+
+    def test_expired_verification_window_never_queries(self):
+        with patch.object(hosted.time, "monotonic", side_effect=[100, 120]), patch.object(hosted, "bounded") as get:
+            with self.assertRaises(TimeoutError):
+                hosted.verify_recovered_upload("44", "123", 15, [])
+            get.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
