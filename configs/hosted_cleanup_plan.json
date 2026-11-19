@@ -6,13 +6,13 @@
   "recipient_certificate": "configs/hosted_evidence_recipient.pem",
   "recipient_sha256": "6217aadc14f7b0914327970f2f13ee0709c593e33aa40440c3b98ab026b0d760",
   "remote_root": "/home/ubuntu/projects/robot-contact-assembly",
-  "runtime_sha256": "c6cf9a56032cd4f8dea7fdfa61a3523562317407fe59835822fcb8f84b5fcc19",
+  "runtime_sha256": "67a97991f4239e39bfd7b2ba5d6bd4938c06c409f5c137c923aea942770b8fa7",
   "schema": "rca-hosted-cleanup-v1",
   "source_sha256": {
     ".github/workflows/rca-hosted-cleanup-check.yml": "9489c3f828aa5edc29edec68bcfe06f6ddd8a2efa10dc6de240db6617ab96ec3",
     "configs/isaac_runtime.lock.json": "f2177e440e10ae48f83d4583a66713bf07445afc47ad8c40c56ebf910776357a",
     "configs/isaac_runtime_constraints.txt": "2d0730a9e4e6c69354a81926e6aeb57ff114cb24ed40a39ac9bd84e4b9e8f774",
-    "configs/seated_probe_execution.json": "4f557a0ea6264dc70e7057718aee65ed0800b01f913cc1afb6fcc43527f9d816",
+    "configs/seated_probe_execution.json": "59380144fb0242521bb4ef2dd4d925959f1a1861bfe9dd636e394f9bdfd08811",
     "configs/seated_variation_design.json": "20ad1c7646b27a11a0b64fa005ea4dc312ad083e2f963d3f492f7ecb19c2062d",
     "scripts/analyze_absik_probe_trace.py": "f5f8b7cea58824e79cc99953c5304c29a13b23a61570797b23fc6de4a0df5e05",
     "scripts/analyze_bc_eval_traces.py": "668d3ffa661f0737a30aec0e7dccf3b413e6ade75e8f0e4a54daef82c5708f63",
@@ -283,7 +283,7 @@
     "scripts/test_seated_runtime_cpu.py": "1a9b172c4b62f86f660873bf1ed395812ffbf71c92ccb45aa2650f59e5c24984",
     "scripts/test_seated_setup_cpu.py": "39f637fcbe178ae034aa18a9407c96127097c47b9b63bc595d01bafa612e2ec0",
     "scripts/test_seated_socket_task_contract.py": "4b4309f1c6995af2f13f7127dd30e1869b615739d4eb26e44bb2e31ae229684d",
-    "scripts/test_seated_world.py": "3088c6dbf645b4ecbb82253ae8340fa1d9077f39ad275a90adff086f9033c469",
+    "scripts/test_seated_world.py": "8728e1c7aa9ccb3f5396fe29eafc735cd0642f11c6d878a5b6bb771aad39bd48",
     "scripts/test_servo_tensor_parity.py": "6cd35c07952416d2fbf63e0a664e106809d442f42e180d8ebe68ffd25cec1eea",
     "scripts/test_supervisor_host_audit.py": "7cc8b202e793a7dc9c24b9e79e35344f3e535dee836279ae93e90ce66053e6e8",
     "scripts/test_tool_jacobian_frames.py": "567870b0ad0c61f9f5dcdf082c2689a02a1bfa8053cb07fe8fc8427cbf1f8594",
@@ -299,7 +299,7 @@
     "scripts/write_success_variation_run_packet.py": "2bded6c59204fb585db706f6c4f91e3f7d2f41e32f340d381a79738ba53eaeee",
     "scripts/zero_agent.py": "dea7268dff2bba0e10b2302e39e6d9890fef61703d60c8b511ea1b4fae80f50f"
   },
-  "target_name": "rca-seated-20261119-z1-riiej4",
+  "target_name": "rca-seated-20261119-xm1-pcwic5",
   "ttl_seconds": 2700,
   "validation_run_id": "44394020320"
 }
